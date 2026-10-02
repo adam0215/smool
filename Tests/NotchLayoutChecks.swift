@@ -14,7 +14,7 @@ struct NotchLayoutChecks {
         precondition(physical.simulatingIfAbsent(true) == physical, "Hardware must take precedence over simulation.")
 
         let macBook = NotchLayout(screenFrame: screenFrame, notch: physical)
-        precondition(macBook.expandedSize == CGSize(width: 440, height: 216))
+        precondition(macBook.expandedSize == CGSize(width: 480, height: 152))
         checkPlacement(macBook)
 
         let absent = ScreenNotch(topInset: 0, leftArea: nil, rightArea: nil)

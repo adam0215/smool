@@ -16,3 +16,7 @@ open .build/Build/Products/Debug/smool.app
 ```
 
 The app appears in the menu bar. Toggle the panel with ⌃⌥Space. Escape also closes it.
+
+The home view shows the current time, a Swedish date, and battery status. Open Spotify with ⌘1 or Codex with ⌘2, or choose a card with the arrow keys or Tab and press Return or Space. If an app is not installed, its website opens instead.
+
+The bundled Spotify and Codex logos are the SVG assets from the [home design in Figma](https://www.figma.com/design/G2aym3oehQkvnPmGcSge4L/Smool?node-id=2-386), using the monochrome artwork supplied in the design. The logo library is [SVGL](https://svgl.app/).

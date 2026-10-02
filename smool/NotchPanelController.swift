@@ -103,10 +103,28 @@ final class NotchPanelController: NSObject {
         panel.animationBehavior = .none
         panel.title = "smool"
 
-        let content = NSHostingView(rootView: NotchView(presentation: presentation))
+        let content = NSHostingView(rootView: NotchView(presentation: presentation) { [weak self] app in
+            self?.openApp(app)
+        })
         content.safeAreaRegions = []
         panel.contentView = content
         return panel
+    }
+
+    private func openApp(_ app: HomeApp) {
+        let workspace = NSWorkspace.shared
+        close()
+
+        guard let url = workspace.urlForApplication(withBundleIdentifier: app.bundleIdentifier) else {
+            workspace.open(app.webURL)
+            return
+        }
+
+        workspace.openApplication(at: url, configuration: .init()) { _, error in
+            if error != nil {
+                DispatchQueue.main.async { NSWorkspace.shared.open(app.webURL) }
+            }
+        }
     }
 
     private func installEventMonitors() {

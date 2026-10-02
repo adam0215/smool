@@ -11,6 +11,7 @@ struct NotchView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let presentation: NotchPresentation
+    let openApp: (HomeApp) -> Void
 
     private var size: CGSize {
         presentation.isExpanded ? presentation.layout.expandedSize : presentation.layout.collapsedSize
@@ -18,7 +19,7 @@ struct NotchView: View {
 
     private var shape: NotchShape {
         NotchShape(
-            shoulderRadius: presentation.isExpanded ? 14 : 4,
+            shoulderRadius: presentation.isExpanded ? 0 : 4,
             bottomRadius: presentation.isExpanded ? 64 : 8
         )
     }
@@ -47,19 +48,18 @@ struct NotchView: View {
                 content.frame(height: size.height, alignment: .top)
             }
             .overlay(alignment: .top) {
-                NotchHeader(layout: presentation.layout) {
-                    EmptyView()
-                } center: {
-                    Text("smool")
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.65))
-                } trailing: {
-                    EmptyView()
+                if presentation.isExpanded {
+                    TimelineView(.everyMinute) { context in
+                        NotchHomeView(
+                            layout: presentation.layout,
+                            date: context.date,
+                            battery: BatteryStatus.current(),
+                            openApp: openApp
+                        )
+                    }
+                    .frame(width: presentation.layout.expandedSize.width, height: presentation.layout.expandedSize.height)
+                    .transition(.opacity)
                 }
-                .frame(width: presentation.layout.expandedSize.width)
-                .opacity(presentation.isExpanded ? 1 : 0)
-                .accessibilityHidden(!presentation.isExpanded)
-                .allowsHitTesting(presentation.isExpanded)
             }
             .clipShape(shape)
             .shadow(color: .black.opacity(presentation.isExpanded ? 0.22 : 0), radius: 14, y: 8)
@@ -96,7 +96,7 @@ struct NotchShape: Shape {
             bottomLeadingRadius: corner,
             bottomTrailingRadius: corner,
             topTrailingRadius: 0,
-            style: .continuous
+            style: .circular
         ).path(in: CGRect(x: left, y: top, width: right - left, height: rect.height))
 
         path.move(to: CGPoint(x: rect.minX, y: top))
