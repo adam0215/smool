@@ -8,6 +8,8 @@ final class NotchPresentation {
 }
 
 struct NotchView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let presentation: NotchPresentation
 
     private var size: CGSize {
@@ -17,14 +19,33 @@ struct NotchView: View {
     private var shape: NotchShape {
         NotchShape(
             shoulderRadius: presentation.isExpanded ? 14 : 4,
-            bottomRadius: presentation.isExpanded ? 30 : 8
+            bottomRadius: presentation.isExpanded ? 64 : 8
         )
+    }
+
+    private var horizontalAnimation: Animation? {
+        guard !reduceMotion else { return nil }
+        return presentation.isExpanded
+            ? .spring(duration: 0.28, bounce: 0.20)
+            : .spring(duration: 0.32, bounce: 0.16).delay(0.03)
+    }
+
+    private var verticalAnimation: Animation? {
+        guard !reduceMotion else { return nil }
+        return presentation.isExpanded
+            ? .spring(duration: 0.40, bounce: 0.32).delay(0.025)
+            : .spring(duration: 0.26, bounce: 0.12)
     }
 
     var body: some View {
         shape
             .fill(.black)
-            .frame(width: size.width, height: size.height)
+            .animation(horizontalAnimation) { content in
+                content.frame(width: size.width)
+            }
+            .animation(verticalAnimation) { content in
+                content.frame(height: size.height, alignment: .top)
+            }
             .overlay(alignment: .top) {
                 NotchHeader(layout: presentation.layout) {
                     EmptyView()
@@ -52,8 +73,8 @@ struct NotchView: View {
 
 // Concave shoulders join the screen edge; the lower corners curve inward.
 struct NotchShape: Shape {
-    var shoulderRadius: CGFloat = 14
-    var bottomRadius: CGFloat = 30
+    var shoulderRadius: CGFloat
+    var bottomRadius: CGFloat
 
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(shoulderRadius, bottomRadius) }
