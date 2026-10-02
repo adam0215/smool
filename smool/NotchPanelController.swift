@@ -87,7 +87,7 @@ final class NotchPanelController: NSObject {
     private var animation: Animation {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             ? .linear(duration: 0.01)
-            : .spring(duration: 0.48, bounce: 0.12)
+            : .spring(duration: 0.32, bounce: 0.18)
     }
 
     private func makePanel() -> NotchPanel {
@@ -103,7 +103,7 @@ final class NotchPanelController: NSObject {
         panel.animationBehavior = .none
         panel.title = "smool"
 
-        let content = NSHostingView(rootView: NotchView(presentation: presentation) { [weak self] in self?.close() })
+        let content = NSHostingView(rootView: NotchView(presentation: presentation))
         content.safeAreaRegions = []
         panel.contentView = content
         return panel
