@@ -69,7 +69,7 @@ final class NotchPanelController: NSObject {
         } completion: { [weak self] in
             guard let self, self.transition == currentTransition else { return }
             self.panel?.orderOut(nil)
-            if self.presentation.layout.isDemo {
+            if self.presentation.layout.notch.isSimulated {
                 self.panel?.ignoresMouseEvents = true
                 self.panel?.orderFrontRegardless()
             }
@@ -149,7 +149,7 @@ final class NotchPanelController: NSObject {
 
         guard demoNotchEnabled, let screen = targetScreen else { return }
         presentation.layout = NotchLayout(screen: screen, demoNotch: true)
-        guard presentation.layout.isDemo else { return }
+        guard presentation.layout.notch.isSimulated else { return }
 
         let panel = panel ?? makePanel()
         self.panel = panel

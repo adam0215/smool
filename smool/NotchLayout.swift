@@ -1,44 +1,56 @@
 import AppKit
 
+/// Panel dimensions in points. Display coordinates are AppKit's bottom-up coordinates.
 struct NotchLayout {
-    // Reference preset for a 14-inch MacBook Pro at 1512 × 982 points.
-    static let demoNotchSize = CGSize(width: 185, height: 32)
-
     let screenFrame: CGRect
-    let notchSize: CGSize
-    let expandedSize: CGSize
-    let isDemo: Bool
+    let notch: ScreenNotch
 
-    init(screenFrame: CGRect, topInset: CGFloat, leftArea: CGRect? = nil, rightArea: CGRect? = nil, demoNotch: Bool = false) {
-        self.screenFrame = screenFrame
-        isDemo = demoNotch && topInset == 0
+    var headerSize: CGSize { notch.size ?? ScreenNotch.referenceSize }
 
-        let notchWidth: CGFloat
-        if topInset > 0, let leftArea, let rightArea {
-            notchWidth = max(0, rightArea.minX - leftArea.maxX)
-        } else {
-            notchWidth = 0
-        }
-
-        notchSize = isDemo ? Self.demoNotchSize : CGSize(width: notchWidth > 0 ? notchWidth : 140, height: topInset)
-        expandedSize = CGSize(
-            width: min(max(440, notchSize.width + 100), screenFrame.width - 40),
-            height: notchSize.height + 184
-        )
+    var collapsedSize: CGSize {
+        notch.size ?? CGSize(width: headerSize.width, height: 0)
     }
 
-    init(screen: NSScreen, demoNotch: Bool = false) {
-        self.init(
-            screenFrame: screen.frame,
-            topInset: screen.safeAreaInsets.top,
-            leftArea: screen.auxiliaryTopLeftArea,
-            rightArea: screen.auxiliaryTopRightArea,
-            demoNotch: demoNotch
+    var expandedSize: CGSize {
+        CGSize(
+            width: min(max(440, headerSize.width + 100), screenFrame.width - 40),
+            height: headerSize.height + 184
         )
     }
 
     var windowFrame: CGRect {
         let size = CGSize(width: expandedSize.width + 48, height: expandedSize.height + 48)
         return CGRect(x: screenFrame.midX - size.width / 2, y: screenFrame.maxY - size.height, width: size.width, height: size.height)
+    }
+
+    init(screenFrame: CGRect, notch: ScreenNotch = .none) {
+        self.screenFrame = screenFrame
+        self.notch = notch
+    }
+
+    @MainActor
+    init(screen: NSScreen, demoNotch: Bool = false) {
+        self.init(screenFrame: screen.frame, notch: ScreenNotch(screen: screen).simulatingIfAbsent(demoNotch))
+    }
+
+    func headerRegions(in width: CGFloat) -> NotchHeaderRegions {
+        NotchHeaderRegions(width: width, centerSize: headerSize)
+    }
+}
+
+/// Local top-down coordinates. Equal side regions keep the center fixed regardless of content.
+struct NotchHeaderRegions {
+    let leading: CGRect
+    let center: CGRect
+    let trailing: CGRect
+
+    init(width: CGFloat, centerSize: CGSize) {
+        let width = max(0, width)
+        let centerWidth = min(width, centerSize.width)
+        let sideWidth = (width - centerWidth) / 2
+
+        leading = CGRect(x: 0, y: 0, width: sideWidth, height: centerSize.height)
+        center = CGRect(x: sideWidth, y: 0, width: centerWidth, height: centerSize.height)
+        trailing = CGRect(x: center.maxX, y: 0, width: sideWidth, height: centerSize.height)
     }
 }

@@ -4,14 +4,14 @@ import SwiftUI
 @Observable
 final class NotchPresentation {
     var isExpanded = false
-    var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900), topInset: 0)
+    var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900))
 }
 
 struct NotchView: View {
     let presentation: NotchPresentation
 
     private var size: CGSize {
-        presentation.isExpanded ? presentation.layout.expandedSize : presentation.layout.notchSize
+        presentation.isExpanded ? presentation.layout.expandedSize : presentation.layout.collapsedSize
     }
 
     private var shape: NotchShape {
@@ -25,6 +25,21 @@ struct NotchView: View {
         shape
             .fill(.black)
             .frame(width: size.width, height: size.height)
+            .overlay(alignment: .top) {
+                NotchHeader(layout: presentation.layout) {
+                    EmptyView()
+                } center: {
+                    Text("smool")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.65))
+                } trailing: {
+                    EmptyView()
+                }
+                .frame(width: presentation.layout.expandedSize.width)
+                .opacity(presentation.isExpanded ? 1 : 0)
+                .accessibilityHidden(!presentation.isExpanded)
+                .allowsHitTesting(presentation.isExpanded)
+            }
             .clipShape(shape)
             .shadow(color: .black.opacity(presentation.isExpanded ? 0.22 : 0), radius: 14, y: 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
