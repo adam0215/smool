@@ -19,4 +19,6 @@ The app appears in the menu bar. Toggle the panel with ⌃⌥Space. Escape also 
 
 The home view shows the current time, a Swedish date, and battery status. Open Spotify with ⌘1 or Codex with ⌘2, or choose a card with the arrow keys or Tab and press Return or Space. If an app is not installed, its website opens instead.
 
+The glass cards and lettering catch a shared light that brightens as the panel opens. Focus or hover over Spotify for green light and Codex for dark purple. The Home button or ⌘0 returns to blue. Battery percentage uses the standard label color. The light stays below a black band at the screen edge, and the corner cards follow the panel's curve. Reduced Motion and Reduced Transparency settings are respected.
+
 The bundled Spotify and Codex logos are the SVG assets from the [home design in Figma](https://www.figma.com/design/G2aym3oehQkvnPmGcSge4L/Smool?node-id=2-386), using the monochrome artwork supplied in the design. The logo library is [SVGL](https://svgl.app/).

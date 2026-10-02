@@ -6,96 +6,154 @@ struct NotchHomeView: View {
     let battery: BatteryStatus?
     let openApp: (HomeApp) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private enum FocusTarget: Hashable {
         case home
         case app(HomeApp)
     }
 
     @FocusState private var focus: FocusTarget?
+    @State private var hoveredApp: HomeApp?
+    @State private var lightLevel = 0.0
+
+    private var activeApp: HomeApp? {
+        if let hoveredApp { return hoveredApp }
+        if case .app(let app) = focus { return app }
+        return nil
+    }
+
+    private var lightColor: Color { HomeGlow.color(for: activeApp) }
 
     var body: some View {
-        VStack(spacing: 8) {
-            NotchHeader(layout: layout) {
-                Image(systemName: "house.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 16)
-                    .background {
-                        Capsule().fill(.white.opacity(0.05)
-                            .shadow(.inner(color: .white.opacity(0.1), radius: 4, y: -3))
-                            .shadow(.inner(color: .black.opacity(0.25), radius: 3, y: 5)))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("Hem")
-                    .accessibilityAddTraits(.isSelected)
-            } center: {
-                EmptyView()
-            } trailing: {
-                Image(systemName: battery?.symbolName ?? "powerplug.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .accessibilityLabel(battery?.description ?? "Nätansluten")
-                    .help(battery?.description ?? "Nätansluten")
-            }
-            .padding(.horizontal, 4)
+        GlassEffectContainer(spacing: 0) {
+            VStack(spacing: 8) {
+                header
 
-            HStack(spacing: 8) {
-                appButton(.spotify)
-
-                VStack(spacing: 0) {
-                    Text(date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-                        .font(.system(size: 58, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.25))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .frame(height: 64)
-
-                    Text(date.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "sv_SE"))))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(height: 14)
+                HStack(spacing: 8) {
+                    appButton(.spotify)
+                    clock
+                    appButton(.codex)
                 }
-                .padding(8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background { HomeCardSurface() }
-                .accessibilityElement(children: .combine)
-
-                appButton(.codex)
+                .padding(.horizontal, NotchLayout.contentInset)
+                .padding(.bottom, NotchLayout.contentInset)
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 8)
         }
-        .background { HomeGlow() }
+        .background {
+            HomeGlow(
+                spotify: activeApp == .spotify ? 1 : 0,
+                codex: activeApp == .codex ? 1 : 0,
+                darkHeight: layout.headerSize.height + 16
+            )
+            .opacity(lightLevel)
+        }
+        .animation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.7), value: activeApp)
         .focusable()
         .focused($focus, equals: .home)
         .focusEffectDisabled()
         .onAppear { focus = .home }
+        .task {
+            withAnimation(reduceMotion ? .linear(duration: 0.12) : .easeOut(duration: 0.95).delay(0.08)) {
+                lightLevel = 1
+            }
+        }
         .onMoveCommand { direction in
             switch direction {
-            case .left: focus = .app(.spotify)
-            case .right: focus = .app(.codex)
+            case .left:
+                hoveredApp = nil
+                focus = .app(.spotify)
+            case .right:
+                hoveredApp = nil
+                focus = .app(.codex)
             default: break
             }
         }
     }
 
+    private var header: some View {
+        NotchHeader(layout: layout) {
+            Button {
+                hoveredApp = nil
+                focus = .home
+            } label: {
+                Image(systemName: "house.fill")
+                    .font(.system(size: 10))
+                    .modifier(GlassInk(tint: lightColor, illumination: lightLevel))
+                    .frame(width: 24, height: 16)
+                    .glassEffect(.clear.interactive(), in: .capsule)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("0", modifiers: .command)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel("Hem")
+            .accessibilityAddTraits(.isSelected)
+        } center: {
+            EmptyView()
+        } trailing: {
+            HStack(spacing: 2) {
+                if let battery {
+                    Text("\(battery.percentage)%")
+                        .font(.system(size: 8))
+                        .monospacedDigit()
+                }
+                Image(systemName: battery?.symbolName ?? "powerplug.fill")
+                    .font(.system(size: 10))
+            }
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(battery?.description ?? "Nätansluten")
+            .help(battery?.description ?? "Nätansluten")
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private var clock: some View {
+        VStack(spacing: 0) {
+            Text(date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+                .font(.system(size: 58, weight: .medium))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .modifier(GlassInk(tint: lightColor, illumination: lightLevel))
+                .frame(height: 64)
+
+            Text(date.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "sv_SE"))))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(height: 14)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(HomeCardGlass(shape: HomeCardShape(), tint: lightColor, illumination: lightLevel))
+        .accessibilityElement(children: .combine)
+    }
+
     private func appButton(_ app: HomeApp) -> some View {
-        Button {
+        let selected = activeApp == app
+        let shape = HomeCardShape(app: app)
+
+        return Button {
             openApp(app)
         } label: {
             Image(app.rawValue)
+                .renderingMode(.template)
                 .frame(width: app == .spotify ? 32 : 24, height: app == .spotify ? 32 : 24)
+                .modifier(GlassInk(tint: lightColor, illumination: lightLevel, isSelected: selected))
                 .frame(width: 64)
                 .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
+                .modifier(HomeCardGlass(shape: shape, tint: lightColor, illumination: lightLevel, isSelected: selected))
+                .contentShape(shape)
         }
-        .buttonStyle(HomeAppButtonStyle(app: app, isFocused: focus == .app(app)))
+        .buttonStyle(.plain)
         .focusable()
         .focused($focus, equals: .app(app))
         .focusEffectDisabled()
+        .onHover { hovering in
+            if hovering { hoveredApp = app }
+            else if hoveredApp == app { hoveredApp = nil }
+        }
         .onKeyPress(keys: [.return, .space]) { _ in
             openApp(app)
             return .handled
@@ -104,91 +162,8 @@ struct NotchHomeView: View {
         .accessibilityLabel("Öppna \(app.rawValue)")
         .help("Öppna \(app.rawValue) · ⌘\(app == .spotify ? "1" : "2")")
     }
-}
 
-private struct HomeAppButtonStyle: ButtonStyle {
-    let app: HomeApp
-    let isFocused: Bool
-    @State private var isHovered = false
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background {
-                HomeCardSurface(
-                    bottomLeadingRadius: app == .spotify ? 56 : 16,
-                    bottomTrailingRadius: app == .codex ? 56 : 16,
-                    isHighlighted: isHovered || isFocused || configuration.isPressed
-                )
-            }
-            .opacity(configuration.isPressed ? 0.7 : 1)
-            .onHover { isHovered = $0 }
-    }
-}
-
-private struct HomeCardSurface: View {
-    var bottomLeadingRadius: CGFloat = 16
-    var bottomTrailingRadius: CGFloat = 16
-    var isHighlighted = false
-
-    private var shape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 16,
-            bottomLeadingRadius: bottomLeadingRadius,
-            bottomTrailingRadius: bottomTrailingRadius,
-            topTrailingRadius: 16,
-            style: .circular
-        )
-    }
-
-    var body: some View {
-        shape.fill(.white.opacity(isHighlighted ? 0.1 : 0.05))
-            .overlay {
-                shape.fill(.white.shadow(.inner(color: .black.opacity(0.24), radius: 6, y: 8)))
-                    .blendMode(.multiply)
-            }
-            .overlay {
-                shape.fill(.black.shadow(.inner(color: .white.opacity(0.08), radius: 6, y: -8)))
-                    .blendMode(.screen)
-            }
-            .overlay {
-                shape.strokeBorder(.white.opacity(isHighlighted ? 0.25 : 0.06), lineWidth: 1)
-            }
-    }
-}
-
-private struct HomeGlow: View {
-    private let blue = Color(red: 0, green: 145 / 255, blue: 1)
-
-    var body: some View {
-        Canvas { context, size in
-            let bounds = CGRect(origin: .zero, size: size)
-            context.fill(Path(bounds), with: .linearGradient(
-                Gradient(stops: [
-                    .init(color: .black.opacity(0.2), location: 0.80263),
-                    .init(color: blue.opacity(0.2), location: 1)
-                ]),
-                startPoint: .zero,
-                endPoint: CGPoint(x: 0, y: size.height)
-            ))
-
-            // Ellipse radii and layer opacity from the two Figma glow fills.
-            for (color, opacity, radius) in [
-                (blue, 0.4, CGSize(width: 314.17, height: 108.5)),
-                (Color.white, 0.2, CGSize(width: 159.26, height: 55))
-            ] {
-                var glow = context
-                glow.translateBy(x: size.width / 2, y: size.height)
-                glow.scaleBy(x: radius.width, y: radius.height)
-                let area = CGRect(x: -size.width / 2 / radius.width, y: -size.height / radius.height,
-                                  width: size.width / radius.width, height: size.height / radius.height)
-                glow.fill(Path(area), with: .radialGradient(
-                    Gradient(colors: [color.opacity(opacity), .black.opacity(opacity)]),
-                    center: .zero, startRadius: 0, endRadius: 1
-                ))
-            }
-        }
-        .allowsHitTesting(false)
-    }
 }
 
 #if DEBUG
@@ -197,7 +172,7 @@ private struct HomeGlow: View {
     NotchHomeView(layout: layout, date: .now, battery: BatteryStatus(percentage: 75, isCharging: false)) { _ in }
         .frame(width: layout.expandedSize.width, height: layout.expandedSize.height)
         .background(.black)
-        .clipShape(NotchShape(shoulderRadius: 0, bottomRadius: 64))
+        .clipShape(NotchShape(shoulderRadius: 0, bottomRadius: NotchLayout.bottomRadius))
         .preferredColorScheme(.dark)
 }
 #endif

@@ -20,22 +20,22 @@ struct NotchView: View {
     private var shape: NotchShape {
         NotchShape(
             shoulderRadius: presentation.isExpanded ? 0 : 4,
-            bottomRadius: presentation.isExpanded ? 64 : 8
+            bottomRadius: presentation.isExpanded ? NotchLayout.bottomRadius : 8
         )
     }
 
     private var horizontalAnimation: Animation? {
         guard !reduceMotion else { return nil }
         return presentation.isExpanded
-            ? .spring(duration: 0.28, bounce: 0.20)
-            : .spring(duration: 0.32, bounce: 0.16).delay(0.03)
+            ? .spring(response: 0.54, dampingFraction: 0.76)
+            : .spring(response: 0.42, dampingFraction: 0.86).delay(0.03)
     }
 
     private var verticalAnimation: Animation? {
         guard !reduceMotion else { return nil }
         return presentation.isExpanded
-            ? .spring(duration: 0.40, bounce: 0.32).delay(0.025)
-            : .spring(duration: 0.26, bounce: 0.12)
+            ? .spring(response: 0.66, dampingFraction: 0.7).delay(0.035)
+            : .spring(response: 0.4, dampingFraction: 0.86)
     }
 
     var body: some View {
@@ -58,7 +58,7 @@ struct NotchView: View {
                         )
                     }
                     .frame(width: presentation.layout.expandedSize.width, height: presentation.layout.expandedSize.height)
-                    .transition(.opacity)
+                    .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(.easeOut(duration: 0.16))))
                 }
             }
             .clipShape(shape)

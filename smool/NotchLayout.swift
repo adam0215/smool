@@ -2,6 +2,9 @@ import AppKit
 
 /// Panel dimensions in points. Display coordinates are AppKit's bottom-up coordinates.
 struct NotchLayout {
+    static let bottomRadius: CGFloat = 64
+    static let contentInset: CGFloat = 8
+
     let screenFrame: CGRect
     let notch: ScreenNotch
 
