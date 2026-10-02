@@ -47,7 +47,6 @@ struct HomeCardShape: InsettableShape {
 /// The material is masked to the original glyph, so the glass belongs to the ink,
 /// rather than adding a rectangular badge behind the text or logo.
 struct GlassInk: ViewModifier {
-    let tint: Color
     let illumination: Double
     var isSelected = false
 
@@ -55,7 +54,7 @@ struct GlassInk: ViewModifier {
 
     func body(content: Content) -> some View {
         if reduceTransparency {
-            content.foregroundStyle(isSelected ? tint : .white.opacity(0.8))
+            content.foregroundStyle(.white.opacity(isSelected ? 0.95 : 0.8))
         } else {
             content.foregroundStyle(.clear)
                 .overlay {
@@ -66,9 +65,9 @@ struct GlassInk: ViewModifier {
                     .overlay {
                         LinearGradient(stops: [
                             .init(color: .white.opacity(0.12 + illumination * 0.56), location: 0),
-                            .init(color: tint.opacity(0.08 + illumination * 0.22), location: 0.38),
+                            .init(color: .white.opacity(0.08 + illumination * 0.22), location: 0.38),
                             .init(color: .white.opacity(0.04 + illumination * 0.1), location: 0.52),
-                            .init(color: tint.opacity(0.12 + illumination * (isSelected ? 0.75 : 0.4)), location: 0.82),
+                            .init(color: .white.opacity(0.12 + illumination * (isSelected ? 0.75 : 0.4)), location: 0.82),
                             .init(color: .white.opacity(0.2 + illumination * 0.65), location: 1)
                         ], startPoint: .topLeading, endPoint: .bottomTrailing)
                     }
@@ -86,7 +85,7 @@ struct GlassInk: ViewModifier {
                 }
                 .overlay {
                     content.foregroundStyle(.black.shadow(.inner(
-                        color: tint.opacity(illumination * 0.65), radius: 0.5, x: -0.4, y: -0.6
+                        color: .white.opacity(illumination * 0.65), radius: 0.5, x: -0.4, y: -0.6
                     )))
                     .blendMode(.screen)
                     .allowsHitTesting(false)
@@ -98,7 +97,6 @@ struct GlassInk: ViewModifier {
 
 struct HomeCardGlass: ViewModifier {
     let shape: HomeCardShape
-    let tint: Color
     let illumination: Double
     var isSelected = false
 
@@ -108,16 +106,16 @@ struct HomeCardGlass: ViewModifier {
         if reduceTransparency {
             content.background {
                 shape.fill(Color(white: isSelected ? 0.18 : 0.08))
-                    .overlay { shape.strokeBorder(tint.opacity(isSelected ? 0.7 : 0.15), lineWidth: 1) }
+                    .overlay { shape.strokeBorder(.white.opacity(isSelected ? 0.3 : 0.1), lineWidth: 1) }
             }
         } else {
             content
                 .glassEffect(
-                    .clear.tint(tint.opacity((isSelected ? 0.2 : 0.025) * illumination)).interactive(shape.app != nil),
+                    .clear.tint(.white.opacity((isSelected ? 0.065 : 0.015) * illumination)).interactive(),
                     in: shape
                 )
                 .overlay {
-                    shape.strokeBorder(tint.opacity(isSelected ? 0.45 : 0), lineWidth: 1)
+                    shape.strokeBorder(.white.opacity(isSelected ? 0.2 : 0), lineWidth: 1)
                         .blur(radius: 0.5)
                         .allowsHitTesting(false)
                 }

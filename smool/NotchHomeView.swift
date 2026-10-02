@@ -8,22 +8,18 @@ struct NotchHomeView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private enum FocusTarget: Hashable {
-        case home
-        case app(HomeApp)
+    private enum Card: Hashable {
+        case spotify, clock, codex
+
+        var previous: Card { self == .codex ? .clock : .spotify }
+        var next: Card { self == .spotify ? .clock : .codex }
     }
 
-    @FocusState private var focus: FocusTarget?
-    @State private var hoveredApp: HomeApp?
+    @FocusState private var focusedCard: Card?
+    @State private var hoveredCard: Card?
     @State private var lightLevel = 0.0
 
-    private var activeApp: HomeApp? {
-        if let hoveredApp { return hoveredApp }
-        if case .app(let app) = focus { return app }
-        return nil
-    }
-
-    private var lightColor: Color { HomeGlow.color(for: activeApp) }
+    private var activeCard: Card { hoveredCard ?? focusedCard ?? .clock }
 
     var body: some View {
         GlassEffectContainer(spacing: 0) {
@@ -41,30 +37,29 @@ struct NotchHomeView: View {
         }
         .background {
             HomeGlow(
-                spotify: activeApp == .spotify ? 1 : 0,
-                codex: activeApp == .codex ? 1 : 0,
+                spotify: activeCard == .spotify ? 1 : 0,
+                codex: activeCard == .codex ? 1 : 0,
                 darkHeight: layout.headerSize.height + 16
             )
             .opacity(lightLevel)
         }
-        .animation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.7), value: activeApp)
-        .focusable()
-        .focused($focus, equals: .home)
-        .focusEffectDisabled()
-        .onAppear { focus = .home }
+        .animation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.7), value: activeCard)
+        .onAppear { focusedCard = .clock }
         .task {
-            withAnimation(reduceMotion ? .linear(duration: 0.12) : .easeOut(duration: 0.95).delay(0.08)) {
+            withAnimation(reduceMotion ? .linear(duration: 0.12) : .timingCurve(0.5, 0, 0.2, 1, duration: 1).delay(0.1)) {
                 lightLevel = 1
             }
         }
         .onMoveCommand { direction in
             switch direction {
             case .left:
-                hoveredApp = nil
-                focus = .app(.spotify)
+                let previous = activeCard.previous
+                hoveredCard = nil
+                focusedCard = previous
             case .right:
-                hoveredApp = nil
-                focus = .app(.codex)
+                let next = activeCard.next
+                hoveredCard = nil
+                focusedCard = next
             default: break
             }
         }
@@ -73,12 +68,12 @@ struct NotchHomeView: View {
     private var header: some View {
         NotchHeader(layout: layout) {
             Button {
-                hoveredApp = nil
-                focus = .home
+                hoveredCard = nil
+                focusedCard = .clock
             } label: {
                 Image(systemName: "house.fill")
                     .font(.system(size: 10))
-                    .modifier(GlassInk(tint: lightColor, illumination: lightLevel))
+                    .modifier(GlassInk(illumination: lightLevel))
                     .frame(width: 24, height: 16)
                     .glassEffect(.clear.interactive(), in: .capsule)
             }
@@ -115,7 +110,7 @@ struct NotchHomeView: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-                .modifier(GlassInk(tint: lightColor, illumination: lightLevel))
+                .modifier(GlassInk(illumination: lightLevel, isSelected: activeCard == .clock))
                 .frame(height: 64)
 
             Text(date.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "sv_SE"))))
@@ -126,12 +121,23 @@ struct NotchHomeView: View {
         }
         .padding(8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(HomeCardGlass(shape: HomeCardShape(), tint: lightColor, illumination: lightLevel))
+        .modifier(HomeCardGlass(shape: HomeCardShape(), illumination: lightLevel, isSelected: activeCard == .clock))
+        .contentShape(HomeCardShape())
+        .focusable(interactions: .edit)
+        .focused($focusedCard, equals: .clock)
+        .focusEffectDisabled()
+        .onTapGesture {
+            hoveredCard = nil
+            focusedCard = .clock
+        }
+        .onHover { updateHover($0, card: .clock) }
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(activeCard == .clock ? .isSelected : [])
     }
 
     private func appButton(_ app: HomeApp) -> some View {
-        let selected = activeApp == app
+        let card: Card = app == .spotify ? .spotify : .codex
+        let selected = activeCard == card
         let shape = HomeCardShape(app: app)
 
         return Button {
@@ -140,30 +146,31 @@ struct NotchHomeView: View {
             Image(app.rawValue)
                 .renderingMode(.template)
                 .frame(width: app == .spotify ? 32 : 24, height: app == .spotify ? 32 : 24)
-                .modifier(GlassInk(tint: lightColor, illumination: lightLevel, isSelected: selected))
+                .modifier(GlassInk(illumination: lightLevel, isSelected: selected))
                 .frame(width: 64)
                 .frame(maxHeight: .infinity)
-                .modifier(HomeCardGlass(shape: shape, tint: lightColor, illumination: lightLevel, isSelected: selected))
+                .modifier(HomeCardGlass(shape: shape, illumination: lightLevel, isSelected: selected))
                 .contentShape(shape)
         }
         .buttonStyle(.plain)
         .focusable()
-        .focused($focus, equals: .app(app))
+        .focused($focusedCard, equals: card)
         .focusEffectDisabled()
-        .onHover { hovering in
-            if hovering { hoveredApp = app }
-            else if hoveredApp == app { hoveredApp = nil }
-        }
+        .onHover { updateHover($0, card: card) }
         .onKeyPress(keys: [.return, .space]) { _ in
             openApp(app)
             return .handled
         }
         .keyboardShortcut(app == .spotify ? "1" : "2", modifiers: .command)
         .accessibilityLabel("Öppna \(app.rawValue)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .help("Öppna \(app.rawValue) · ⌘\(app == .spotify ? "1" : "2")")
     }
 
-
+    private func updateHover(_ hovering: Bool, card: Card) {
+        if hovering { hoveredCard = card }
+        else if hoveredCard == card { hoveredCard = nil }
+    }
 }
 
 #if DEBUG

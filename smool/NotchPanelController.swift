@@ -85,8 +85,11 @@ final class NotchPanelController: NSObject {
     }
 
     private var animation: Animation {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            ? .linear(duration: 0.01)
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            return .linear(duration: 0.01)
+        }
+        return isOpen
+            ? .timingCurve(0.64, 0, 0.16, 1, duration: 0.84)
             : .spring(response: 0.66, dampingFraction: 0.76)
     }
 

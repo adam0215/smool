@@ -27,14 +27,14 @@ struct NotchView: View {
     private var horizontalAnimation: Animation? {
         guard !reduceMotion else { return nil }
         return presentation.isExpanded
-            ? .spring(response: 0.54, dampingFraction: 0.76)
+            ? .timingCurve(0.64, 0, 0.16, 1, duration: 0.7)
             : .spring(response: 0.42, dampingFraction: 0.86).delay(0.03)
     }
 
     private var verticalAnimation: Animation? {
         guard !reduceMotion else { return nil }
         return presentation.isExpanded
-            ? .spring(response: 0.66, dampingFraction: 0.7).delay(0.035)
+            ? .timingCurve(0.68, 0, 0.18, 1, duration: 0.84).delay(0.035)
             : .spring(response: 0.4, dampingFraction: 0.86)
     }
 
