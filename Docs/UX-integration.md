@@ -9,3 +9,9 @@ Persistent header buttons toggle Actions with Command-K and Workspaces with Comm
 Service views keep unfinished editor data in applet-owned draft state when closing editors or changing applets. The host cannot preserve local view state after `dismissOverlay` or `deactivate` removes an editor. Keep editors within the content area below the header so tabs remain clickable.
 
 `NotchPanelController(presentation:)` accepts an isolated presentation for keyboard verification; omitting it keeps normal app behavior.
+
+## SwiftUI focus recovery
+
+Setting NSHostingView as first responder releases native text editing but does not focus a SwiftUI view. `restoreFocus()` now advances `NotchPresentation.focusGeneration`, supplied through the `appletFocusGeneration` environment value. A visible focusable navigation view registers `.onAppletFocusRestore { focus = .deck }`, or sets its Boolean focus binding to true. Register on the currently visible focus owner so a hidden list cannot steal editor focus. This callback must select a non-text navigation target. The existing initial focus task still chooses the first field when opening an editor.
+
+Home, Calendar and the shared AppletPages navigation deck use the modifier. Timer, Audio, Notes, Codex pickers and service views attach it to their visible navigation focus owners. A text-only editor that promises Return to resume editing needs a separate focusable navigation root; returning first responder to NSHostingView alone is insufficient.

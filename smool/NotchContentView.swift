@@ -71,6 +71,7 @@ struct NotchContentView: View {
                 )
             }
         }
+        .environment(\.appletFocusGeneration, presentation.focusGeneration)
         .onChange(of: presentation.capturedSelection?.selection) { _, _ in capturedNoteID = nil }
         .task(id: artworkSource) {
             let source = artworkSource

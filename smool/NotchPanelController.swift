@@ -246,6 +246,7 @@ final class NotchPanelController: NSObject {
         guard isOpen else { return }
         panel?.makeFirstResponder(panel?.contentView)
         panel?.makeKeyAndOrderFront(nil)
+        presentation.focusGeneration &+= 1
     }
 
     func showTerminationFailure() {

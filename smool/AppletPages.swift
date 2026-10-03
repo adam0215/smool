@@ -22,6 +22,7 @@ struct AppletPages<Page: Hashable, Content: View>: View {
             .focusable(interactions: .edit)
             .focused($focused)
             .focusEffectDisabled()
+            .onAppletFocusRestore { if isNavigating { focused = true } }
             .task { await Task.yield(); focused = isNavigating }
             .onChange(of: isNavigating) { _, navigating in focused = navigating }
             .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in

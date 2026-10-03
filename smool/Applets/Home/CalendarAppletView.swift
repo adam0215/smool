@@ -82,6 +82,7 @@ struct CalendarAppletView: View {
         .padding(.bottom, NotchLayout.contentInset)
         .focusable(interactions: .edit)
         .focused($focused)
+        .onAppletFocusRestore { focused = true }
         .focusEffectDisabled()
         .task { await Task.yield(); focused = true }
         .task(id: service.day) {

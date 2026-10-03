@@ -122,3 +122,30 @@ extension Applet {
     func dismissOverlay() {}
     func activateStatus() {}
 }
+
+private struct AppletFocusGenerationKey: EnvironmentKey {
+    static let defaultValue = 0
+}
+
+extension EnvironmentValues {
+    var appletFocusGeneration: Int {
+        get { self[AppletFocusGenerationKey.self] }
+        set { self[AppletFocusGenerationKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Restore the visible navigation focus after the host releases a text editor.
+    func onAppletFocusRestore(_ restore: @escaping () -> Void) -> some View {
+        modifier(AppletFocusRestoration(restore: restore))
+    }
+}
+
+private struct AppletFocusRestoration: ViewModifier {
+    @Environment(\.appletFocusGeneration) private var generation
+    let restore: () -> Void
+
+    func body(content: Content) -> some View {
+        content.onChange(of: generation) { restore() }
+    }
+}

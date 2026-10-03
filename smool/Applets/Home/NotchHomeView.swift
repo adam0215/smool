@@ -39,6 +39,7 @@ struct NotchHomeView: View {
         }
         .animation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.7), value: activeCard)
         .onAppear { focusedCard = .clock }
+        .onAppletFocusRestore { focusedCard = .clock }
         .onChange(of: cards) { _, _ in
             if let focusedCard, !cards.contains(focusedCard) { self.focusedCard = .clock }
             if let hoveredCard, !cards.contains(hoveredCard) { self.hoveredCard = nil }

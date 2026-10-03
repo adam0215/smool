@@ -36,6 +36,7 @@ final class NotchPresentation {
     private(set) var selection: AppletID
     var isExpanded = false
     var usesExpandedFrame = false
+    var focusGeneration = 0
     var hostTool: NotchHostTool?
     private enum ActionsSource { case applet, workspaces, settings }
     private var actionsSource = ActionsSource.applet
