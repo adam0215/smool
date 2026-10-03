@@ -77,19 +77,21 @@ struct NotchTabBar: View {
     }
 
     private var tabs: some View {
-        HStack(spacing: 4) {
-            ForEach(presentation.registry.applets, id: \.id) { applet in
-                Button { select(applet.id) } label: {
-                    applet.icon.view
-                        .foregroundStyle(.white.opacity(presentation.selection == applet.id ? 1 : 0.65))
-                        .frame(width: 26, height: 26)
-                        .background(.white.opacity(presentation.selection == applet.id ? 0.12 : 0), in: Circle())
+        GlassEffectContainer(spacing: 4) {
+            HStack(spacing: 4) {
+                ForEach(presentation.registry.applets, id: \.id) { applet in
+                    Button { select(applet.id) } label: {
+                        applet.icon.view
+                            .foregroundStyle(.white.opacity(presentation.selection == applet.id ? 1 : 0.65))
+                            .frame(width: 26, height: 26)
+                            .modifier(CardGlass(shape: Circle(), isSelected: presentation.selection == applet.id))
+                    }
+                    .id(applet.id)
+                    .buttonStyle(.plain).focusable(false)
+                    .accessibilityLabel(applet.title)
+                    .accessibilityAddTraits(presentation.selection == applet.id ? .isSelected : [])
+                    .help(applet.title)
                 }
-                .id(applet.id)
-                .buttonStyle(.plain).focusable(false)
-                .accessibilityLabel(applet.title)
-                .accessibilityAddTraits(presentation.selection == applet.id ? .isSelected : [])
-                .help(applet.title)
             }
         }
         .frame(height: presentation.layout.navigationHeight)
