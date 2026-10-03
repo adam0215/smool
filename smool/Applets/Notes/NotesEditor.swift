@@ -13,8 +13,6 @@ struct NotesEditor: View {
                 text: $text,
                 recipient: "Anteckning",
                 placeholder: "Skriv en tanke…",
-                canSend: false,
-                onSend: {},
                 onClose: onClose
             )
             .disabled(isReadOnly)
