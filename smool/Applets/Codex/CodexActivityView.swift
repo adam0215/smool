@@ -70,7 +70,7 @@ struct CodexActivitySummary: View {
 struct CodexActivityView: View {
     let presentation: CodexActivityPresentation
     @Binding var readingPosition: CodexReadingPosition
-    var selectedActivityID: String? = nil
+    @Binding var selectedActivityID: String?
     let onFollowLatest: () -> Void
     @State private var scrollPosition = ScrollPosition(idType: String.self)
     @State private var scrollPhase = ScrollPhase.idle
@@ -117,6 +117,7 @@ struct CodexActivityView: View {
         } action: { previous, current in
             guard restoredPosition else { return }
             if userIsScrolling {
+                selectedActivityID = nil
                 readingPosition.userScrolled(to: current.offset, atBottom: current.atBottom)
             } else if readingPosition.followsLatest, previous.height != current.height {
                 scrollPosition.scrollTo(edge: .bottom)
@@ -180,7 +181,11 @@ struct CodexActivityView: View {
             guard !presentation.items.isEmpty, !restoredPosition else { return }
             await Task.yield()
             guard !Task.isCancelled else { return }
-            if readingPosition.followsLatest {
+            if let selectedActivityID {
+                readingPosition.followsLatest = false
+                readingPosition.anchorID = selectedActivityID
+                scrollPosition.scrollTo(id: selectedActivityID, anchor: .top)
+            } else if readingPosition.followsLatest {
                 scrollPosition.scrollTo(edge: .bottom)
             } else if readingPosition.omittedItemCount != presentation.omittedItemCount,
                       let anchor = readingPosition.anchorID {

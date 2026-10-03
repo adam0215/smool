@@ -210,7 +210,10 @@ struct CodexAppletView: View {
                             CodexActivityView(presentation: presentation, readingPosition: Binding(
                                 get: { state.readingPositions[thread.id] ?? CodexReadingPosition() },
                                 set: { state.readingPositions[thread.id] = $0 }
-                            ), selectedActivityID: state.activitySelections[thread.id]) {
+                            ), selectedActivityID: Binding(
+                                get: { state.activitySelections[thread.id] },
+                                set: { state.activitySelections[thread.id] = $0 }
+                            )) {
                                 state.followLatestActivity(in: thread.id)
                             }
                             .id(thread.id)
