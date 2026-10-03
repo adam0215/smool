@@ -23,6 +23,21 @@ struct CodexAppletView: View {
     }
 
     private var threadSelection: CodexThreadSelection { state.threadSelection(in: service.displayedThreads, projects: service.projects) }
+    private var liveThreadID: String? { state.page == .active ? threadSelection.selectedThread?.id : nil }
+    private var historyThread: CodexThread? { state.page == .history ? threadSelection.selectedThread : nil }
+    private var previewThread: CodexThread? {
+        guard let thread = threadSelection.selectedThread else { return nil }
+        if state.page == .history { return thread }
+        guard state.page == .active, service.activities[thread.id]?.latestMessage == nil,
+              activityIssue(for: thread.id) != nil else { return nil }
+        return service.threads.first { $0.id == thread.id } ?? thread
+    }
+
+    private func activityIssue(for id: String) -> String? {
+        service.activityErrors[id]
+            ?? (service.threads.first { $0.id == id }?.isConnected != true
+                ? service.liveError ?? "Live activity is unavailable." : nil)
+    }
 
     private var editingHint: String {
         switch state.scope {
@@ -45,7 +60,7 @@ struct CodexAppletView: View {
                     title: { $0.rawValue },
                     isNavigating: state.scope == .deck && !state.showsProjects && !state.showsRecipientPicker,
                     editingHint: editingHint,
-                    navigationHint: state.page == .usage ? "↑↓ Change page · ⌘K Actions" : "↑↓ Change page · ←→ Select thread · ↵ Write\n⌥↑↓ Activity · Space Details · ⌘F Search\n⌘P Choose project · ⌘K Actions"
+                    navigationHint: state.page == .usage ? "↑↓ Change page · ⌘K Actions" : "↑↓ Change page · ←→ Select thread · ↵ Open in Codex\n⌘N Write · ⌘F Search · ⌘P Choose project\n⌘K Actions"
                 ) { page in
                     if page == .usage {
                         CodexUsageView(service: service)
@@ -72,10 +87,17 @@ struct CodexAppletView: View {
             }
         }
         .onChange(of: threadSelection.selectedThread?.id, initial: true) { _, id in
-            service.selectThread(id)
             if let id {
                 state.selection[state.page] = id
                 if state.page == .active { state.retainedActiveThreadIDs = [id] }
+            }
+        }
+        .onChange(of: liveThreadID, initial: true) { _, id in service.selectThread(id) }
+        .task(id: previewThread) {
+            guard let thread = previewThread else { return }
+            await service.loadHistoryPreview(thread)
+            if !Task.isCancelled, historyThread?.id == thread.id, service.historyPreviews[thread.id]?.message != nil {
+                service.markRead(thread.id)
             }
         }
         .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { key in
@@ -85,20 +107,9 @@ struct CodexAppletView: View {
         }
         .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { key in
             guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker else { return .ignored }
+            guard unmodified(key) else { return .ignored }
             let offset = key.key == .upArrow ? -1 : 1
-            if key.modifiers.intersection([.command, .control, .option, .shift]) == .option {
-                moveActivity(offset)
-            } else if unmodified(key) {
-                state.page = cyclingPage(in: CodexPage.allCases, to: state.page, offset: offset)
-            } else {
-                return .ignored
-            }
-            return .handled
-        }
-        .onKeyPress(.space, phases: .down) { key in
-            guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker,
-                  state.page != .usage, unmodified(key) else { return .ignored }
-            state.isExpanded.toggle()
+            state.page = cyclingPage(in: CodexPage.allCases, to: state.page, offset: offset)
             return .handled
         }
         .onKeyPress(.return, phases: .down) { key in
@@ -108,16 +119,14 @@ struct CodexAppletView: View {
                 return .handled
             }
             if state.scope == .deck, let thread = threadSelection.selectedThread {
-                compose(thread)
+                open(thread)
                 return .handled
             }
             return .ignored
         }
         .onKeyPress(.escape) {
             switch state.scope {
-            case .deck:
-                guard state.isExpanded else { return .ignored }
-                state.isExpanded = false
+            case .deck: return .ignored
             case .composer: returnToDeck()
             case .search: returnToDeck()
             }
@@ -139,7 +148,12 @@ struct CodexAppletView: View {
                 state.scope = .deck
                 Task { await service.setIncludesArchived(!service.includesArchived) }
             }.keyboardShortcut("a", modifiers: [.command, .shift]).hidden()
-            Button("Expand") { state.isExpanded.toggle() }.keyboardShortcut("e", modifiers: .command).hidden()
+            Button("Write to thread") {
+                if let thread = threadSelection.selectedThread { compose(thread) }
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .disabled(state.page == .usage || threadSelection.selectedThread == nil || state.showsProjects || state.showsRecipientPicker)
+            .hidden()
             Button("Next thread") { moveThread(1) }.keyboardShortcut("]", modifiers: .command).hidden()
             Button("Previous thread") { moveThread(-1) }.keyboardShortcut("[", modifiers: .command).hidden()
             Button("Refresh", action: refreshOrConnect).keyboardShortcut("r", modifiers: .command).hidden()
@@ -161,6 +175,7 @@ struct CodexAppletView: View {
         .onDisappear {
             isVisible = false
             connectionTask?.cancel()
+            service.selectThread(nil)
             service.setVisible(false)
         }
     }
@@ -174,7 +189,7 @@ struct CodexAppletView: View {
                     TextField("Search threads", text: query)
                         .textFieldStyle(.plain)
                         .focused($focus, equals: .search)
-                        .onSubmit { if let thread = threadSelection.selectedThread { compose(thread) } }
+                        .onSubmit { if let thread = threadSelection.selectedThread { open(thread) } }
                         .onKeyPress(.downArrow, phases: .down) { key in
                             guard unmodified(key) else { return .ignored }
                             returnToDeck()
@@ -212,83 +227,72 @@ struct CodexAppletView: View {
             .focusable(false)
 
             if let thread = selection.selectedThread {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 12) {
-                        ProjectIcon(path: thread.project?.roots.first ?? thread.projectPath, isActive: thread.isActive)
-                            .frame(width: 32, height: 32)
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(thread.title)
-                                .font(.system(size: 17, weight: .medium))
-                                .lineLimit(1)
-                            threadStatus(thread)
-                        }
-                        if !service.unreadThreadIDs.subtracting([thread.id]).isEmpty {
-                            Circle().fill(.purple).frame(width: 5, height: 5)
-                                .accessibilityLabel("New activity in other threads")
-                        }
-                    }
-                    .padding(.bottom, 6)
-                    if let presentation = service.activities[thread.id] {
-                        if state.isExpanded {
-                            CodexActivityView(presentation: presentation, readingPosition: Binding(
-                                get: { state.readingPositions[thread.id] ?? CodexReadingPosition() },
-                                set: { state.readingPositions[thread.id] = $0 }
-                            ), selectedActivityID: Binding(
-                                get: { state.activitySelections[thread.id] },
-                                set: { state.activitySelections[thread.id] = $0 }
-                            )) {
-                                state.followLatestActivity(in: thread.id)
-                            }
-                            .id(thread.id)
-                        } else {
-                            CodexActivitySummary(presentation: presentation, selectedID: state.activitySelections[thread.id])
-                        }
-
+                let currentThread = service.threads.first { $0.id == thread.id }
+                let isWorking = currentThread?.isConnected == true && currentThread?.isActive == true
+                VStack(alignment: .leading, spacing: 10) {
+                    if state.page == .history {
+                        let preview = service.historyPreviews[thread.id]
+                        CodexHistoryPreviewView(
+                            title: thread.title,
+                            message: preview?.message,
+                            isLoading: preview == nil || preview?.isLoading == true,
+                            isWorking: isWorking,
+                            error: preview?.error
+                        )
                     } else {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(thread.preview.isEmpty ? "No activity loaded" : thread.preview)
-                                .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(3)
-                            if !thread.isConnected {
-                                Button("Connect thread in Codex") { connect(thread) }
-                                    .buttonStyle(.plain).font(.system(size: 11))
-                            } else { ProgressView().controlSize(.mini) }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    }
-                    if let issue = service.activityErrors[thread.id] ?? service.liveError {
-                        Text(issue).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)
-                    }
-                    HStack(spacing: 12) {
-                        if state.scope == .search {
-                            Text(focus == .search ? "↓ Threads · esc Navigate" : "↵ Edit search · esc Threads")
+                        ShimmeringText(thread.title, isActive: isWorking)
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(isWorking ? .secondary : .primary)
+                            .lineLimit(1)
+                        let issue = activityIssue(for: thread.id)
+                        if let presentation = service.activities[thread.id], presentation.latestMessage != nil || issue == nil {
+                            CodexActivityView(
+                                presentation: presentation,
+                                isLive: currentThread?.isConnected == true && issue == nil && service.attentionByThread[thread.id] == .working,
+                                unavailableReason: issue
+                            )
+                        } else if let issue {
+                            let preview = service.historyPreviews[thread.id]
+                            VStack(alignment: .leading, spacing: 14) {
+                                CodexMessagePreviewView(message: preview?.message,
+                                                        isLoading: preview == nil || preview?.isLoading == true,
+                                                        error: preview?.error)
+                                Text(issue)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         } else {
-                            Text("←→ Threads · ⌥↑↓ Activity")
-                            Spacer(minLength: 4)
-                            Button(state.isExpanded ? "Close details Space" : "Details Space") { state.isExpanded.toggle() }
-                            Button("Write ↵") { compose(thread) }
+                            ShimmeringText("Reading activity…")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         }
                     }
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .buttonStyle(.plain)
-                    .focusable(false)
-                    .padding(.top, 4)
+
+                    Text(state.scope == .search
+                         ? (focus == .search ? "↓ Threads · esc Navigate" : "↵ Edit search · esc Threads")
+                         : "←→ Threads · ↵ Open in Codex · ⌘N Write")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
                 }
             } else {
                 emptyState
             }
-            if let error = service.error ?? (state.groupsByProject ? service.projectError : nil) {
-                Text(error).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(1)
+            if state.groupsByProject, let error = service.projectError {
+                Text(error).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
         }
     }
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            if service.isLoading { ProgressView().controlSize(.small) }
-            Text(emptyTitle)
+            ShimmeringText(emptyTitle, isActive: service.isLoading)
                 .font(.system(size: 12, weight: .medium))
-            if let error = service.liveError, state.page == .active {
+                .foregroundStyle(.secondary)
+            if let error = service.error ?? (state.page == .active ? service.liveError : nil) {
                 Text(error).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
             }
         }
@@ -298,6 +302,7 @@ struct CodexAppletView: View {
     private var emptyTitle: String {
         if service.isLoading { return "Loading threads…" }
         if !query.wrappedValue.isEmpty { return "No matching threads" }
+        if service.error != nil { return "Threads are unavailable" }
         if state.page == .active, service.liveError != nil { return "Active threads are unavailable" }
         return state.page == .active ? "No threads are working right now" : "No previous threads"
     }
@@ -311,14 +316,10 @@ struct CodexAppletView: View {
                 Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(3)
                     .padding(.horizontal, 24)
             } else if !connected {
-                HStack {
-                    Text(connecting ? "Connecting thread… Your draft is saved." : "Connect the thread in Codex to send.")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(connecting ? "Connecting…" : "Connect") { connect(thread) }
-                        .buttonStyle(NotchControlStyle(isSelected: true))
-                        .disabled(service.isConnectingThreadID != nil)
-                }
+                ShimmeringText(connecting ? "Connecting thread… Your draft is saved." : "⌘R Connect this thread in Codex. Your draft is saved.", isActive: connecting)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 24)
             }
 
             FloatingComposer(
@@ -492,41 +493,8 @@ struct CodexAppletView: View {
         compose(thread)
     }
 
-    private func threadStatus(_ thread: CodexThread) -> some View {
-        HStack(spacing: 6) {
-            if service.threads.contains(where: { $0.id == thread.id && $0.isActive }) {
-                ProgressView().controlSize(.mini)
-            }
-            Text(statusTitle(thread)).font(.system(size: 10)).foregroundStyle(.secondary)
-            Spacer()
-            if let url = CodexDesktopProtocol.threadURL(thread.id) {
-                Link("Open ⇧⌘O", destination: url).font(.system(size: 10))
-                    .accessibilityLabel("Open thread in Codex")
-            }
-        }
-    }
-
-    private func statusTitle(_ thread: CodexThread) -> String {
-        guard service.threads.contains(where: { $0.id == thread.id && $0.isConnected }) else {
-            return "Disconnected · saved activity"
-        }
-        switch service.attentionByThread[thread.id] ?? .idle {
-        case .idle: return "Done · ↵ Follow up"
-        case .working: return "Working"
-        case .waitingForUser: return "Waiting for your reply in Codex"
-        case .approval: return "Approval needed in Codex"
-        case .failed: return "An error needs attention in Codex"
-        }
-    }
-
-    private func connect(_ thread: CodexThread) {
-        guard service.isConnectingThreadID == nil else { return }
-        connectionTask = Task {
-            _ = await service.ensureConnected(to: thread)
-            guard !Task.isCancelled, isVisible else { return }
-            restoreFocus()
-            restoreLocalFocus()
-        }
+    private func open(_ thread: CodexThread) {
+        if let url = CodexDesktopProtocol.threadURL(thread.id) { NSWorkspace.shared.open(url) }
     }
 
     private func beginSearch() {
@@ -552,15 +520,6 @@ struct CodexAppletView: View {
         state.selection[state.page] = adjacentPage(in: ids, to: selectedThread.id, offset: offset)
     }
 
-    private func moveActivity(_ offset: Int) {
-        guard let thread = threadSelection.selectedThread,
-              let activity = service.activities[thread.id] else { return }
-        let groups = CodexActivityGroup.make(from: activity.items)
-        guard let selected = CodexActivitySummary.selectedGroup(in: groups, id: state.activitySelections[thread.id]),
-              let index = groups.firstIndex(where: { $0.id == selected.id }) else { return }
-        state.activitySelections[thread.id] = groups[min(max(index + offset, 0), groups.count - 1)].id
-    }
-
     private func compose(_ thread: CodexThread) {
         connectionTask?.cancel()
         state.selection[state.page] = thread.id
@@ -578,7 +537,10 @@ struct CodexAppletView: View {
                 focus = .composer
             }
         } else {
-            Task { await service.refresh() }
+            Task {
+                await service.refresh()
+                if let thread = previewThread { await service.loadHistoryPreview(thread, force: true) }
+            }
         }
     }
 

@@ -18,29 +18,16 @@ final class CodexAppletState {
     }
     var projectID: String?
     var showsProjects = false
-    var isExpanded = false
     var showsRecipientPicker = false {
         didSet { if !showsRecipientPicker { choosesPendingRecipient = false } }
     }
     var choosesPendingRecipient = false
     var pendingText: String?
     var retainedActiveThreadIDs: Set<String> = []
-    var activitySelections: [String: String] = [:]
-    var readingPositions: [String: CodexReadingPosition] = [:]
     var page = CodexPage.active
     var scope = CodexScope.deck
     var selection: [CodexPage: String] = [:]
     var searches: [CodexPage: String] = [:]
-
-    func followLatestActivity(in threadID: String) {
-        activitySelections[threadID] = nil
-        var position = readingPositions[threadID] ?? CodexReadingPosition()
-        position.followsLatest = true
-        position.hasNewActivity = false
-        position.anchorID = nil
-        position.contentOffset = 0
-        readingPositions[threadID] = position
-    }
 
     func threadSelection(in threads: [CodexThread], projects: [CodexProject]) -> CodexThreadSelection {
         let project = page == .history && groupsByProject ? selectedProject(in: projects) : nil

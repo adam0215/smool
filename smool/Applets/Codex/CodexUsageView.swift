@@ -34,7 +34,7 @@ struct CodexUsageView: View {
                     }
                 }
             } else {
-                Text(service.isLoading ? "Loading usage…" : "Usage is unavailable")
+                ShimmeringText(service.isLoading ? "Loading usage…" : "Usage is unavailable", isActive: service.isLoading)
                     .font(.system(size: 13)).foregroundStyle(.secondary)
             }
         }

@@ -50,6 +50,40 @@ struct FloatingControlStyle: PrimitiveButtonStyle {
     }
 }
 
+/// A quiet busy indication. The timeline exists only while the text is visible and active.
+struct ShimmeringText: View {
+    let text: String
+    var isActive = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+
+    init(_ text: String, isActive: Bool = true) {
+        self.text = text
+        self.isActive = isActive
+    }
+
+    var body: some View {
+        Text(text)
+            .overlay {
+                if isActive, isVisible, !reduceMotion {
+                    TimelineView(.animation(minimumInterval: 1.0 / 24)) { context in
+                        let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.8) / 2.8
+                        LinearGradient(
+                            colors: [.clear, .white.opacity(0.45), .clear],
+                            startPoint: UnitPoint(x: phase * 2 - 1, y: 0.5),
+                            endPoint: UnitPoint(x: phase * 2, y: 0.5)
+                        )
+                        .mask(Text(text))
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+            }
+            .onAppear { isVisible = true }
+            .onDisappear { isVisible = false }
+    }
+}
+
 /// The caller owns sending, errors and draft lifetime. Closing or sending never
 /// clears the binding; callers can preserve edits made during an in-flight send.
 struct FloatingComposer: View {
@@ -117,28 +151,30 @@ struct FloatingComposer: View {
                     .padding(.leading, 8)
 
                 if let onSend {
-                    Button {
-                        guard sendIsEnabled else { return }
-                        onSend()
-                    } label: {
-                        Group {
-                            if isSending {
-                                ProgressView().controlSize(.mini)
-                            } else {
-                                Image(systemName: "arrow.up")
-                                    .font(.system(size: 13, weight: .semibold))
-                            }
+                    if isSending {
+                        ShimmeringText("Sending…")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(minHeight: 36)
+                            .accessibilityLabel("Sending message")
+                    } else {
+                        Button {
+                            guard sendIsEnabled else { return }
+                            onSend()
+                        } label: {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(width: 36, height: 36)
+                                .foregroundStyle(sendIsEnabled ? Color.black : Color.secondary)
+                                .background(.white.opacity(sendIsEnabled ? 0.94 : 0.06), in: Circle())
+                                .contentShape(Circle())
                         }
-                        .frame(width: 36, height: 36)
-                        .foregroundStyle(sendIsEnabled ? Color.black : Color.secondary)
-                        .background(.white.opacity(sendIsEnabled ? 0.94 : 0.06), in: Circle())
-                        .contentShape(Circle())
+                        .buttonStyle(.plain)
+                        .disabled(!sendIsEnabled)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .accessibilityLabel("Send message")
+                        .help("Send · ⌘↵")
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!sendIsEnabled)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .accessibilityLabel(isSending ? "Sending message" : "Send message")
-                    .help("Send · ⌘↵")
                 }
             }
 
@@ -146,7 +182,7 @@ struct FloatingComposer: View {
                 HStack {
                     if focus == .navigation, isEditable { Text("↵ Edit") }
                     Spacer(minLength: 8)
-                    if onSend != nil { Text("⌘↵ Send") }
+                    if onSend != nil, !isSending { Text("⌘↵ Send") }
                 }
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
