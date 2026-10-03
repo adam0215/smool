@@ -34,9 +34,9 @@ struct CompactPlayerView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 4) {
-                if hasPrevious { control("Föregående", symbol: "backward.end.fill", index: 0) }
-                control(track.playing ? "Pausa" : "Spela", symbol: track.playing ? "pause.fill" : "play.fill", index: playIndex)
-                control("Nästa", symbol: "forward.end.fill", index: playIndex + 1)
+                if hasPrevious { control("Previous", symbol: "backward.end.fill", index: 0) }
+                control(track.playing ? "Pause" : "Play", symbol: track.playing ? "pause.fill" : "play.fill", index: playIndex)
+                control("Next", symbol: "forward.end.fill", index: playIndex + 1)
             }
         }
     }

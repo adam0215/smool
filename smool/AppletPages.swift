@@ -6,8 +6,8 @@ struct AppletPages<Page: Hashable, Content: View>: View {
     @Binding var selection: Page
     let title: (Page) -> String
     var isNavigating = true
-    var editingHint = "⌘↵ skicka · esc tillbaka"
-    var navigationHint = "↑↓ Byt sida · ↵ Öppna\n⌘K Åtgärder · ? Stäng hjälpen"
+    var editingHint = "⌘↵ Send · esc Back"
+    var navigationHint = "↑↓ Change page · ↵ Open\n⌘K Actions · ? Close help"
     @ViewBuilder let content: (Page) -> Content
 
     @FocusState private var focused: Bool
@@ -31,6 +31,6 @@ struct AppletPages<Page: Hashable, Content: View>: View {
             }
             .notchHelp(isNavigating ? navigationHint : editingHint)
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(title(selection)), sida \((pages.firstIndex(of: selection) ?? 0) + 1) av \(pages.count)")
+            .accessibilityLabel("\(title(selection)), page \((pages.firstIndex(of: selection) ?? 0) + 1) of \(pages.count)")
     }
 }

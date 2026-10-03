@@ -33,10 +33,10 @@ final class SpotifyApplet: Applet {
         let state = state
         let service = service
         return [
-            AppletAction(id: "Spelare", symbol: "play.circle", selected: state.page == .player) { state.page = .player },
-            AppletAction(id: "Spellistor", symbol: "music.note.list", selected: state.page == .playlists) { state.page = .playlists },
-            AppletAction(id: "Öppna Spotify", symbol: "arrow.up.right") { service.openSpotify() },
-            AppletAction(id: "Uppdatera", symbol: "arrow.clockwise", shortcut: "⌘R") { Task { await service.retry(); await state.catalog.load(force: true) } }
+            AppletAction(id: "Player", symbol: "play.circle", selected: state.page == .player) { state.page = .player },
+            AppletAction(id: "Playlists", symbol: "music.note.list", selected: state.page == .playlists) { state.page = .playlists },
+            AppletAction(id: "Open Spotify", symbol: "arrow.up.right") { service.openSpotify() },
+            AppletAction(id: "Refresh", symbol: "arrow.clockwise", shortcut: "⌘R") { Task { await service.retry(); await state.catalog.load(force: true) } }
         ]
     }
 

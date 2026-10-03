@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor
 final class MusicApplet: Applet {
     let id = AppletID(rawValue: "music")
-    let title = "Musik"
+    let title = "Music"
     let icon = AppletIcon.symbol("music.note")
     let tint = Color.pink
     let contentHeight: CGFloat = 144
@@ -20,9 +20,9 @@ final class MusicApplet: Applet {
     var actions: [AppletAction] {
         let service = service
         return [
-            AppletAction(id: "Spela eller pausa", symbol: "playpause", shortcut: "␣") { Task { await service.perform(.togglePlayback) } },
-            AppletAction(id: "Föregående låt", symbol: "backward.end") { Task { await service.perform(.previousTrack) } },
-            AppletAction(id: "Nästa låt", symbol: "forward.end") { Task { await service.perform(.nextTrack) } }
+            AppletAction(id: "Play or pause", symbol: "playpause", shortcut: "␣") { Task { await service.perform(.togglePlayback) } },
+            AppletAction(id: "Previous track", symbol: "backward.end") { Task { await service.perform(.previousTrack) } },
+            AppletAction(id: "Next track", symbol: "forward.end") { Task { await service.perform(.nextTrack) } }
         ]
     }
 

@@ -8,7 +8,7 @@ struct SpotifyPlaylistsView: View {
         VStack(spacing: 10) {
             if state.catalog.playlists.isEmpty {
                 if state.catalog.isLoading { ProgressView().controlSize(.small) }
-                else { Text(state.catalog.error ?? "Inga spellistor tillgängliga").font(.caption).foregroundStyle(.secondary) }
+                else { Text(state.catalog.error ?? "No playlists available").font(.caption).foregroundStyle(.secondary) }
             } else {
                 HStack(spacing: 16) {
                     ForEach(state.catalog.playlists) { playlist in
@@ -20,7 +20,7 @@ struct SpotifyPlaylistsView: View {
                         }
                         .buttonStyle(.plain).focusable(false)
                         .disabled(service.isPerformingAction)
-                        .accessibilityLabel("Spela \(playlist.title)")
+                        .accessibilityLabel("Play \(playlist.title)")
                         .accessibilityAddTraits(state.playlist?.id == playlist.id ? .isSelected : [])
                     }
                 }
@@ -30,7 +30,7 @@ struct SpotifyPlaylistsView: View {
             }
         }
         .background {
-            Button("Spela spellista", action: play).keyboardShortcut(.return, modifiers: []).hidden()
+            Button("Play playlist", action: play).keyboardShortcut(.return, modifiers: []).hidden()
                 .disabled(state.playlist == nil || service.isPerformingAction)
         }
         .task { await state.catalog.load() }

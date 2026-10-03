@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ActionList: View {
-    var title = "Åtgärder"
+    var title = "Actions"
     let actions: [AppletAction]
     let dismiss: () -> Void
     @State private var highlighted = 0
@@ -9,7 +9,11 @@ struct ActionList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(8)
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 3) {
@@ -23,8 +27,8 @@ struct ActionList: View {
                                     Text(action.shortcut).foregroundStyle(.secondary).font(.caption)
                                 }
                                 .font(.system(size: 12))
-                                .padding(.horizontal, 10).padding(.vertical, 9)
-                                .background(.white.opacity(highlighted == index ? 0.1 : 0), in: .rect(cornerRadius: 9))
+                                .padding(.horizontal, 12).padding(.vertical, 10)
+                                .background(.white.opacity(highlighted == index ? 0.1 : 0), in: .rect(cornerRadius: 12))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain).focusable(false)
@@ -34,11 +38,11 @@ struct ActionList: View {
                         }
                     }
                 }
-                .frame(height: min(CGFloat(actions.count) * 36, 320))
+                .frame(height: min(CGFloat(actions.count) * 40, 320))
                 .onChange(of: highlighted) { _, index in proxy.scrollTo(index) }
             }
         }
-        .padding(8).frame(width: 280)
+        .padding(8).frame(width: 300)
         .focusable(interactions: .edit).focused($focused).focusEffectDisabled()
         .task { await Task.yield(); focused = true }
         .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { key in

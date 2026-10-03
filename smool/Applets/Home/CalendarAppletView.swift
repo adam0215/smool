@@ -26,26 +26,26 @@ struct CalendarAppletView: View {
                 .frame(width: 72)
             }
             .buttonStyle(.plain).focusable(false)
-            .accessibilityLabel("Öppna \(service.day.formatted(.dateTime.day().month(.wide).year())) i Kalender")
+            .accessibilityLabel("Open \(service.day.formatted(.dateTime.day().month(.wide).year())) in Calendar")
 
             VStack(alignment: .leading, spacing: 7) {
                 if service.isLoading {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
                         if service.isRequestingAccess {
-                            Text("Tillåt åtkomst i macOS-dialogen").font(.system(size: 11)).foregroundStyle(.secondary)
+                            Text("Allow access in the macOS dialog").font(.system(size: 11)).foregroundStyle(.secondary)
                         }
                     }
                 } else if let message = service.message {
                     Text(message).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(3)
                     if service.needsPermission {
-                        Button("Anslut", action: connectCalendar)
+                        Button("Connect", action: connectCalendar)
                             .font(.system(size: 11)).buttonStyle(.plain)
                     }
                 } else if let event {
                     HStack(spacing: 6) {
                         Circle().fill(Color(cgColor: event.calendar.cgColor)).frame(width: 5, height: 5)
-                        Text(event.isAllDay ? "Hela dagen" : "\(event.startDate.formatted(date: .omitted, time: .shortened))–\(event.endDate.formatted(date: .omitted, time: .shortened))")
+                        Text(event.isAllDay ? "All day" : "\(event.startDate.formatted(date: .omitted, time: .shortened))–\(event.endDate.formatted(date: .omitted, time: .shortened))")
                             .monospacedDigit()
                         Spacer()
                         Text("\(min(selectedEvent + 1, service.events.count)) / \(service.events.count)").foregroundStyle(.tertiary)
@@ -56,7 +56,7 @@ struct CalendarAppletView: View {
                         else { showsDetails = true }
                     } label: {
                         HStack(spacing: 8) {
-                            Text(event.title ?? "Namnlös händelse")
+                            Text(event.title ?? "Untitled event")
                                 .font(.system(size: 17, weight: .medium)).lineLimit(2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Image(systemName: showsDetails ? "arrow.up.right" : "arrow.turn.down.left")
@@ -70,12 +70,12 @@ struct CalendarAppletView: View {
                             .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
                     }
                 } else {
-                    Text("Inget planerat").font(.system(size: 17, weight: .medium))
+                    Text("Nothing planned").font(.system(size: 17, weight: .medium))
                 }
             }
             .padding(14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .modifier(CardGlass(shape: RoundedRectangle(cornerRadius: 20), isSelected: showsDetails))
+            .background(.white.opacity(showsDetails ? 0.07 : 0.025), in: .rect(cornerRadius: 16))
         }
         .modifier(AppletPadding())
         .padding(.horizontal, NotchLayout.contentInset)
@@ -113,7 +113,7 @@ struct CalendarAppletView: View {
             else { close() }
             return .handled
         }
-        .notchHelp("←→ Byt dag · ↑↓ Välj händelse\n↵ Detaljer, sedan öppna Kalender\nesc Tillbaka · ? Stäng hjälpen")
+        .notchHelp("←→ Change day · ↑↓ Select event\n↵ Details, then open Calendar\nesc Back · ? Close help")
     }
 
     private func connectCalendar() {

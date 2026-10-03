@@ -16,7 +16,7 @@ struct BatteryStatus {
     }
 
     var description: String {
-        "Batteri \(percentage) procent\(isCharging ? ", laddar" : "")"
+        "Battery \(percentage) percent\(isCharging ? ", charging" : "")"
     }
 
     static func current() -> BatteryStatus? {

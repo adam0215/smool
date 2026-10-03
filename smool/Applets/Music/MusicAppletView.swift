@@ -20,7 +20,7 @@ struct MusicAppletView: View {
             } else {
                 HStack(spacing: 16) {
                     Image(systemName: "music.note").font(.system(size: 32, weight: .light))
-                    Text("Inget spelas just nu").font(.system(size: 16, weight: .medium))
+                    Text("Nothing is playing").font(.system(size: 16, weight: .medium))
                 }
                 .foregroundStyle(.secondary)
             }
@@ -43,7 +43,7 @@ struct MusicAppletView: View {
             }
             return .handled
         }
-        .notchHelp("←→ Välj kontroll\n↵ Utför · Mellanslag Spela/pausa\n? Stäng hjälpen")
+        .notchHelp("←→ Select control\n↵ Activate · Space Play/pause\n? Close help")
         .task { await service.observe() }
     }
 }
