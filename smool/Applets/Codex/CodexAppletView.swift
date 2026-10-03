@@ -9,7 +9,7 @@ struct CodexAppletView: View {
     @State private var recipientIndex = 0
     private let restoreFocus: () -> Void
 
-    private enum Focus: Hashable { case search, composer, recipient }
+    private enum Focus: Hashable { case deck, search, composer, recipient, recipientList }
     @FocusState private var focus: Focus?
 
     init(service: CodexService? = nil, state: CodexAppletState? = nil, restoreFocus: @escaping () -> Void = {}) {
@@ -47,6 +47,14 @@ struct CodexAppletView: View {
                 threadList
             }
         }
+        .focusable(interactions: .edit)
+        .focused($focus, equals: .deck)
+        .focusEffectDisabled()
+        .onAppletFocusRestore {
+            guard !state.showsProjects, !state.showsRecipientPicker else { return }
+            if case .composer = state.scope { return }
+            focus = .deck
+        }
         .overlay(alignment: .bottom) {
             if case .composer(let thread) = state.scope, !state.showsRecipientPicker {
                 composer(thread)
@@ -77,9 +85,15 @@ struct CodexAppletView: View {
             return .handled
         }
         .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { key in
-            guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker,
-                  key.modifiers == .option else { return .ignored }
-            moveActivity(key.key == .upArrow ? -1 : 1)
+            guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker else { return .ignored }
+            let offset = key.key == .upArrow ? -1 : 1
+            if key.modifiers == .option {
+                moveActivity(offset)
+            } else if unmodified(key) {
+                state.page = cyclingPage(in: CodexPage.allCases, to: state.page, offset: offset)
+            } else {
+                return .ignored
+            }
             return .handled
         }
         .onKeyPress(.space, phases: .down) { key in
@@ -90,6 +104,10 @@ struct CodexAppletView: View {
         }
         .onKeyPress(.return, phases: .down) { key in
             guard state.page != .usage, !state.showsProjects, !state.showsRecipientPicker, unmodified(key) else { return .ignored }
+            if state.scope == .search, focus == .deck {
+                focus = .search
+                return .handled
+            }
             if state.scope == .deck, let thread = threadSelection.selectedThread {
                 compose(thread)
                 return .handled
@@ -108,7 +126,9 @@ struct CodexAppletView: View {
         }
         .background {
             Button("Choose project") { state.openProjects() }.keyboardShortcut("p", modifiers: .command).hidden()
-            Button("Search threads", action: beginSearch).keyboardShortcut("f", modifiers: .command).hidden()
+            Button("Search threads", action: beginSearch)
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(state.showsProjects || state.showsRecipientPicker).hidden()
             Button("Group by project") {
                 state.groupsByProject.toggle()
                 state.page = .history
@@ -236,10 +256,14 @@ struct CodexAppletView: View {
                         Text(issue).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)
                     }
                     HStack(spacing: 12) {
-                        Text("←→ Threads · ⌥↑↓ Activity")
-                        Spacer(minLength: 4)
-                        Button(state.isExpanded ? "Close details Space" : "Details Space") { state.isExpanded.toggle() }
-                        Button("Write ↵") { compose(thread) }
+                        if state.scope == .search {
+                            Text(focus == .search ? "↓ Threads · esc Navigate" : "↵ Edit search · esc Threads")
+                        } else {
+                            Text("←→ Threads · ⌥↑↓ Activity")
+                            Spacer(minLength: 4)
+                            Button(state.isExpanded ? "Close details Space" : "Details Space") { state.isExpanded.toggle() }
+                            Button("Write ↵") { compose(thread) }
+                        }
                     }
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -358,9 +382,10 @@ struct CodexAppletView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
         .focusable(interactions: .edit)
-        .focused($focus, equals: .recipient)
+        .focused($focus, equals: .recipientList)
         .focusEffectDisabled()
-        .task { await Task.yield(); focus = .recipient }
+        .onAppletFocusRestore { focus = .recipientList }
+        .task { await Task.yield(); focus = .recipientList }
         .onKeyPress(keys: [.upArrow, .downArrow]) { key in
             state.moveProject(key.key == .upArrow ? -1 : 1, in: service.projects)
             return .handled
@@ -377,10 +402,6 @@ struct CodexAppletView: View {
                 .padding(.vertical, 6)
                 .focused($focus, equals: .recipient)
                 .onSubmit { chooseHighlightedRecipient() }
-                .onKeyPress(keys: [.upArrow, .downArrow]) { key in
-                    recipientIndex = min(max(recipientIndex + (key.key == .upArrow ? -1 : 1), 0), max(0, recipientThreads.count - 1))
-                    return .handled
-                }
             if state.choosesPendingRecipient, let text = state.pendingText {
                 Text(text).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
             }
@@ -406,7 +427,7 @@ struct CodexAppletView: View {
                 .onChange(of: recipientIndex) { _, index in proxy.scrollTo(index) }
             }
             .frame(maxHeight: .infinity)
-            Text("↑↓ Choose · ↵ Write · esc Back")
+            Text("↑↓ Choose · ↵ Write · ⌘F Search · esc Back")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
             if recipientThreads.isEmpty {
                 Text(service.displayedThreads.isEmpty ? "Open a thread in Codex to choose a recipient." : "No matching threads")
@@ -418,6 +439,20 @@ struct CodexAppletView: View {
         .modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
         .preferredColorScheme(.dark)
         .onChange(of: recipientQuery) { _, _ in recipientIndex = 0 }
+        .focusable(interactions: .edit)
+        .focused($focus, equals: .recipientList)
+        .focusEffectDisabled()
+        .onAppletFocusRestore { focus = .recipientList }
+        .background {
+            Button("Search recipients") { focus = .recipient }
+                .keyboardShortcut("f", modifiers: .command).hidden()
+        }
+        .onKeyPress(keys: [.upArrow, .downArrow]) { key in
+            guard unmodified(key) else { return .ignored }
+            recipientIndex = min(max(recipientIndex + (key.key == .upArrow ? -1 : 1), 0), max(0, recipientThreads.count - 1))
+            return .handled
+        }
+        .onKeyPress(.return) { chooseHighlightedRecipient(); return .handled }
         .task { await Task.yield(); focus = .recipient }
         .onKeyPress(.escape) {
             state.showsRecipientPicker = false
