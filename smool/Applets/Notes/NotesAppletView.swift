@@ -4,6 +4,7 @@ struct NotesAppletView: View {
     @Bindable var applet: NotesApplet
     let restoreFocus: () -> Void
     @FocusState private var listIsFocused: Bool
+    @FocusState private var deletionIsFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -45,6 +46,11 @@ struct NotesAppletView: View {
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .focusable()
+                    .focusEffectDisabled()
+                    .focused($listIsFocused)
+                    .onAppletFocusRestore { listIsFocused = true }
+                    .task { listIsFocused = true }
                 } else {
                     noteList
                     Text("↑↓ Select · ↵ Edit · ⌘K Actions")
@@ -125,6 +131,11 @@ struct NotesAppletView: View {
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($deletionIsFocused)
+        .onAppletFocusRestore { deletionIsFocused = true }
+        .task { deletionIsFocused = true }
     }
 
     private func closeEditor() {
@@ -147,7 +158,9 @@ struct NotesAppletView: View {
                                     .frame(width: 20)
                                 Text(note.title).lineLimit(1)
                                 Spacer(minLength: 4)
-                                Text(note.updatedAt, style: .date).font(.system(size: 11)).foregroundStyle(.secondary)
+                                Text(note.updatedAt, format: .dateTime.day().month(.abbreviated).year().locale(Locale(identifier: "en_GB")))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
                             }
                             .font(.system(size: 13))
                             .padding(.horizontal, 12)
@@ -168,6 +181,7 @@ struct NotesAppletView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($listIsFocused)
+        .onAppletFocusRestore { listIsFocused = true }
         .task { listIsFocused = true }
         .onDisappear { listIsFocused = false }
     }

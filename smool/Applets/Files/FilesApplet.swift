@@ -7,25 +7,27 @@ final class FilesApplet: Applet {
     let icon = AppletIcon.symbol("tray.full")
     let tint = Color.cyan
     let store: FileShelfStore
-    var showsImporter = false
+    var showsPathEntry = false
+    var pathDraft = ""
+    var pathError: String?
     var previewURL: URL?
 
     init(store: FileShelfStore? = nil) { self.store = store ?? FileShelfStore() }
 
-    var contentHeight: CGFloat { 212 }
-    var hasPresentedOverlay: Bool { showsImporter || previewURL != nil }
+    var contentHeight: CGFloat { previewURL != nil ? 340 : (showsPathEntry ? 244 : 212) }
+    var hasPresentedOverlay: Bool { showsPathEntry || previewURL != nil }
     var status: AppletStatus? {
         store.error.map { AppletStatus(kind: .needsAttention, label: $0, symbol: "exclamationmark.triangle") }
     }
 
     var actions: [AppletAction] {
         var actions = [
-            AppletAction(id: "Add files", symbol: "plus", shortcut: "⌘O") { self.showsImporter = true },
+            AppletAction(id: "Add files", symbol: "plus", shortcut: "⌘O") { self.openPathEntry() },
             AppletAction(id: "Refresh shelf", symbol: "arrow.clockwise", shortcut: "⌘R") { self.store.refresh() }
         ]
         if let file = store.selectedFile {
             if file.url != nil {
-                actions.append(AppletAction(id: "Preview", symbol: "eye", shortcut: "Space") { self.previewURL = file.url })
+                actions.append(AppletAction(id: "Preview", symbol: "eye", shortcut: "Space") { self.showPreview(file.url) })
                 actions.append(AppletAction(id: "Show in Finder", symbol: "folder") { NSWorkspace.shared.activateFileViewerSelecting(self.store.selectedURLs) })
             }
             actions.append(AppletAction(id: "Remove from shelf", symbol: "minus.circle", shortcut: "⌘⌫") { self.store.removeSelected() })
@@ -34,6 +36,48 @@ final class FilesApplet: Applet {
     }
 
     func add(urls: [URL]) { store.add(urls: urls) }
+
+    func openPathEntry() {
+        previewURL = nil
+        showsPathEntry = true
+    }
+
+    func addPaths() {
+        let paths = pathDraft.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !paths.isEmpty else {
+            pathError = "Enter a file path, or drop files here."
+            return
+        }
+
+        var urls: [URL] = []
+        for line in paths {
+            var path = line
+            if path.count > 1, (path.first == "\"" && path.last == "\"") || (path.first == "'" && path.last == "'") {
+                path = String(path.dropFirst().dropLast())
+            }
+            if path.hasPrefix("file://"), let url = URL(string: path), url.isFileURL {
+                urls.append(url)
+            } else {
+                let expanded = (path as NSString).expandingTildeInPath
+                guard expanded.hasPrefix("/") else {
+                    pathError = "Use a full path or one beginning with ~, one file per line."
+                    return
+                }
+                urls.append(URL(fileURLWithPath: expanded))
+            }
+        }
+
+        pathError = nil
+        add(urls: urls)
+        showsPathEntry = false
+    }
+
+    func showPreview(_ url: URL?) {
+        showsPathEntry = false
+        previewURL = url
+    }
 
     func makeView(context: AppletContext, artwork: NSImage?) -> AnyView {
         AnyView(FilesAppletView(applet: self))
@@ -45,5 +89,5 @@ final class FilesApplet: Applet {
         return true
     }
 
-    func dismissOverlay() { showsImporter = false; previewURL = nil }
+    func dismissOverlay() { showsPathEntry = false; previewURL = nil }
 }
