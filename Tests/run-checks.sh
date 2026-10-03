@@ -8,6 +8,8 @@ mkdir -p "$checks/ModuleCache" "$checks/renders"
 swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -parse-as-library)
 "${swiftc[@]}" smool/AudioEnvelope.swift Tests/AudioEnvelopeChecks.swift -o "$checks/audio-envelope"
 "$checks/audio-envelope"
+"${swiftc[@]}" smool/AudioEnvelope.swift smool/AudioSpectrumAnalyzer.swift Tests/AudioSpectrumChecks.swift -o "$checks/audio-spectrum"
+"$checks/audio-spectrum"
 "${swiftc[@]}" smool/AudioEnvelope.swift smool/MusicGlow.swift Tests/MusicGlowChecks.swift -o "$checks/music-glow"
 "$checks/music-glow" "$checks/renders"
 "${swiftc[@]}" smool/NotchTab.swift Tests/NotchNavigationChecks.swift -o "$checks/navigation"

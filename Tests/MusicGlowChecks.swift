@@ -10,24 +10,23 @@ struct MusicGlowChecks {
             Color.blue
         }.frame(width: 128, height: 128)).nsImage!
 
-        var quiet = AudioEnvelope()
-        var loud = AudioEnvelope()
-        var beat = AudioEnvelope()
+        var quiet = AudioSpectrum()
+        var loud = AudioSpectrum()
+        var beat = AudioSpectrum()
         for _ in 0..<90 {
-            quiet.update(rms: 0.02, elapsed: 1.0 / 30)
-            loud.update(rms: 0.5, elapsed: 1.0 / 30)
-            beat.update(rms: 0.12, elapsed: 1.0 / 30)
+            quiet.update(AudioBands(bass: 0.02, middle: 0.02, treble: 0.02), elapsed: 1.0 / 30)
+            loud.update(AudioBands(bass: 0.5, middle: 0.5, treble: 0.5), elapsed: 1.0 / 30)
+            beat.update(AudioBands(bass: 0.12, middle: 0.12, treble: 0.12), elapsed: 1.0 / 30)
         }
-        for _ in 0..<4 { beat.update(rms: 1, elapsed: 1.0 / 30) }
-        var peak = AudioEnvelope()
-        for _ in 0..<10 { peak.update(rms: 1, elapsed: 1.0 / 30) }
-        precondition(peak.lift == 1, "Exercise the highest possible glow against the notch boundary.")
+        for _ in 0..<12 { beat.update(AudioBands(bass: 1, middle: 1, treble: 1), elapsed: 1.0 / 30) }
+        var peak = AudioSpectrum()
+        for _ in 0..<30 { peak.update(AudioBands(bass: 1, middle: 1, treble: 1), elapsed: 1.0 / 30) }
         var faded = beat
-        for _ in 0..<60 { faded.update(rms: 0, elapsed: 1.0 / 30) }
+        for _ in 0..<150 { faded.update(AudioBands(), elapsed: 1.0 / 30) }
 
         for colors in [cover, nil] {
             var upperLight: [String: Double] = [:]
-            for (name, audio) in [("silence", AudioEnvelope()), ("quiet", quiet), ("loud", loud),
+            for (name, audio) in [("silence", AudioSpectrum()), ("quiet", quiet), ("loud", loud),
                                   ("beat", beat), ("peak", peak), ("faded", faded)] {
                 let renderer = ImageRenderer(content: MusicGlow(colors: colors, fallback: .green, darkHeight: 80, audio: audio)
                     .frame(width: 480, height: 224).background(.black))
@@ -50,6 +49,27 @@ struct MusicGlowChecks {
             precondition(upperLight["loud"]! > upperLight["quiet"]! + 100,
                          "Louder music must raise the light into the upper part of the allowed band.")
             precondition(upperLight["beat"]! > upperLight["quiet"]! + 100)
+        }
+        for (name, bands) in [("bass", AudioBands(bass: 0.5)), ("treble", AudioBands(treble: 0.5))] {
+            var spectrum = AudioSpectrum()
+            for _ in 0..<90 { spectrum.update(bands, elapsed: 1.0 / 30) }
+            let renderer = ImageRenderer(content: MusicGlow(colors: nil, fallback: .green, darkHeight: 80, audio: spectrum)
+                .frame(width: 480, height: 224).background(.black))
+            let pixels = NSBitmapImageRep(cgImage: renderer.cgImage!)
+            var left = 0.0
+            var right = 0.0
+            for y in 0..<224 {
+                for x in 0..<480 {
+                    let pixel = pixels.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    let brightness = max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent)
+                    if y < 80 { precondition(brightness < 0.005) }
+                    if x < 160 { left += brightness }
+                    if x >= 320 { right += brightness }
+                }
+            }
+            precondition(name == "bass" ? left > right * 5 : right > left * 5,
+                         "Bass belongs on the left and treble on the right.")
+            try pixels.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("music-glow-\(name).png"))
         }
         print("Passed: black notch band at peak volume, dark silence, rising light, and artwork/fallback rendering.")
     }

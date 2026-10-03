@@ -97,7 +97,7 @@ private struct AppletGlow: View {
         ZStack {
             if usesAudioGlow {
                 MusicGlow(colors: artwork?.colors, fallback: HomeGlow.color(for: tab == .spotify ? .spotify : nil),
-                          darkHeight: darkHeight, audio: audio.envelope)
+                          darkHeight: darkHeight, audio: audio.spectrum)
                     .id(artworkSource)
                     .transition(.opacity)
             } else {
