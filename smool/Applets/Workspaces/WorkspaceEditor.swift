@@ -154,6 +154,7 @@ struct WorkspaceEditor: View {
                     .keyboardShortcut("n", modifiers: .command)
                 Spacer()
                 Button("Save  ⌘↵", action: onSave)
+                    .buttonStyle(FloatingControlStyle())
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(!store.canSave)
             }.buttonStyle(.plain)
@@ -166,7 +167,6 @@ struct WorkspaceEditor: View {
         }
         .font(.system(size: 12))
         .padding(20)
-        .modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
         .task {
             await Task.yield()
             if draft.workspace.name.isEmpty { nameFocused = true }

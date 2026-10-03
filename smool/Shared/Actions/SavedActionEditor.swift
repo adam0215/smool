@@ -91,7 +91,7 @@ struct SavedActionEditor: View {
                     .font(.system(size: 10)).foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 Button("Save  ⌘↵", action: save)
-                    .buttonStyle(.plain)
+                    .buttonStyle(FloatingControlStyle())
                     .font(.system(size: 12, weight: .semibold))
                     .keyboardShortcut(.return, modifiers: .command)
             }
@@ -99,7 +99,6 @@ struct SavedActionEditor: View {
         .font(.system(size: 12))
         .textFieldStyle(EditorTextFieldStyle())
         .padding(20)
-        .modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
         .focusable(interactions: .edit).focused($field, equals: .navigation).focusEffectDisabled()
         .onAppletFocusRestore { field = .navigation }
         .task {
