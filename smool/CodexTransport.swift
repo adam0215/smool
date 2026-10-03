@@ -149,7 +149,7 @@ final class CodexTransport: @unchecked Sendable {
         var change = params["change"]?.object ?? [:]
         change["acceptedTextChanges"] = nil
         if change["type"]?.string == "snapshot", let state = change["conversationState"] {
-            let keys = ["id", "title", "updatedAt", "threadRuntimeStatus"]
+            let keys = ["id", "title", "updatedAt", "cwd", "threadRuntimeStatus"]
             change["conversationState"] = .object(Dictionary(uniqueKeysWithValues: keys.map { ($0, state[$0]) }))
         } else if change["type"]?.string == "patches" {
             let patches = change["patches"]?.array ?? []

@@ -1,50 +1,5 @@
 import SwiftUI
 
-enum CodexPage: String, CaseIterable {
-    case active = "Aktiva trådar"
-    case history = "Tidigare trådar"
-    case usage = "Användning"
-}
-
-enum CodexScope: Equatable {
-    case deck, search
-    case composer(CodexThread)
-}
-
-@MainActor @Observable
-final class CodexAppletState {
-    var groupsByProject = UserDefaults.standard.bool(forKey: "codex.groupsByProject") {
-        didSet { UserDefaults.standard.set(groupsByProject, forKey: "codex.groupsByProject") }
-    }
-    var projectPath: String?
-    var composerHeight: CGFloat = 0
-    var page = CodexPage.active
-    var scope = CodexScope.deck
-    var selection: [CodexPage: String] = [:]
-    var searches: [CodexPage: String] = [:]
-
-    func projects(in threads: [CodexThread]) -> [String] {
-        Array(Set(threads.map(\.projectPath))).sorted { lhs, rhs in
-            let order = URL(fileURLWithPath: lhs).lastPathComponent.localizedStandardCompare(URL(fileURLWithPath: rhs).lastPathComponent)
-            return order == .orderedSame ? lhs < rhs : order == .orderedAscending
-        }
-    }
-
-    func selectedProject(in threads: [CodexThread]) -> String? {
-        let paths = projects(in: threads)
-        return projectPath.flatMap { paths.contains($0) ? $0 : nil } ?? paths.first
-    }
-
-    func moveProject(_ offset: Int, in threads: [CodexThread]) {
-        let paths = projects(in: threads)
-        guard let current = selectedProject(in: threads) else { return }
-        groupsByProject = true
-        page = .history
-        scope = .deck
-        projectPath = cyclingPage(in: paths, to: current, offset: offset)
-    }
-}
-
 struct CodexAppletView: View {
     @State private var service: CodexService
     @State private var state: CodexAppletState
@@ -65,18 +20,7 @@ struct CodexAppletView: View {
         Binding(get: { state.searches[state.page] ?? "" }, set: { state.searches[state.page] = $0 })
     }
 
-    private var threads: [CodexThread] {
-        let query = query.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        return service.threads.filter { thread in
-            (state.page != .active || thread.isActive)
-                && (state.page != .history || !state.groupsByProject || thread.projectPath == state.selectedProject(in: service.threads))
-                && (query.isEmpty || thread.title.localizedStandardContains(query) || thread.preview.localizedStandardContains(query))
-        }
-    }
-
-    private var selectedThread: CodexThread? {
-        threads.first { $0.id == state.selection[state.page] } ?? threads.first
-    }
+    private var threadSelection: CodexThreadSelection { state.threadSelection(in: service.threads, projects: service.projects) }
 
     private var editingHint: String {
         switch state.scope {
@@ -91,9 +35,9 @@ struct CodexAppletView: View {
             pages: CodexPage.allCases,
             selection: $state.page,
             title: { $0.rawValue },
-            isNavigating: state.scope == .deck,
+            isNavigating: state.scope == .deck && !state.showsProjects,
             editingHint: editingHint,
-            navigationHint: state.page == .usage ? "↑↓ Byt sida · ⌘K Åtgärder" : "↑↓ Byt sida\n←→ Välj tråd · ↵ Skriv\n⌘F Sök · ? Stäng hjälpen"
+            navigationHint: state.page == .usage ? "↑↓ Byt sida · ⌘K Åtgärder" : "↑↓ Byt sida · ←→ Välj tråd · ↵ Skriv\n⌘P Välj projekt · ⌘←→ Byt projekt\n⌘F Sök · ? Stäng hjälpen"
         ) { page in
             if case .composer(let thread) = state.scope {
                 composer(thread)
@@ -104,13 +48,13 @@ struct CodexAppletView: View {
             }
         }
         .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { key in
-            guard state.scope == .deck, state.page != .usage, unmodified(key) else { return .ignored }
+            guard state.scope == .deck, !state.showsProjects, state.page != .usage, unmodified(key) else { return .ignored }
             moveThread(key.key == .leftArrow ? -1 : 1)
             return .handled
         }
         .onKeyPress(.return, phases: .down) { key in
-            guard state.page != .usage, unmodified(key) else { return .ignored }
-            if state.scope == .deck, let thread = selectedThread {
+            guard state.page != .usage, !state.showsProjects, unmodified(key) else { return .ignored }
+            if state.scope == .deck, let thread = threadSelection.selectedThread {
                 compose(thread)
                 return .handled
             }
@@ -125,6 +69,7 @@ struct CodexAppletView: View {
             return .handled
         }
         .background {
+            Button("Välj projekt") { state.openProjects() }.keyboardShortcut("p", modifiers: .command).hidden()
             Button("Sök trådar", action: beginSearch).keyboardShortcut("f", modifiers: .command).hidden()
             Button("Gruppera per projekt") {
                 state.groupsByProject.toggle()
@@ -155,28 +100,44 @@ struct CodexAppletView: View {
     }
 
     private var threadList: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let selection = threadSelection
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 if state.scope == .search {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField("Sök trådar", text: query)
                         .textFieldStyle(.plain)
                         .focused($focus, equals: .search)
-                        .onSubmit { if let thread = selectedThread { compose(thread) } }
+                        .onSubmit { if let thread = threadSelection.selectedThread { compose(thread) } }
                         .onKeyPress(.downArrow) { returnToDeck(); return .handled }
                         .onKeyPress(.escape) { returnToDeck(); return .handled }
                 } else {
-                    Text(state.page == .history && state.groupsByProject
-                         ? (state.selectedProject(in: service.threads).map { $0.isEmpty ? "Utan projekt" : URL(fileURLWithPath: $0).lastPathComponent } ?? "Inga projekt")
-                         : state.page.rawValue)
-                        .foregroundStyle(.secondary).lineLimit(1)
+                    if state.page == .history && state.groupsByProject {
+                        Button { state.showsProjects = true } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "folder")
+                                Text(selection.project?.name ?? "Välj projekt").lineLimit(1)
+                                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+                            }
+                        }
+                        .help("Välj projekt · ⌘P · ⌘←→ byter projekt")
+                        .accessibilityLabel("Projekt: \(selection.project?.name ?? "Välj projekt")")
+                        .popover(isPresented: $state.showsProjects, arrowEdge: .bottom) {
+                            ActionList(title: "Projekt", actions: service.projects.map { project in
+                                NotchAction(id: project.name, symbol: "folder", selected: project.id == selection.project?.id) {
+                                    state.selectProject(project)
+                                }
+                            }) { state.showsProjects = false }
+                            .preferredColorScheme(.dark)
+                        }
+                    } else {
+                        Text(state.page.rawValue).foregroundStyle(.secondary).lineLimit(1)
+                    }
                     if !query.wrappedValue.isEmpty {
                         Text(query.wrappedValue).lineLimit(1).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text(selectedThread.map { thread in
-                        "\((threads.firstIndex(where: { $0.id == thread.id }) ?? 0) + 1) / \(threads.count)"
-                    } ?? "")
+                    Text(selection.selectedIndex.map { "\($0 + 1) / \(selection.threads.count)" } ?? "")
                     .monospacedDigit().foregroundStyle(.tertiary)
                     if service.includesArchived, state.page == .history {
                         Image(systemName: "archivebox").foregroundStyle(.secondary)
@@ -187,10 +148,10 @@ struct CodexAppletView: View {
             .font(.system(size: 10)).buttonStyle(.plain)
             .focusable(false)
 
-            if let thread = selectedThread {
+            if let thread = selection.selectedThread {
                 Button { compose(thread) } label: {
                     HStack(spacing: 14) {
-                        ProjectIcon(path: thread.projectPath, isActive: thread.isActive)
+                        ProjectIcon(path: thread.project?.roots.first ?? thread.projectPath, isActive: thread.isActive)
                             .frame(width: 42, height: 42)
                         VStack(alignment: .leading, spacing: 5) {
                             Text(thread.title).font(.system(size: 17, weight: .medium)).lineLimit(2)
@@ -208,7 +169,7 @@ struct CodexAppletView: View {
             } else {
                 emptyState
             }
-            if let error = service.error {
+            if let error = service.error ?? (state.groupsByProject ? service.projectError : nil) {
                 Text(error).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(1)
             }
         }
@@ -239,7 +200,7 @@ struct CodexAppletView: View {
         let connecting = service.isConnectingThreadID == thread.id
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                ProjectIcon(path: thread.projectPath, isActive: thread.isActive).frame(width: 20, height: 20)
+                ProjectIcon(path: thread.project?.roots.first ?? thread.projectPath, isActive: thread.isActive).frame(width: 20, height: 20)
                 Text(thread.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
                 Spacer()
             }
@@ -306,13 +267,14 @@ struct CodexAppletView: View {
     private func returnToDeck() {
         connectionTask?.cancel()
         state.scope = .deck
-        if let thread = selectedThread { state.selection[state.page] = thread.id }
+        if let thread = threadSelection.selectedThread { state.selection[state.page] = thread.id }
         focus = nil
     }
 
     private func moveThread(_ offset: Int) {
-        guard let selectedThread else { return }
-        let ids = threads.map(\.id)
+        let selection = threadSelection
+        guard let selectedThread = selection.selectedThread else { return }
+        let ids = selection.threads.map(\.id)
         state.selection[state.page] = adjacentPage(in: ids, to: selectedThread.id, offset: offset)
     }
 

@@ -1,0 +1,70 @@
+import SwiftUI
+
+enum CodexPage: String, CaseIterable {
+    case active = "Aktiva trådar"
+    case history = "Tidigare trådar"
+    case usage = "Användning"
+}
+
+enum CodexScope: Equatable {
+    case deck, search
+    case composer(CodexThread)
+}
+
+@MainActor @Observable
+final class CodexAppletState {
+    var groupsByProject = UserDefaults.standard.bool(forKey: "codex.groupsByProject") {
+        didSet { UserDefaults.standard.set(groupsByProject, forKey: "codex.groupsByProject") }
+    }
+    var projectID: String?
+    var showsProjects = false
+    var composerHeight: CGFloat = 0
+    var page = CodexPage.active
+    var scope = CodexScope.deck
+    var selection: [CodexPage: String] = [:]
+    var searches: [CodexPage: String] = [:]
+
+    func threadSelection(in threads: [CodexThread], projects: [CodexProject]) -> CodexThreadSelection {
+        let project = page == .history && groupsByProject ? selectedProject(in: projects) : nil
+        let query = (searches[page] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let visible = threads.filter { thread in
+            (page != .active || thread.isActive)
+                && (project == nil || (thread.project?.id ?? "") == project?.id)
+                && (query.isEmpty || thread.title.localizedStandardContains(query) || thread.preview.localizedStandardContains(query))
+        }
+        let index = visible.firstIndex { $0.id == selection[page] } ?? (visible.isEmpty ? nil : 0)
+        return CodexThreadSelection(threads: visible, selectedIndex: index, project: project)
+    }
+
+    func selectedProject(in projects: [CodexProject]) -> CodexProject? {
+        projects.first { $0.id == projectID } ?? projects.first
+    }
+
+    func selectProject(_ project: CodexProject) {
+        projectID = project.id
+        groupsByProject = true
+        page = .history
+        scope = .deck
+    }
+
+    func moveProject(_ offset: Int, in projects: [CodexProject]) {
+        guard let current = selectedProject(in: projects) else { return }
+        let id = cyclingPage(in: projects.map(\.id), to: current.id, offset: offset)
+        if let next = projects.first(where: { $0.id == id }) { selectProject(next) }
+    }
+
+    func openProjects() {
+        page = .history
+        scope = .deck
+        groupsByProject = true
+        showsProjects = true
+    }
+}
+
+struct CodexThreadSelection {
+    let threads: [CodexThread]
+    let selectedIndex: Int?
+    let project: CodexProject?
+
+    var selectedThread: CodexThread? { selectedIndex.map { threads[$0] } }
+}

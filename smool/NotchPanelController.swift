@@ -63,6 +63,7 @@ final class NotchPanelController: NSObject {
 
     func close() {
         presentation.showsActions = false
+        presentation.codexState.showsProjects = false
         isOpen = false
         transition += 1
         resizeTransition += 1
@@ -136,6 +137,7 @@ final class NotchPanelController: NSObject {
     private func selectTab(_ tab: NotchTab) {
         guard presentation.tab != tab else { return }
         presentation.showsActions = false
+        presentation.codexState.showsProjects = false
         resize(tab: tab, calendar: false)
     }
 
@@ -182,7 +184,7 @@ final class NotchPanelController: NSObject {
                 if (event.keyCode == 123 || event.keyCode == 124), !(self.panel?.firstResponder is NSTextView) {
                     if self.presentation.tab == .codex, self.presentation.codexState.groupsByProject,
                        self.presentation.codexState.page == .history, self.presentation.codexState.scope == .deck {
-                        self.presentation.codexState.moveProject(event.keyCode == 123 ? -1 : 1, in: CodexService.shared.threads)
+                        self.presentation.codexState.moveProject(event.keyCode == 123 ? -1 : 1, in: CodexService.shared.projects)
                     } else {
                         self.selectTab(self.presentation.tab.neighbor(event.keyCode == 123 ? -1 : 1))
                     }
@@ -198,11 +200,11 @@ final class NotchPanelController: NSObject {
             }
             if event.type == .keyDown, event.window === self.panel,
                event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-               !self.presentation.showsActions,
+               !self.presentation.showsActions, !self.presentation.codexState.showsProjects,
                self.navigateApplet(keyCode: event.keyCode) {
                 return nil
             }
-            if event.type != .keyDown, event.window !== self.panel, !self.presentation.showsActions {
+            if event.type != .keyDown, event.window !== self.panel, !self.presentation.showsActions, !self.presentation.codexState.showsProjects {
                 self.close()
             }
             return event

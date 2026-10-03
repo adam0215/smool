@@ -11,7 +11,7 @@ struct CodexThread: Identifiable, Equatable {
     var isConnected = false
     var isArchived = false
     var projectPath: String
-    var projectName: String { projectPath.isEmpty ? "Utan projekt" : URL(fileURLWithPath: projectPath).lastPathComponent }
+    var project: CodexProject?
     var isActive: Bool { isConnected && status == "active" }
 
     init?(json: CodexJSON) {
@@ -63,6 +63,8 @@ struct CodexLimit: Identifiable {
 final class CodexService {
     static let shared = CodexService()
     private(set) var threads: [CodexThread] = []
+    private(set) var projects: [CodexProject] = []
+    private(set) var projectError: String?
     private(set) var limits: [CodexLimit] = []
     private(set) var isLoading = false
     private(set) var isSending = false
@@ -73,6 +75,7 @@ final class CodexService {
     var includesArchived = false
     var selectedThreadID: String?
 
+    @ObservationIgnored private var projectCatalog = CodexProjects(json: .null)
     @ObservationIgnored private let catalog = CodexClient(desktop: false)
     @ObservationIgnored private let desktop = CodexClient(desktop: true)
     @ObservationIgnored private var followed: Set<String> = []
@@ -108,7 +111,9 @@ final class CodexService {
         followed.removeAll()
         revisions.removeAll()
         owners.removeAll()
-        for index in threads.indices { threads[index].isConnected = false; threads[index].status = nil }
+        var disconnected = threads
+        for index in disconnected.indices { disconnected[index].isConnected = false; disconnected[index].status = nil }
+        if disconnected != threads { threads = disconnected }
     }
 
     func refresh() async {
@@ -117,6 +122,19 @@ final class CodexService {
         refreshing = true
         isLoading = threads.isEmpty
         defer { refreshing = false; isLoading = false }
+        do {
+            let projects = try await CodexProjects.read(from: CodexClient.codexHome.appendingPathComponent(".codex-global-state.json"))
+            guard self.session == session, !Task.isCancelled else { return }
+            projectCatalog = projects
+            var updated = threads
+            for index in updated.indices { updated[index].project = projects.project(for: updated[index].id, cwd: updated[index].projectPath) }
+            if updated != threads { threads = updated }
+            updateProjects()
+            projectError = nil
+        } catch {
+            guard self.session == session, !Task.isCancelled else { return }
+            projectError = "Kunde inte läsa projekten från Codex."
+        }
         do {
             let reconnecting = !desktop.isConnected
             try await desktop.connect()
@@ -140,26 +158,35 @@ final class CodexService {
                     if let cursor { params["cursor"] = .string(cursor) }
                     let result = try await catalog.request("thread/list", params: .object(params))
                     guard self.session == session, !Task.isCancelled else { return }
+                    var updated = threads
+                    var indices = Dictionary(uniqueKeysWithValues: updated.enumerated().map { ($0.element.id, $0.offset) })
                     for value in result["data"].array {
                         guard var thread = CodexThread(json: value) else { continue }
                         thread.isArchived = archived
+                        thread.project = projectCatalog.project(for: thread.id, cwd: thread.projectPath)
                         catalogIDs.insert(thread.id)
-                        if let index = threads.firstIndex(where: { $0.id == thread.id }) {
-                            thread.status = threads[index].status
-                            thread.isConnected = threads[index].isConnected
-                            threads[index] = thread
-                        } else { threads.append(thread) }
+                        if let index = indices[thread.id] {
+                            thread.status = updated[index].status
+                            thread.isConnected = updated[index].isConnected
+                            updated[index] = thread
+                        } else {
+                            indices[thread.id] = updated.count
+                            updated.append(thread)
+                        }
                         follow(thread.id)
                     }
+                    if updated != threads { threads = updated }
+                    updateProjects()
                     cursor = result["nextCursor"].string
                     if let cursor, !seenCursors.insert(cursor).inserted { break }
                     try Task.checkCancellation()
                 } while cursor != nil
             }
-            let removed = threads.filter { !catalogIDs.contains($0.id) && !$0.isConnected }.map(\.id)
+            let removed = Set(threads.filter { !catalogIDs.contains($0.id) && !$0.isConnected }.map(\.id))
             for id in removed { desktop.follow(id, following: false); followed.remove(id) }
-            threads.removeAll { removed.contains($0.id) }
-            threads.sort { $0.updatedAt > $1.updatedAt }
+            let sorted = threads.filter { !removed.contains($0.id) }.sorted { $0.updatedAt > $1.updatedAt }
+            if sorted != threads { threads = sorted }
+            updateProjects()
             let response = try await catalog.request("account/rateLimits/read", params: .object([:]))
             guard self.session == session, !Task.isCancelled else { return }
             limits = CodexLimit.parse(response)
@@ -282,6 +309,12 @@ final class CodexService {
         }
     }
 
+    private func updateProjects() {
+        var available = projectCatalog.projects
+        if threads.contains(where: { $0.project == nil }) { available.append(.unassigned) }
+        if projects != available { projects = available }
+    }
+
     private func follow(_ id: String) {
         guard !followed.contains(id), desktop.follow(id) else { return }
         followed.insert(id)
@@ -312,10 +345,14 @@ final class CodexService {
             let state = change["conversationState"]
             if threads.firstIndex(where: { $0.id == id }) == nil, let thread = CodexThread(json: state) { threads.append(thread) }
             guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
-            threads[index].status = state["threadRuntimeStatus"]["type"].string
-            threads[index].isConnected = true
-            if let cwd = state["cwd"].string { threads[index].projectPath = cwd }
-            if let title = state["title"].string, !title.isEmpty { threads[index].title = title }
+            var thread = threads[index]
+            thread.status = state["threadRuntimeStatus"]["type"].string
+            thread.isConnected = true
+            if let cwd = state["cwd"].string { thread.projectPath = cwd }
+            thread.project = projectCatalog.project(for: thread.id, cwd: thread.projectPath)
+            if let title = state["title"].string, !title.isEmpty { thread.title = title }
+            if thread != threads[index] { threads[index] = thread }
+            updateProjects()
             revisions[id] = change["revision"].number.map(Int.init)
             owners[id] = message["sourceClientId"].string
         } else if change["type"].string == "patches" {
@@ -325,13 +362,15 @@ final class CodexService {
                 resubscribe(id)
                 return
             }
+            var thread = threads[index]
             for patch in change["patches"].array {
                 let path = patch["path"].array.compactMap(\.string)
-                if path == ["threadRuntimeStatus"] { threads[index].status = patch["value"]["type"].string }
-                else if path == ["threadRuntimeStatus", "type"] { threads[index].status = patch["value"].string }
-                else if path == ["title"], let title = patch["value"].string { threads[index].title = title }
+                if path == ["threadRuntimeStatus"] { thread.status = patch["value"]["type"].string }
+                else if path == ["threadRuntimeStatus", "type"] { thread.status = patch["value"].string }
+                else if path == ["title"], let title = patch["value"].string { thread.title = title }
                 else if path.isEmpty { resubscribe(id); return }
             }
+            if thread != threads[index] { threads[index] = thread }
             revisions[id] = change["revision"].number.map(Int.init)
         }
     }
@@ -355,7 +394,9 @@ final class CodexService {
         followed.removeAll()
         revisions.removeAll()
         owners.removeAll()
-        for index in threads.indices { threads[index].isConnected = false; threads[index].status = nil }
+        var disconnected = threads
+        for index in disconnected.indices { disconnected[index].isConnected = false; disconnected[index].status = nil }
+        if disconnected != threads { threads = disconnected }
         liveError = "Anslutningen till Codex bröts. Försöker igen när vyn uppdateras."
     }
 }

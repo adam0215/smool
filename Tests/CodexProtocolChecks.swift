@@ -1,11 +1,12 @@
 import Foundation
+import Observation
 
 @main
 struct CodexProtocolChecks {
     @MainActor static func main() async throws {
         let projectThread = CodexThread(json: .object(["id": .string("fixture"), "cwd": .string("/tmp/fixture-project")]))!
-        precondition(projectThread.projectPath == "/tmp/fixture-project" && projectThread.projectName == "fixture-project")
-        precondition(CodexThread(json: .object(["id": .string("no-project")]))?.projectName == "Utan projekt")
+        precondition(projectThread.projectPath == "/tmp/fixture-project")
+        precondition(CodexThread(json: .object(["id": .string("no-project")]))?.projectPath == "")
         let validID = "01a0fe77-3272-7de3-a433-2271eec368ee"
         precondition(CodexDesktopProtocol.threadURL(validID)?.absoluteString == "codex://threads/\(validID)")
         precondition(CodexDesktopProtocol.threadURL("../other?prompt=unexpected") == nil, "Thread links must not accept extra routes or prompt parameters.")
@@ -113,6 +114,15 @@ struct CodexProtocolChecks {
                                            "threadRuntimeStatus": .object(["type": .string("active")])])])
         service.receive(event(snapshot))
         precondition(service.threads.first?.isActive == true)
+        let duplicate = ObservationCheck()
+        withObservationTracking {
+            _ = service.threads
+        } onChange: {
+            MainActor.assumeIsolated { duplicate.changed = true }
+        }
+        service.receive(event(snapshot))
+        precondition(!duplicate.changed, "An unchanged snapshot must not invalidate the thread view.")
+
         let patch: CodexJSON = .object(["type": .string("patches"), "baseRevision": .number(10), "revision": .number(11),
             "patches": .array([.object(["op": .string("replace"), "path": .array([.string("threadRuntimeStatus")]),
                                         "value": .object(["type": .string("idle")])])])])
@@ -128,4 +138,8 @@ struct CodexProtocolChecks {
         precondition(service.liveError != nil, "Unknown protocol versions must be visible.")
         print("Codex protocol checks passed")
     }
+}
+
+@MainActor private final class ObservationCheck {
+    var changed = false
 }

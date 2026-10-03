@@ -1,6 +1,6 @@
 import SwiftUI
 
-private struct NotchAction: Identifiable {
+struct NotchAction: Identifiable {
     let id: String
     let symbol: String
     var shortcut = ""
@@ -60,6 +60,7 @@ struct NotchActionsMenu: View {
                 state.scope = .deck
                 Task { await service.setIncludesArchived(!service.includesArchived) }
             },
+            NotchAction(id: "Välj projekt", symbol: "folder", shortcut: "⌘P") { state.openProjects() },
             NotchAction(id: "Gruppera per projekt", symbol: "folder", shortcut: "⇧⌘P", selected: state.groupsByProject) {
                 state.groupsByProject.toggle()
                 state.page = .history
@@ -71,15 +72,16 @@ struct NotchActionsMenu: View {
         ]
         if state.groupsByProject, state.page == .history, state.scope == .deck {
             actions.insert(contentsOf: [
-                NotchAction(id: "Föregående projekt", symbol: "chevron.left", shortcut: "⌘←") { state.moveProject(-1, in: service.threads) },
-                NotchAction(id: "Nästa projekt", symbol: "chevron.right", shortcut: "⌘→") { state.moveProject(1, in: service.threads) }
+                NotchAction(id: "Föregående projekt", symbol: "chevron.left", shortcut: "⌘←") { state.moveProject(-1, in: service.projects) },
+                NotchAction(id: "Nästa projekt", symbol: "chevron.right", shortcut: "⌘→") { state.moveProject(1, in: service.projects) }
             ], at: 3)
         }
         return actions
     }
 }
 
-private struct ActionList: View {
+struct ActionList: View {
+    var title = "Åtgärder"
     let actions: [NotchAction]
     let dismiss: () -> Void
     @State private var highlighted = 0
@@ -87,30 +89,40 @@ private struct ActionList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("Åtgärder").font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(8)
-            ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
-                Button { invoke(action) } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: action.symbol).frame(width: 16)
-                        Text(action.id)
-                        Spacer(minLength: 12)
-                        if action.selected { Image(systemName: "checkmark").font(.caption2) }
-                        Text(action.shortcut).foregroundStyle(.secondary).font(.caption)
+            Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(8)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 3) {
+                        ForEach(Array(actions.enumerated()), id: \.offset) { index, action in
+                            Button { invoke(action) } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: action.symbol).frame(width: 16)
+                                    Text(action.id)
+                                    Spacer(minLength: 12)
+                                    if action.selected { Image(systemName: "checkmark").font(.caption2) }
+                                    Text(action.shortcut).foregroundStyle(.secondary).font(.caption)
+                                }
+                                .font(.system(size: 12))
+                                .padding(.horizontal, 10).padding(.vertical, 9)
+                                .background(.white.opacity(highlighted == index ? 0.1 : 0), in: .rect(cornerRadius: 9))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain).focusable(false)
+                            .id(index)
+                            .onHover { if $0 { highlighted = index } }
+                            .accessibilityAddTraits(action.selected ? .isSelected : [])
+                        }
                     }
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 10).padding(.vertical, 9)
-                    .background(.white.opacity(highlighted == index ? 0.1 : 0), in: .rect(cornerRadius: 9))
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain).focusable(false)
-                .onHover { if $0 { highlighted = index } }
-                .accessibilityAddTraits(action.selected ? .isSelected : [])
+                .frame(height: min(CGFloat(actions.count) * 36, 320))
+                .onChange(of: highlighted) { _, index in proxy.scrollTo(index) }
             }
         }
         .padding(8).frame(width: 280)
         .focusable(interactions: .edit).focused($focused).focusEffectDisabled()
         .task { await Task.yield(); focused = true }
         .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { key in
+            guard !actions.isEmpty else { return .ignored }
             highlighted = (highlighted + (key.key == .upArrow ? actions.count - 1 : 1)) % actions.count
             return .handled
         }
