@@ -18,7 +18,11 @@ final class CodexAppletState {
     }
     var projectID: String?
     var showsProjects = false
-    var composerHeight: CGFloat = 0
+    var isExpanded = false
+    var showsRecipientPicker = false
+    var pendingText: String?
+    var retainedActiveThreadIDs: Set<String> = []
+    var readingPositions: [String: CodexReadingPosition] = [:]
     var page = CodexPage.active
     var scope = CodexScope.deck
     var selection: [CodexPage: String] = [:]
@@ -28,7 +32,7 @@ final class CodexAppletState {
         let project = page == .history && groupsByProject ? selectedProject(in: projects) : nil
         let query = (searches[page] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let visible = threads.filter { thread in
-            (page != .active || thread.isActive)
+            (page != .active || thread.isActive || retainedActiveThreadIDs.contains(thread.id))
                 && (project == nil || (thread.project?.id ?? "") == project?.id)
                 && (query.isEmpty || thread.title.localizedStandardContains(query) || thread.preview.localizedStandardContains(query))
         }

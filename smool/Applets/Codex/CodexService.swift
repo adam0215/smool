@@ -76,12 +76,26 @@ final class CodexService {
     var drafts: [String: String] = [:]
     var includesArchived = false
     var selectedThreadID: String?
+    private(set) var activities: [String: CodexActivityPresentation] = [:]
+    private(set) var activityErrors: [String: String] = [:]
+    private(set) var unreadThreadIDs: Set<String> = []
+    private(set) var attentionByThread: [String: CodexAttention] = [:]
+    private(set) var isVisible = false
+    private(set) var monitorsStatus = false
+
+    @ObservationIgnored private var unavailableActivityIDs: Set<String> = []
+    @ObservationIgnored private var statusStreams: [String: CodexActivityStream] = [:]
+    @ObservationIgnored private var streams: [String: CodexActivityStream] = [:]
+    @ObservationIgnored private var streamAccess: [String] = []
+    @ObservationIgnored private var dirtyStreams: Set<String> = []
+    @ObservationIgnored private var publicationTask: Task<Void, Never>?
+    @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
+    @ObservationIgnored private var retryDelay: Duration = .seconds(1)
 
     @ObservationIgnored private var projectCatalog = CodexProjects(json: .null)
     @ObservationIgnored private let catalog = CodexClient(desktop: false)
     @ObservationIgnored private let desktop = CodexClient(desktop: true)
     @ObservationIgnored private var followed: Set<String> = []
-    @ObservationIgnored private var revisions: [String: Int] = [:]
     @ObservationIgnored private var owners: [String: String] = [:]
     @ObservationIgnored private var session = UUID()
     @ObservationIgnored private var refreshing = false
@@ -92,27 +106,87 @@ final class CodexService {
     }
 
     func start() async {
-        let session = UUID()
-        self.session = session
-        while refreshing {
-            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+        setVisible(true)
+        do { while !Task.isCancelled { try await Task.sleep(for: .seconds(60)) } }
+        catch { }
+    }
+
+    func setVisible(_ visible: Bool) {
+        isVisible = visible
+        if visible { publishActivities() }
+        updateLifecycle()
+    }
+
+    /// An opt-in desktop-only subscription survives closing the notch.
+    func setStatusMonitoring(_ enabled: Bool) {
+        monitorsStatus = enabled
+        updateLifecycle()
+    }
+
+    private func updateLifecycle() {
+        guard isVisible || monitorsStatus else {
+            lifecycleTask?.cancel()
+            lifecycleTask = nil
+            stop()
+            return
         }
-        repeat {
-            await refresh()
-            do { try await Task.sleep(for: .seconds(30)) }
-            catch { break }
-        } while !Task.isCancelled && self.session == session
-        if self.session == session { stop() }
+        guard lifecycleTask == nil else { return }
+        lifecycleTask = Task { [weak self] in
+            var nextRefresh = ContinuousClock.now
+            while !Task.isCancelled {
+                guard let self else { return }
+                if ContinuousClock.now >= nextRefresh && (self.isVisible || self.threads.isEmpty) {
+                    await self.refresh()
+                    nextRefresh = .now.advanced(by: .seconds(30))
+                } else if !self.desktop.isConnected {
+                    do {
+                        try await self.desktop.connect()
+                        self.liveError = nil
+                        for thread in self.threads { self.follow(thread.id) }
+                    } catch { self.liveError = error.localizedDescription }
+                }
+                if !self.isVisible { self.catalog.disconnect() }
+                self.retryDelay = self.desktop.isConnected ? .seconds(1) : min(self.retryDelay * 2, .seconds(30))
+                do { try await Task.sleep(for: self.desktop.isConnected ? .seconds(5) : self.retryDelay) }
+                catch { break }
+            }
+        }
+    }
+
+    func selectThread(_ id: String?) {
+        selectedThreadID = id
+        guard let id else { return }
+        markRead(id)
+        streamAccess.removeAll { $0 == id }
+        streamAccess.append(id)
+        if streams[id] == nil || unavailableActivityIDs.remove(id) != nil {
+            streams[id] = CodexActivityStream()
+            resubscribe(id)
+        }
+        while streamAccess.count > 4 {
+            let removed = streamAccess.removeFirst()
+            streams[removed] = nil
+            activities[removed] = nil
+            activityErrors[removed] = nil
+            unavailableActivityIDs.remove(removed)
+        }
+    }
+
+    func markRead(_ id: String) {
+        if unreadThreadIDs.contains(id) { unreadThreadIDs.remove(id) }
     }
 
     func stop() {
+        publicationTask?.cancel()
+        publicationTask = nil
+        for id in Array(streams.keys) { streams[id]?.disconnect() }
+        for id in Array(statusStreams.keys) { statusStreams[id]?.disconnect() }
         if cachedThreads == nil { cachedThreads = threads }
         session = UUID()
         for id in followed { desktop.follow(id, following: false) }
         desktop.disconnect()
         catalog.disconnect()
         followed.removeAll()
-        revisions.removeAll()
         owners.removeAll()
         var disconnected = threads
         for index in disconnected.indices { disconnected[index].isConnected = false; disconnected[index].status = nil }
@@ -189,7 +263,7 @@ final class CodexService {
                     try Task.checkCancellation()
                 } while cursor != nil
             }
-            let removed = Set(threads.filter { !catalogIDs.contains($0.id) && !$0.isConnected }.map(\.id))
+            let removed = Set(threads.filter { !catalogIDs.contains($0.id) && !$0.isConnected && $0.id != selectedThreadID && streams[$0.id] == nil }.map(\.id))
             for id in removed { desktop.follow(id, following: false); followed.remove(id) }
             let sorted = threads.filter { !removed.contains($0.id) }.sorted { $0.updatedAt > $1.updatedAt }
             if sorted != threads { threads = sorted }
@@ -323,7 +397,8 @@ final class CodexService {
     }
 
     private func follow(_ id: String) {
-        guard !followed.contains(id), desktop.follow(id) else { return }
+        guard !followed.contains(id), followed.count < 512 || id == selectedThreadID,
+              desktop.follow(id) else { return }
         followed.insert(id)
     }
 
@@ -348,38 +423,87 @@ final class CodexService {
             return
         }
         let change = params["change"]
-        if change["type"].string == "snapshot" {
-            let state = change["conversationState"]
-            if threads.firstIndex(where: { $0.id == id }) == nil, let thread = CodexThread(json: state) { threads.append(thread) }
-            guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
-            var thread = threads[index]
-            thread.status = state["threadRuntimeStatus"]["type"].string
-            thread.isConnected = true
-            if let cwd = state["cwd"].string { thread.projectPath = cwd }
-            thread.project = projectCatalog.project(for: thread.id, cwd: thread.projectPath)
-            if let title = state["title"].string, !title.isEmpty { thread.title = title }
-            if thread != threads[index] { threads[index] = thread }
-            updateProjects()
-            revisions[id] = change["revision"].number.map(Int.init)
-            owners[id] = message["sourceClientId"].string
-        } else if change["type"].string == "patches" {
-            guard let index = threads.firstIndex(where: { $0.id == id }),
-                  owners[id] == message["sourceClientId"].string,
-                  revisions[id] == change["baseRevision"].number.map(Int.init) else {
+        guard let source = message["sourceClientId"].string else { return }
+        let hadStatus = statusStreams[id]?.revision != nil
+        if statusStreams[id] == nil, statusStreams.count >= 512,
+           let removed = statusStreams.keys.first(where: { $0 != selectedThreadID }) {
+            statusStreams[removed] = nil
+            attentionByThread[removed] = nil
+            unreadThreadIDs.remove(removed)
+            invalidate(removed)
+            desktop.follow(removed, following: false)
+            followed.remove(removed)
+        }
+        var statusStream = statusStreams[id] ?? CodexActivityStream(maximumBytes: 512 * 1_024)
+        switch statusStream.apply(CodexActivityStream.statusChange(change), owner: source) {
+        case .ignored: return
+        case .unavailable(let reason):
+            activityErrors[id] = reason
+            invalidate(id)
+            return
+        case .resync:
+            resubscribe(id)
+            return
+        case .applied: statusStreams[id] = statusStream
+        }
+        if streams[id] != nil, !unavailableActivityIDs.contains(id) {
+            switch streams[id]!.apply(change, owner: source) {
+            case .applied:
+                if activityErrors[id] != nil { activityErrors[id] = nil }
+                dirtyStreams.insert(id)
+                schedulePublication()
+            case .ignored: break
+            case .unavailable(let reason):
+                activityErrors[id] = reason
+                unavailableActivityIDs.insert(id)
+                dirtyStreams.remove(id)
+                streams[id] = CodexActivityStream()
+            case .resync(let reason):
+                activityErrors[id] = reason
                 resubscribe(id)
                 return
             }
-            var thread = threads[index]
-            for patch in change["patches"].array {
-                let path = patch["path"].array.compactMap(\.string)
-                if path == ["threadRuntimeStatus"] { thread.status = patch["value"]["type"].string }
-                else if path == ["threadRuntimeStatus", "type"] { thread.status = patch["value"].string }
-                else if path == ["title"], let title = patch["value"].string { thread.title = title }
-                else if path.isEmpty { resubscribe(id); return }
-            }
-            if thread != threads[index] { threads[index] = thread }
-            revisions[id] = change["revision"].number.map(Int.init)
         }
+        guard let state = statusStream.state else { return }
+        if threads.firstIndex(where: { $0.id == id }) == nil, let thread = CodexThread(json: state) {
+            threads.append(thread)
+        }
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        var thread = threads[index]
+        thread.status = state["threadRuntimeStatus"]["type"].string
+        thread.isConnected = true
+        if let cwd = state["cwd"].string { thread.projectPath = cwd }
+        thread.project = projectCatalog.project(for: thread.id, cwd: thread.projectPath)
+        if let title = state["title"].string, !title.isEmpty { thread.title = title }
+        if thread != threads[index] {
+            threads[index] = thread
+            updateProjects()
+        }
+        let attention = CodexAttention.from(state: streams[id]?.state ?? state)
+        if attentionByThread[id] != attention { attentionByThread[id] = attention }
+        owners[id] = source
+        if hadStatus, (!isVisible || selectedThreadID != id), !unreadThreadIDs.contains(id) {
+            unreadThreadIDs.insert(id)
+        }
+    }
+
+    private func schedulePublication() {
+        guard isVisible, publicationTask == nil else { return }
+        publicationTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            if self?.isVisible == true { self?.publishActivities() }
+            self?.publicationTask = nil
+        }
+    }
+
+    func publishActivities() {
+        for id in dirtyStreams {
+            guard let stream = streams[id] else { continue }
+            let presentation = stream.presentation
+            if activities[id] != presentation { activities[id] = presentation }
+            if attentionByThread[id] != presentation.attention { attentionByThread[id] = presentation.attention }
+        }
+        dirtyStreams.removeAll()
     }
 
     private func resubscribe(_ id: String) {
@@ -390,7 +514,8 @@ final class CodexService {
 
     private func invalidate(_ id: String) {
         owners[id] = nil
-        revisions[id] = nil
+        streams[id]?.disconnect()
+        statusStreams[id]?.disconnect()
         if let index = threads.firstIndex(where: { $0.id == id }) {
             threads[index].isConnected = false
             threads[index].status = nil
@@ -399,11 +524,13 @@ final class CodexService {
 
     private func lostLiveConnection() {
         followed.removeAll()
-        revisions.removeAll()
+        unavailableActivityIDs.removeAll()
+        for id in Array(streams.keys) { streams[id]?.disconnect() }
+        for id in Array(statusStreams.keys) { statusStreams[id]?.disconnect() }
         owners.removeAll()
         var disconnected = threads
         for index in disconnected.indices { disconnected[index].isConnected = false; disconnected[index].status = nil }
         if disconnected != threads { threads = disconnected }
-        liveError = "Anslutningen till Codex bröts. Försöker igen när vyn uppdateras."
+        liveError = "Anslutningen till Codex bröts. Återansluter…"
     }
 }
