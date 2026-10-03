@@ -35,12 +35,14 @@ struct TimersAppletView: View {
         }
         .onChange(of: applet.showsForm) { focus = applet.showsForm ? .duration : .deck }
         .onKeyPress(.space, phases: .down) { key in
-            guard focus != .duration, !applet.showsForm, key.modifiers.isEmpty else { return .ignored }
+            guard focus != .duration, !applet.showsForm,
+                  key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
             applet.toggleSelectedTimer()
             return .handled
         }
         .onKeyPress(.return, phases: .down) { key in
-            guard focus != .duration, key.modifiers.isEmpty else { return .ignored }
+            guard focus != .duration,
+                  key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
             if applet.showsForm { focus = .duration }
             else { applet.toggleSelectedTimer() }
             return .handled

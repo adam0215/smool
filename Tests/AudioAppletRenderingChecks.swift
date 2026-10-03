@@ -19,9 +19,9 @@ struct AudioAppletRenderingChecks {
             precondition(hardware.volumeWrites == (adjustable ? 1 : 0))
             applet.openPicker(.input)
             precondition(applet.hasPresentedOverlay && applet.handleArrow(.down, command: false))
-            precondition(applet.selectedDeviceIndex == 0)
+            precondition(applet.selectedDeviceIndex == 1)
             applet.selectDevice()
-            precondition(!applet.hasPresentedOverlay)
+            precondition(!applet.hasPresentedOverlay && applet.service.state.inputID == 3)
             precondition(applet.background != nil)
             applet.selectedControl = 0
             let content = AudioAppletView(applet: applet)
@@ -61,14 +61,20 @@ private final class RenderAudioDevices: AudioDeviceControlling {
     let adjustable: Bool
     var observing = false
     var volumeWrites = 0
+    var inputID: AudioDeviceID = 2
+    var outputID: AudioDeviceID = 1
     init(adjustable: Bool) { self.adjustable = adjustable }
     func snapshot() throws -> AudioDeviceSnapshot {
         AudioDeviceSnapshot(devices: [
             AudioDevice(id: 1, name: adjustable ? "MacBook Pro-högtalare" : "Studio Display via digital ljudutgång", hasOutput: true, hasInput: false),
-            AudioDevice(id: 2, name: "MacBook Pro-mikrofon", hasOutput: false, hasInput: true)
-        ], outputID: 1, inputID: 2, volume: AudioVolume(channels: adjustable ? [.init(element: 0, value: 0.42)] : []))
+            AudioDevice(id: 2, name: "MacBook Pro-mikrofon", hasOutput: false, hasInput: true),
+            AudioDevice(id: 3, name: "Studio microphone", hasOutput: false, hasInput: true)
+        ], outputID: outputID, inputID: inputID, volume: AudioVolume(channels: adjustable ? [.init(element: 0, value: 0.42)] : []))
     }
-    func select(_ id: AudioDeviceID, for direction: AudioDirection) throws {}
+    func select(_ id: AudioDeviceID, for direction: AudioDirection) throws {
+        if direction == .input { inputID = id }
+        else { outputID = id }
+    }
     func setVolume(_ value: Float32, for id: AudioDeviceID) throws { volumeWrites += 1 }
     func setVolume(_ volume: AudioVolume, for id: AudioDeviceID) throws { volumeWrites += 1 }
     func observe(_ change: @escaping @MainActor @Sendable () -> Void) { observing = true }

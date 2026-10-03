@@ -47,18 +47,20 @@ struct AudioAppletView: View {
         .onDisappear { service.stop() }
         .task { await Task.yield(); focused = true }
         .onKeyPress(keys: [.return, .space]) { key in
-            guard key.modifiers.isEmpty else { return .ignored }
+            guard key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
             if applet.picker != nil { applet.selectDevice() }
             else { applet.openPicker(applet.selectedControl == 0 ? .output : .input) }
             return .handled
         }
-        .onKeyPress(keys: [.upArrow, .downArrow]) { key in
-            guard applet.picker != nil, key.modifiers.isEmpty else { return .ignored }
+        .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { key in
+            guard applet.picker != nil,
+                  key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
             _ = applet.handleArrow(key.key == .upArrow ? .up : .down, command: false)
             return .handled
         }
         .onKeyPress("m", phases: .down) { key in
-            guard applet.picker == nil, key.modifiers.isEmpty else { return .ignored }
+            guard applet.picker == nil,
+                  key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
             service.toggleMute()
             return .handled
         }
