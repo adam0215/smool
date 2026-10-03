@@ -32,6 +32,18 @@ struct NotchContentView: View {
         loadedArtworkSource == artworkSource ? artwork?.image : nil
     }
 
+    private var isPlaying: Bool {
+        switch presentation.tab {
+        case .spotify:
+            guard case .ready(let track) = presentation.spotify.state else { return false }
+            return track.playing
+        case .music:
+            return presentation.music.media?.track.playing == true
+        default:
+            return false
+        }
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             NotchTabBar(presentation: presentation, select: selectTab)
@@ -64,7 +76,8 @@ struct NotchContentView: View {
                     artwork: artwork,
                     artworkSource: loadedArtworkSource,
                     darkHeight: max(presentation.layout.navigationHeight + 8, presentation.layout.expandedSize.height - 144),
-                    isExpanded: presentation.isExpanded
+                    isExpanded: presentation.isExpanded,
+                    isPlaying: isPlaying
                 )
             }
         }
@@ -86,11 +99,12 @@ private struct AppletGlow: View {
     let artworkSource: AlbumArtwork.Source?
     let darkHeight: CGFloat
     let isExpanded: Bool
+    let isPlaying: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var audio = SystemAudioLevel()
 
-    private var usesAudioGlow: Bool { !reduceMotion && (tab == .music || tab == .spotify) }
+    private var usesAudioGlow: Bool { isPlaying && !reduceMotion && (tab == .music || tab == .spotify) }
     private var capturesAudio: Bool { isExpanded && usesAudioGlow }
 
     var body: some View {
@@ -116,6 +130,7 @@ private struct AppletGlow: View {
             }
         }
         .opacity(0.65)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.9), value: usesAudioGlow)
         .task(id: capturesAudio) { await audio.observe(enabled: capturesAudio) }
     }
 }

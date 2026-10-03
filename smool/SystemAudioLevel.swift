@@ -10,8 +10,8 @@ final class SystemAudioLevel {
     func observe(enabled: Bool) async {
         let id = UUID()
         observationID = id
-        spectrum = AudioSpectrum()
         guard enabled, !Task.isCancelled else { return }
+        spectrum = AudioSpectrum()
 
         let tap = AudioLevelTap()
         do {
@@ -33,7 +33,7 @@ final class SystemAudioLevel {
                 .notice("System audio unavailable: \(String(describing: error), privacy: .public)")
         }
         await tap.stop()
-        if observationID == id { spectrum = AudioSpectrum() }
+        // Retain the final frame while the view fades back to its static gradient.
     }
 }
 
