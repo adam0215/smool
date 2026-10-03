@@ -4,6 +4,7 @@ struct NotesAppletView: View {
     @Bindable var applet: NotesApplet
     let onSendToCodex: ((String) -> Void)?
     let restoreFocus: () -> Void
+    @FocusState private var listIsFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -144,5 +145,10 @@ struct NotesAppletView: View {
                 if let id { proxy.scrollTo(id) }
             }
         }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($listIsFocused)
+        .task { listIsFocused = true }
+        .onDisappear { listIsFocused = false }
     }
 }
