@@ -24,6 +24,8 @@ This project is a work in progress. Features and integrations have not been deci
 - Use inline transitions and floating overlays within smool for editors and detail views. Avoid separate macOS dialogs for app workflows. Keep the floating composer's rounded edges concentric with the outer shape.
 - Prefer inferred, forgiving input. Normalize ordinary website addresses automatically. Do not require users to supply redundant names, schemes or technical details when they can be derived.
 - Timers use a centered, bold duration and a borderless, initially focused input with a small unit label. Provide visible presets and keyboard adjustment, Return to start, music-style playback controls and an orange glow. Do not ask for timer names.
+- Show the timer glow only for the displayed running timer. Initial input, paused timers and completed timers stay unlit.
+- Codex history is a title and latest-message preview, with Return opening the thread. Active threads show the latest message and currently running tools, with available public activity summaries. Remove completed tools from this compact view. Open the floating composer through a visible keyboard shortcut. Use subtle shimmering text for AI activity and loading instead of spinners, respecting Reduce Motion.
 - Audio device selection and volume belong inside smool. Make device navigation and volume adjustment discoverable from the keyboard; use controls shaped for this form factor.
 - Keep text, empty states and shortcut hints comfortably inside the rounded edges. Remove visual clutter before adding decoration.
 - All interface copy is English. Respect Reduce Motion and avoid background animation or observation work when the notch is closed.
