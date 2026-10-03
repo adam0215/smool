@@ -13,6 +13,6 @@ struct AudioEnvelope: Equatable {
         let duration = target > level ? 0.45 : 1.6
         level += (target - level) * (1 - exp(-elapsed / duration))
         if target == 0, level < 0.001 { level = 0 }
-        phase += elapsed * level * 0.24
+        phase += elapsed * level * 0.4
     }
 }

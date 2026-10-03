@@ -15,9 +15,9 @@ struct ArtworkGlow: View {
                 .interpolation(.high)
                 .scaledToFill()
                 .frame(width: geometry.size.width, height: height)
-                .scaleEffect(1 + level * 0.08)
-                .offset(x: sin(phase) * level * 12, y: cos(phase * 0.7) * level * 4)
-                .saturation(1 + level * 0.08)
+                .scaleEffect(1 + level * 0.18)
+                .offset(x: sin(phase) * level * 36, y: cos(phase * 0.7) * level * 10)
+                .saturation(1 + level * 0.18)
                 .blur(radius: 32)
                 .mask {
                     LinearGradient(
