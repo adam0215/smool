@@ -3,118 +3,117 @@ import SwiftUI
 struct NotchHomeView: View {
     let layout: NotchLayout
     let date: Date
-    let openApp: (HomeApp) -> Void
-    var canOpenApp: (HomeApp) -> Bool = { _ in true }
-    var shortcutNumber: (HomeApp) -> Int? = { $0 == .spotify ? 2 : 3 }
+    var applets: [AppletDestination] = []
+    var openApplet: (AppletID) -> Void = { _ in }
     var openCalendar: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private enum Card: Hashable {
-        case spotify, clock, codex
-
-        var previous: Card { self == .codex ? .clock : .spotify }
-        var next: Card { self == .spotify ? .clock : .codex }
-    }
-
-    @FocusState private var focusedCard: Card?
-    @State private var hoveredCard: Card?
+    @FocusState private var focusedCard: HomeCard?
+    @State private var hoveredCard: HomeCard?
     @State private var lightLevel = 0.0
 
-    private var activeCard: Card { hoveredCard ?? focusedCard ?? .clock }
+    private var cards: [HomeCard] { HomeCard.arrangement(for: Array(applets.prefix(3)).map(\.id)) }
+    private var activeCard: HomeCard { hoveredCard ?? focusedCard ?? .clock }
+    private var activeApplet: AppletDestination? {
+        guard case .applet(let id) = activeCard else { return nil }
+        return applets.first { $0.id == id }
+    }
 
     var body: some View {
         GlassEffectContainer(spacing: 0) {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    appButton(.spotify)
-                    clock
-                    appButton(.codex)
+            HStack(spacing: 8) {
+                ForEach(cards, id: \.self) { card in
+                    let shape = HomeCardShape(edge: edge(for: card))
+                    switch card {
+                    case .clock:
+                        clock(shape: shape)
+                    case .applet(let id):
+                        if let applet = applets.first(where: { $0.id == id }) {
+                            appButton(applet, shape: shape)
+                        }
+                    }
                 }
-                .padding(.horizontal, NotchLayout.contentInset)
-                .padding(.bottom, NotchLayout.contentInset)
             }
+            .padding(.horizontal, NotchLayout.contentInset)
+            .padding(.bottom, NotchLayout.contentInset)
         }
         .background {
-            HomeGlow(
-                spotify: activeCard == .spotify ? 1 : 0,
-                codex: activeCard == .codex ? 1 : 0,
-                darkHeight: 16
-            )
-            .opacity(lightLevel)
+            BottomGlow(color: activeApplet?.tint ?? .blue,
+                       horizontalPosition: glowPosition, darkHeight: 16)
+                .opacity(lightLevel)
         }
         .animation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.7), value: activeCard)
         .onAppear { focusedCard = .clock }
+        .onChange(of: cards) { _, _ in
+            if let focusedCard, !cards.contains(focusedCard) { self.focusedCard = .clock }
+            if let hoveredCard, !cards.contains(hoveredCard) { self.hoveredCard = nil }
+        }
         .task {
-            withAnimation(reduceMotion ? .linear(duration: 0.12) : .timingCurve(0.5, 0, 0.2, 1, duration: 1).delay(0.1)) {
+            withAnimation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.8)) {
                 lightLevel = 1
             }
         }
         .onMoveCommand { direction in
-            switch direction {
-            case .left:
-                let previous = activeCard.previous
-                hoveredCard = nil
-                focusedCard = previous
-            case .right:
-                let next = activeCard.next
-                hoveredCard = nil
-                focusedCard = next
-            default: break
-            }
+            guard direction == .left || direction == .right else { return }
+            let next = adjacentPage(in: cards, to: activeCard, offset: direction == .left ? -1 : 1)
+            hoveredCard = nil
+            focusedCard = next
         }
     }
 
-    private var clock: some View {
-        VStack(spacing: 0) {
-            Text(date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-                .font(.system(size: 58, weight: .medium))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .modifier(GlassInk(illumination: lightLevel, isSelected: activeCard == .clock))
-                .frame(height: 64)
+    private var glowPosition: Double {
+        guard cards.count > 1, let index = cards.firstIndex(of: activeCard) else { return 0.5 }
+        return 0.2 + 0.6 * Double(index) / Double(cards.count - 1)
+    }
 
-            Text(date.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "sv_SE"))))
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(height: 14)
+    private func edge(for card: HomeCard) -> HomeCardShape.Edge {
+        if cards.count == 1 { return .both }
+        if card == cards.first { return .leading }
+        if card == cards.last { return .trailing }
+        return .none
+    }
+
+    private func clock(shape: HomeCardShape) -> some View {
+        Button(action: openCalendar) {
+            VStack(spacing: 0) {
+                Text(date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+                    .font(.system(size: 58, weight: .medium))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.45)
+                    .modifier(GlassInk(illumination: lightLevel, isSelected: activeCard == .clock))
+                    .frame(height: 64)
+
+                Text(date.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "sv_SE"))))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(height: 14)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .modifier(HomeCardGlass(shape: shape, illumination: lightLevel, isSelected: activeCard == .clock))
+            .contentShape(shape)
         }
-        .padding(8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(HomeCardGlass(shape: HomeCardShape(), illumination: lightLevel, isSelected: activeCard == .clock))
-        .contentShape(HomeCardShape())
-        .focusable(interactions: .edit)
+        .buttonStyle(.plain)
+        .focusable()
         .focused($focusedCard, equals: .clock)
         .focusEffectDisabled()
-        .onTapGesture {
-            hoveredCard = nil
-            focusedCard = .clock
-            openCalendar()
-        }
-        .onKeyPress(.return) {
-            openCalendar()
-            return .handled
-        }
+        .onKeyPress(.return) { openCalendar(); return .handled }
         .onHover { updateHover($0, card: .clock) }
-        .accessibilityAction(named: "Öppna kalender", openCalendar)
-        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Öppna kalender")
+        .accessibilityValue(date.formatted(date: .complete, time: .shortened))
         .accessibilityAddTraits(activeCard == .clock ? .isSelected : [])
+        .help("Öppna kalender")
     }
 
-    private func appButton(_ app: HomeApp) -> some View {
-        let card: Card = app == .spotify ? .spotify : .codex
+    private func appButton(_ applet: AppletDestination, shape: HomeCardShape) -> some View {
+        let card = HomeCard.applet(applet.id)
         let selected = activeCard == card
-        let shape = HomeCardShape(app: app)
 
-        return Button {
-            openApp(app)
-        } label: {
-            Image(app.rawValue)
-                .renderingMode(.template)
-                .opacity(0.4)
-                .frame(width: app == .spotify ? 32 : 24, height: app == .spotify ? 32 : 24)
+        return Button { openApplet(applet.id) } label: {
+            applet.icon.image(size: 26)
                 .modifier(GlassInk(illumination: lightLevel, isSelected: selected))
                 .frame(width: 64)
                 .frame(maxHeight: .infinity)
@@ -126,29 +125,36 @@ struct NotchHomeView: View {
         .focused($focusedCard, equals: card)
         .focusEffectDisabled()
         .onHover { updateHover($0, card: card) }
-        .onKeyPress(keys: [.return, .space], phases: .down) { _ in
-            openApp(app)
-            return .handled
-        }
-        .accessibilityLabel("Öppna \(app.rawValue)")
+        .onKeyPress(.return) { openApplet(applet.id); return .handled }
+        .accessibilityLabel("Öppna \(applet.title)")
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .disabled(!canOpenApp(app))
-        .help("Öppna \(app.rawValue)" + (shortcutNumber(app).map { " · ⌘\($0)" } ?? ""))
+        .help("Öppna \(applet.title)" + (applet.shortcutNumber.map { " · ⌘\($0)" } ?? ""))
     }
 
-    private func updateHover(_ hovering: Bool, card: Card) {
+    private func updateHover(_ hovering: Bool, card: HomeCard) {
         if hovering { hoveredCard = card }
         else if hoveredCard == card { hoveredCard = nil }
+    }
+}
+
+/// The clock has a stable identity as applets are added, removed, or reordered.
+enum HomeCard: Hashable {
+    case clock
+    case applet(AppletID)
+
+    static func arrangement(for ids: [AppletID]) -> [HomeCard] {
+        let applets = Array(ids.prefix(3)).map(HomeCard.applet)
+        if applets.count == 2 { return [applets[0], .clock, applets[1]] }
+        return [.clock] + applets
     }
 }
 
 #if DEBUG
 #Preview("Hem") {
     let layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982))
-    NotchHomeView(layout: layout, date: .now) { _ in }
-        .frame(width: layout.expandedSize.width, height: layout.expandedSize.height)
+    NotchHomeView(layout: layout, date: .now)
+        .frame(width: layout.expandedSize.width, height: 112)
         .background(.black)
-        .clipShape(NotchShape(shoulderRadius: 0, bottomRadius: NotchLayout.bottomRadius))
         .preferredColorScheme(.dark)
 }
 #endif

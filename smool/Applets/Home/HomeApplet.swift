@@ -2,7 +2,7 @@ import SwiftUI
 
 @MainActor @Observable
 final class HomeApplet: Applet {
-    let id = AppletID(rawValue: "home")
+    let id = AppletID.home
     let title = "Hem"
     let icon = AppletIcon.symbol("house.fill")
     let tint = Color.blue
@@ -27,9 +27,8 @@ final class HomeApplet: Applet {
                     NotchHomeView(
                         layout: context.layout,
                         date: timeline.date,
-                        openApp: context.openShortcut,
-                        canOpenApp: context.canOpenShortcut,
-                        shortcutNumber: context.shortcutNumber,
+                        applets: context.frontApplets,
+                        openApplet: context.openApplet,
                         openCalendar: { self.showCalendar = true }
                     )
                 }

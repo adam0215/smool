@@ -1,14 +1,13 @@
 import SwiftUI
 
-/// Keeps the lower outside arc concentric with the panel, without SwiftUI scaling
-/// both bottom radii down to fit the narrow card.
+/// Keeps the outside bottom arc concentric with the panel, including narrow cards.
 struct HomeCardShape: InsettableShape {
-    var app: HomeApp?
+    enum Edge { case none, leading, trailing, both }
+
+    var edge: Edge = .none
     private var inset: CGFloat = 0
 
-    init(app: HomeApp? = nil) {
-        self.app = app
-    }
+    init(edge: Edge = .none) { self.edge = edge }
 
     func inset(by amount: CGFloat) -> HomeCardShape {
         var shape = self
@@ -18,28 +17,22 @@ struct HomeCardShape: InsettableShape {
 
     func path(in bounds: CGRect) -> Path {
         let rect = bounds.insetBy(dx: inset, dy: inset)
-        guard let app else {
-            return RoundedRectangle(cornerRadius: max(0, 16 - inset), style: .circular).path(in: rect)
-        }
-
-        let outer = max(0, NotchLayout.bottomRadius - NotchLayout.contentInset - inset)
-        let inner = max(0, bounds.width - (NotchLayout.bottomRadius - NotchLayout.contentInset) - inset)
-        let top = max(0, 16 - inset)
+        let outer = min(NotchLayout.bottomRadius - NotchLayout.contentInset, bounds.width / (edge == .both ? 2 : 1))
+        let inner = min(16, max(0, bounds.width - outer))
+        let left = max(0, (edge == .leading || edge == .both ? outer : edge == .trailing ? inner : 16) - inset)
+        let right = max(0, (edge == .trailing || edge == .both ? outer : edge == .leading ? inner : 16) - inset)
+        let top = max(0, min(16, bounds.width / 2) - inset)
         var path = Path()
         path.move(to: CGPoint(x: rect.minX + top, y: rect.minY))
         path.addArc(center: CGPoint(x: rect.maxX - top, y: rect.minY + top), radius: top,
                     startAngle: .degrees(-90), endAngle: .zero, clockwise: false)
-        path.addArc(center: CGPoint(x: rect.maxX - inner, y: rect.maxY - inner), radius: inner,
+        path.addArc(center: CGPoint(x: rect.maxX - right, y: rect.maxY - right), radius: right,
                     startAngle: .zero, endAngle: .degrees(90), clockwise: false)
-        path.addArc(center: CGPoint(x: rect.minX + outer, y: rect.maxY - outer), radius: outer,
+        path.addArc(center: CGPoint(x: rect.minX + left, y: rect.maxY - left), radius: left,
                     startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
         path.addArc(center: CGPoint(x: rect.minX + top, y: rect.minY + top), radius: top,
                     startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
         path.closeSubpath()
-
-        if app == .codex {
-            return path.applying(CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: bounds.midX * 2, ty: 0))
-        }
         return path
     }
 }

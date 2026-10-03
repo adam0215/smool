@@ -25,6 +25,10 @@ struct NotchContentView: View {
                 context: AppletContext(
                     layout: presentation.layout,
                     restoreFocus: restoreFocus,
+                    frontApplets: presentation.frontApplets,
+                    openApplet: selectApplet,
+                    composeInCodex: presentation.composeInCodex,
+                    openSettings: presentation.openSettings,
                     openShortcut: { shortcut in
                         if let applet = presentation.registry.applet(for: shortcut) { selectApplet(applet.id) }
                     },

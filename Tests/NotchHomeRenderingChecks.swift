@@ -24,7 +24,7 @@ struct NotchHomeRenderingChecks {
             let view = GlassEffectContainer(spacing: 0) {
                 VStack(spacing: 8) {
                     NotchTabBar(presentation: presentation, select: { _ in })
-                    NotchHomeView(layout: layout, date: date, openApp: { _ in })
+                    NotchHomeView(layout: layout, date: date, applets: presentation.frontApplets)
                 }
             }
             .frame(width: layout.expandedSize.width, height: layout.expandedSize.height)

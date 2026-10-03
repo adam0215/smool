@@ -3,19 +3,44 @@ import SwiftUI
 @MainActor
 @Observable
 final class NotchPresentation {
-    let registry: AppletRegistry
+    let registeredApplets: AppletRegistry
+    let settings: AppSettings
+    var openSettings: () -> Void = {}
+    var composeInCodex: ((String) -> Void)?
+
+    var registry: AppletRegistry {
+        let ids = settings.orderedIDs(in: registeredApplets.applets.map(\.id))
+        let enabled = ids.compactMap { id in
+            settings.isEnabled(id) ? registeredApplets.applet(for: id) : nil
+        }
+        // Keep custom registries usable even when every optional applet is disabled.
+        return AppletRegistry(enabled.isEmpty ? [registeredApplets.applets[0]] : enabled)
+    }
+
+    var frontApplets: [AppletDestination] {
+        settings.frontIDs(in: registeredApplets.applets.map(\.id)).compactMap { id in
+            guard let applet = registry.applet(for: id) else { return nil }
+            return AppletDestination(id: id, title: applet.title, icon: applet.icon,
+                                     tint: applet.tint, shortcutNumber: registry.shortcutNumber(for: id))
+        }
+    }
     private(set) var selection: AppletID
     var isExpanded = false
     var showsActions = false
     let audio = SystemAudioLevel()
     var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900))
 
-    init(registry: AppletRegistry = builtInApplets()) {
-        self.registry = registry
+    init(registry: AppletRegistry = builtInApplets(), settings: AppSettings = AppSettings()) {
+        self.registeredApplets = registry
+        self.settings = settings
         selection = registry.applets[0].id
     }
 
-    var activeApplet: any Applet { registry.applet(for: selection)! }
+    var activeApplet: any Applet { registeredApplets.applet(for: selection)! }
+
+    func reconcileSettings() {
+        if registry.applet(for: selection) == nil { select(registry.applets[0].id) }
+    }
     var contentHeight: CGFloat { activeApplet.contentHeight }
 
     func select(_ id: AppletID) {

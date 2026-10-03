@@ -26,6 +26,11 @@ struct AppletRegistry {
         return applets[number - 1]
     }
 
+    func shortcutNumber(for id: AppletID) -> Int? {
+        guard let index = applets.firstIndex(where: { $0.id == id }), index < 9 else { return nil }
+        return index + 1
+    }
+
     func shortcutNumber(for shortcut: HomeApp) -> Int? {
         guard let index = applets.firstIndex(where: { $0.homeShortcut == shortcut }), index < 9 else { return nil }
         return index + 1

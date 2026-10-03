@@ -9,7 +9,7 @@ struct HomeLightingChecks {
 
         for app in [HomeApp.spotify, .codex] {
             for inset in [0.0, 1.0] {
-                let path = HomeCardShape(app: app).inset(by: inset).path(in: cardBounds)
+                let path = HomeCardShape(edge: app == .spotify ? .leading : .trailing).inset(by: inset).path(in: cardBounds)
                 let radius = NotchLayout.bottomRadius - NotchLayout.contentInset - inset
                 let center = CGPoint(x: app == .spotify ? 56 : 8, y: 48)
 
