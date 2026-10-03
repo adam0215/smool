@@ -3,7 +3,9 @@ import SwiftUI
 struct NotchHomeView: View {
     let layout: NotchLayout
     let date: Date
-    let openTab: (NotchTab) -> Void
+    let openApp: (HomeApp) -> Void
+    var canOpenApp: (HomeApp) -> Bool = { _ in true }
+    var shortcutNumber: (HomeApp) -> Int? = { $0 == .spotify ? 2 : 3 }
     var openCalendar: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -107,7 +109,7 @@ struct NotchHomeView: View {
         let shape = HomeCardShape(app: app)
 
         return Button {
-            openTab(app == .spotify ? .spotify : .codex)
+            openApp(app)
         } label: {
             Image(app.rawValue)
                 .renderingMode(.template)
@@ -125,12 +127,13 @@ struct NotchHomeView: View {
         .focusEffectDisabled()
         .onHover { updateHover($0, card: card) }
         .onKeyPress(keys: [.return, .space], phases: .down) { _ in
-            openTab(app == .spotify ? .spotify : .codex)
+            openApp(app)
             return .handled
         }
         .accessibilityLabel("Öppna \(app.rawValue)")
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .help("Öppna \(app.rawValue) · ⌘\(app == .spotify ? "2" : "3")")
+        .disabled(!canOpenApp(app))
+        .help("Öppna \(app.rawValue)" + (shortcutNumber(app).map { " · ⌘\($0)" } ?? ""))
     }
 
     private func updateHover(_ hovering: Bool, card: Card) {

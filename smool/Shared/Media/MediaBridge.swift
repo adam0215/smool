@@ -4,7 +4,7 @@ import Darwin
 struct SystemMedia: Decodable, Sendable {
     let bundleIdentifier: String
     let appName: String
-    let track: SpotifyTrack
+    let track: MediaTrack
     let artworkData: Data?
 }
 

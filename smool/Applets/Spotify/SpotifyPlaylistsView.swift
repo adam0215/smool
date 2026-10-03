@@ -55,7 +55,7 @@ private struct PlaylistCover: View {
 
     var body: some View {
         VStack(spacing: 7) {
-            SpotifyArtwork(image: cover)
+            PlayerArtwork(image: cover)
                 .frame(width: 64, height: 64)
                 .clipShape(.rect(cornerRadius: 9))
             Text(playlist.title).font(.system(size: 10, weight: .medium)).lineLimit(2, reservesSpace: true)

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct CompactPlayerView: View {
-    let track: SpotifyTrack
+    let track: MediaTrack
     let artwork: NSImage?
     let selectedControl: Int
     var hasPrevious = false
@@ -12,7 +12,7 @@ struct CompactPlayerView: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            SpotifyArtwork(image: artwork)
+            PlayerArtwork(image: artwork)
                 .frame(width: 72, height: 72)
                 .clipShape(.rect(cornerRadius: 14))
                 .accessibilityLabel("Skivomslag")

@@ -63,7 +63,7 @@ final class NotchPanelController: NSObject {
 
     func close() {
         presentation.showsActions = false
-        presentation.codexState.showsProjects = false
+        presentation.activeApplet.dismissOverlay()
         isOpen = false
         transition += 1
         resizeTransition += 1
@@ -115,18 +115,16 @@ final class NotchPanelController: NSObject {
 
         let content = NSHostingView(rootView: NotchView(
             presentation: presentation,
-            selectTab: { [weak self] in self?.selectTab($0) },
+            selectApplet: { [weak self] in self?.selectApplet($0) },
             close: { [weak self] in self?.close() },
             restoreFocus: { [weak self] in
                 guard let self else { return }
                 if !self.isOpen { self.open() }
                 else { self.panel?.makeKeyAndOrderFront(nil) }
             },
-            openCalendar: { [weak self] in self?.setCalendarVisible(true) },
-            closeCalendar: { [weak self] in self?.setCalendarVisible(false) },
             resizeContent: { [weak self] in
                 guard let self, self.presentation.layout.contentHeight != self.presentation.contentHeight else { return }
-                self.resize(tab: self.presentation.tab, calendar: self.presentation.showCalendar)
+                self.resizeContent()
             }
         ))
         content.safeAreaRegions = []
@@ -134,22 +132,16 @@ final class NotchPanelController: NSObject {
         return panel
     }
 
-    private func selectTab(_ tab: NotchTab) {
-        guard presentation.tab != tab else { return }
-        presentation.showsActions = false
-        presentation.codexState.showsProjects = false
-        resize(tab: tab, calendar: false)
+    private func selectApplet(_ id: AppletID) {
+        guard presentation.selection != id, let applet = presentation.registry.applet(for: id) else { return }
+        resizeContent(height: applet.contentHeight) { self.presentation.select(id) }
     }
 
-    private func setCalendarVisible(_ visible: Bool) {
-        resize(tab: .home, calendar: visible)
-    }
-
-    private func resize(tab: NotchTab, calendar: Bool) {
+    private func resizeContent(height: CGFloat? = nil, update: () -> Void = {}) {
         resizeTransition += 1
         let resize = resizeTransition
         var targetLayout = presentation.layout
-        targetLayout.contentHeight = presentation.contentHeight(for: tab, calendar: calendar)
+        targetLayout.contentHeight = height ?? presentation.contentHeight
         let targetFrame = targetLayout.windowFrame
 
         // Grow the transparent host before animating, then trim it afterward.
@@ -161,8 +153,7 @@ final class NotchPanelController: NSObject {
             NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .spring(response: 0.46, dampingFraction: 0.76),
             completionCriteria: .removed
         ) {
-            presentation.tab = tab
-            presentation.showCalendar = calendar
+            update()
             presentation.layout = targetLayout
         } completion: { [weak self] in
             guard let self, self.isOpen, self.resizeTransition == resize else { return }
@@ -177,16 +168,14 @@ final class NotchPanelController: NSObject {
             guard let self else { return event }
             if event.type == .keyDown, event.window === self.panel,
                event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command {
-                if let number = Int(event.charactersIgnoringModifiers ?? ""), let tab = NotchTab(rawValue: number - 1) {
-                    self.selectTab(tab)
+                if let number = Int(event.charactersIgnoringModifiers ?? ""), let applet = self.presentation.registry.applet(number: number) {
+                    self.selectApplet(applet.id)
                     return nil
                 }
                 if (event.keyCode == 123 || event.keyCode == 124), !(self.panel?.firstResponder is NSTextView) {
-                    if self.presentation.tab == .codex, self.presentation.codexState.groupsByProject,
-                       self.presentation.codexState.page == .history, self.presentation.codexState.scope == .deck {
-                        self.presentation.codexState.moveProject(event.keyCode == 123 ? -1 : 1, in: CodexService.shared.projects)
-                    } else {
-                        self.selectTab(self.presentation.tab.neighbor(event.keyCode == 123 ? -1 : 1))
+                    let arrow: AppletArrow = event.keyCode == 123 ? .left : .right
+                    if !self.presentation.activeApplet.handleArrow(arrow, command: true) {
+                        self.selectApplet(self.presentation.registry.neighbor(of: self.presentation.selection, offset: arrow.offset))
                     }
                     return nil
                 }
@@ -194,17 +183,17 @@ final class NotchPanelController: NSObject {
             if event.type == .keyDown, event.window === self.panel, event.keyCode == 48 {
                 let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
                 if modifiers == .control || modifiers == [.control, .shift] {
-                    self.selectTab(self.presentation.tab.neighbor(modifiers.contains(.shift) ? -1 : 1))
+                    self.selectApplet(self.presentation.registry.neighbor(of: self.presentation.selection, offset: modifiers.contains(.shift) ? -1 : 1))
                     return nil
                 }
             }
             if event.type == .keyDown, event.window === self.panel,
                event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-               !self.presentation.showsActions, !self.presentation.codexState.showsProjects,
+               !self.presentation.showsActions, !self.presentation.activeApplet.hasPresentedOverlay,
                self.navigateApplet(keyCode: event.keyCode) {
                 return nil
             }
-            if event.type != .keyDown, event.window !== self.panel, !self.presentation.showsActions, !self.presentation.codexState.showsProjects {
+            if event.type != .keyDown, event.window !== self.panel, !self.presentation.showsActions, !self.presentation.activeApplet.hasPresentedOverlay {
                 self.close()
             }
             return event
@@ -218,31 +207,9 @@ final class NotchPanelController: NSObject {
     // Route deck arrows before SwiftUI transfers focus during a page transition.
     // Editing scopes keep their native arrow keys.
     private func navigateApplet(keyCode: UInt16) -> Bool {
-        guard [123, 124, 125, 126].contains(keyCode) else { return false }
-        let vertical = keyCode == 125 || keyCode == 126
-        let offset = keyCode == 123 || keyCode == 126 ? -1 : 1
-        switch presentation.tab {
-        case .home, .music:
-            return false
-        case .spotify:
-            let state = presentation.spotifyState
-            withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .smooth(duration: 0.24)) {
-                if vertical {
-                    state.page = cyclingPage(in: SpotifyPage.allCases, to: state.page, offset: offset)
-                } else if state.page == .playlists {
-                    state.movePlaylist(offset)
-                } else {
-                    state.selectedControl = (state.selectedControl + offset + 2) % 2
-                }
-            }
-            return true
-        case .codex:
-            let state = presentation.codexState
-            guard vertical, state.scope == .deck else { return false }
-            withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .smooth(duration: 0.24)) {
-                state.page = cyclingPage(in: CodexPage.allCases, to: state.page, offset: offset)
-            }
-            return true
+        guard let arrow = AppletArrow(rawValue: keyCode) else { return false }
+        return withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .smooth(duration: 0.24)) {
+            presentation.activeApplet.handleArrow(arrow, command: false)
         }
     }
 

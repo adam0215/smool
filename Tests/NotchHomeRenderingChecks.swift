@@ -24,7 +24,7 @@ struct NotchHomeRenderingChecks {
             let view = GlassEffectContainer(spacing: 0) {
                 VStack(spacing: 8) {
                     NotchTabBar(presentation: presentation, select: { _ in })
-                    NotchHomeView(layout: layout, date: date, openTab: { _ in })
+                    NotchHomeView(layout: layout, date: date, openApp: { _ in })
                 }
             }
             .frame(width: layout.expandedSize.width, height: layout.expandedSize.height)
@@ -54,7 +54,7 @@ struct NotchHomeRenderingChecks {
             appletLayout.contentHeight = 300
             let appletPresentation = NotchPresentation()
             appletPresentation.layout = appletLayout
-            appletPresentation.tab = .spotify
+            appletPresentation.select(AppletID(rawValue: "spotify"))
             let pages = VStack(spacing: 8) {
                 NotchTabBar(presentation: appletPresentation, select: { _ in })
                 AppletPages(pages: ["Spelare", "Spellistor", "Kö"], selection: .constant("Spellistor"), title: { $0 }) { _ in

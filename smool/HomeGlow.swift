@@ -22,11 +22,24 @@ nonisolated struct HomeGlow: View, Animatable {
     }
 
     var body: some View {
-        Canvas { context, size in
-            let color = Self.color(for: nil)
+        BottomGlow(
+            color: Self.color(for: nil)
                 .mix(with: Self.color(for: .spotify), by: spotify)
-                .mix(with: Self.color(for: .codex), by: codex)
-            let centerX = size.width * (0.5 + 0.25 * (codex - spotify))
+                .mix(with: Self.color(for: .codex), by: codex),
+            horizontalPosition: 0.5 + 0.25 * (codex - spotify),
+            darkHeight: darkHeight
+        )
+    }
+}
+
+nonisolated struct BottomGlow: View {
+    let color: Color
+    let horizontalPosition: Double
+    let darkHeight: CGFloat
+
+    var body: some View {
+        Canvas { context, size in
+            let centerX = size.width * horizontalPosition
             let height = max(0, size.height - darkHeight)
 
             // No gradient can contribute a pixel above this band, even mid-animation.

@@ -2,7 +2,7 @@ import SwiftUI
 
 struct NotchTabBar: View {
     let presentation: NotchPresentation
-    let select: (NotchTab) -> Void
+    let select: (AppletID) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -18,24 +18,24 @@ struct NotchTabBar: View {
             HStack(spacing: 10) {
                 GlassEffectContainer(spacing: 4) {
                     HStack(spacing: 4) {
-                        ForEach(NotchTab.allCases, id: \.self) { tab in
-                            Button { select(tab) } label: {
-                                tabIcon(tab)
-                                    .foregroundStyle(.white.opacity(presentation.tab == tab ? 1 : 0.65))
+                        ForEach(presentation.registry.applets, id: \.id) { applet in
+                            Button { select(applet.id) } label: {
+                                applet.icon.view
+                                    .foregroundStyle(.white.opacity(presentation.selection == applet.id ? 1 : 0.65))
                                     .frame(width: 26, height: 26)
-                                    .glassEffect(.clear.tint(tab.tint.opacity(presentation.tab == tab ? 0.12 : 0.015)), in: .circle)
-                                    .overlay { Circle().strokeBorder(.white.opacity(presentation.tab == tab ? 0.18 : 0), lineWidth: 0.5) }
+                                    .glassEffect(.clear.tint(applet.tint.opacity(presentation.selection == applet.id ? 0.12 : 0.015)), in: .circle)
+                                    .overlay { Circle().strokeBorder(.white.opacity(presentation.selection == applet.id ? 0.18 : 0), lineWidth: 0.5) }
                             }
                             .buttonStyle(.plain).focusable(false)
-                            .accessibilityLabel(tab.title)
-                            .accessibilityAddTraits(presentation.tab == tab ? .isSelected : [])
-                            .help(tab.title)
+                            .accessibilityLabel(applet.title)
+                            .accessibilityAddTraits(presentation.selection == applet.id ? .isSelected : [])
+                            .help(applet.title)
                         }
                     }
                 }
 
                 Spacer(minLength: 8)
-                pageIndicators
+                if !presentation.activeApplet.pages.isEmpty { pageIndicators }
                 TimelineView(.everyMinute) { _ in
                     if let battery = BatteryStatus.current() {
                         HStack(spacing: 3) {
@@ -55,45 +55,19 @@ struct NotchTabBar: View {
         .padding(.top, presentation.layout.notch.obscuresCenter ? presentation.layout.headerSize.height : 0)
     }
 
-    @ViewBuilder private func tabIcon(_ tab: NotchTab) -> some View {
-        switch tab {
-        case .home, .music:
-            Image(systemName: tab == .home ? "house.fill" : "music.note")
-                .font(.system(size: 11, weight: .medium))
-        case .spotify, .codex:
-            Image(tab.title).resizable().renderingMode(.template)
-                .scaledToFit().frame(width: 11, height: 11)
-        }
-    }
-
-    @ViewBuilder private var pageIndicators: some View {
-        switch presentation.tab {
-        case .spotify:
-            indicators(SpotifyPage.allCases, selected: presentation.spotifyState.page, title: { $0.title }) {
-                presentation.spotifyState.page = $0
-            }
-        case .codex:
-            indicators(CodexPage.allCases, selected: presentation.codexState.page, title: { $0.rawValue }) {
-                presentation.codexState.scope = .deck
-                presentation.codexState.page = $0
-            }
-        default: EmptyView()
-        }
-    }
-
-    private func indicators<Page: Hashable>(_ pages: [Page], selected: Page, title: @escaping (Page) -> String, select: @escaping (Page) -> Void) -> some View {
+    private var pageIndicators: some View {
         HStack(spacing: 0) {
-            ForEach(pages, id: \.self) { page in
-                Button { select(page) } label: {
-                    Capsule().fill(.white.opacity(page == selected ? 0.85 : 0.25))
-                        .frame(width: page == selected ? 10 : 4, height: 4)
+            ForEach(presentation.activeApplet.pages) { page in
+                Button(action: page.select) {
+                    Capsule().fill(.white.opacity(page.isSelected ? 0.85 : 0.25))
+                        .frame(width: page.isSelected ? 10 : 4, height: 4)
                         .frame(width: 14, height: 22)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).focusable(false)
-                .accessibilityLabel(title(page))
-                .accessibilityAddTraits(page == selected ? .isSelected : [])
-                .help(title(page))
+                .accessibilityLabel(page.id)
+                .accessibilityAddTraits(page.isSelected ? .isSelected : [])
+                .help(page.id)
             }
         }
         .accessibilityElement(children: .contain)

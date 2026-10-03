@@ -61,7 +61,6 @@ struct CodexLimit: Identifiable {
 
 @MainActor @Observable
 final class CodexService {
-    static let shared = CodexService()
     private(set) var threads: [CodexThread] = []
     // A display snapshot never supplies connection state for commands.
     private var cachedThreads: [CodexThread]?

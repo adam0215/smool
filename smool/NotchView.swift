@@ -3,27 +3,26 @@ import SwiftUI
 @MainActor
 @Observable
 final class NotchPresentation {
+    let registry: AppletRegistry
+    private(set) var selection: AppletID
     var isExpanded = false
-    var tab: NotchTab = .home
-    var showCalendar = false
     var showsActions = false
-    let calendar = CalendarService()
-    let music = MusicService()
-    let spotify = SpotifyService()
     let audio = SystemAudioLevel()
-    let spotifyState = SpotifyAppletState()
-    let codexState = CodexAppletState()
     var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900))
 
-    var contentHeight: CGFloat { contentHeight(for: tab, calendar: showCalendar) }
+    init(registry: AppletRegistry = builtInApplets()) {
+        self.registry = registry
+        selection = registry.applets[0].id
+    }
 
-    func contentHeight(for tab: NotchTab, calendar: Bool) -> CGFloat {
-        if tab == .home, calendar { return 168 }
-        if tab == .codex {
-            if case .composer = codexState.scope { return max(156, codexState.composerHeight + 40) }
-            if codexState.page == .usage { return 176 }
-        }
-        return tab.contentHeight
+    var activeApplet: any Applet { registry.applet(for: selection)! }
+    var contentHeight: CGFloat { activeApplet.contentHeight }
+
+    func select(_ id: AppletID) {
+        guard selection != id, registry.applet(for: id) != nil else { return }
+        showsActions = false
+        activeApplet.deactivate()
+        selection = id
     }
 }
 
@@ -31,11 +30,9 @@ struct NotchView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let presentation: NotchPresentation
-    let selectTab: (NotchTab) -> Void
+    let selectApplet: (AppletID) -> Void
     var close: () -> Void = {}
     var restoreFocus: () -> Void = {}
-    var openCalendar: () -> Void = {}
-    var closeCalendar: () -> Void = {}
     var resizeContent: () -> Void = {}
 
     private var size: CGSize {
@@ -70,7 +67,7 @@ struct NotchView: View {
             }
             .overlay(alignment: .top) {
                 if presentation.isExpanded {
-                    NotchContentView(presentation: presentation, selectTab: selectTab, restoreFocus: restoreFocus, openCalendar: openCalendar, closeCalendar: closeCalendar)
+                    NotchContentView(presentation: presentation, selectApplet: selectApplet, restoreFocus: restoreFocus)
                         .frame(width: presentation.layout.expandedSize.width, height: presentation.layout.expandedSize.height)
                         .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(.easeOut(duration: 0.16))))
                 }

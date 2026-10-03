@@ -106,7 +106,7 @@ private struct SpotifyPlayerView: View {
         }
     }
 
-    private func player(_ track: SpotifyTrack) -> some View {
+    private func player(_ track: MediaTrack) -> some View {
         VStack(spacing: 6) {
             CompactPlayerView(track: track, artwork: artwork, selectedControl: selectedControl,
                               isBusy: service.isPerformingAction) { index in

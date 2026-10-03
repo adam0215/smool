@@ -35,17 +35,17 @@ struct SpotifyChecks {
         } catch { }
         let timeout = SpotifyBridge.Response(status: "error", track: nil, code: -1712, message: nil)
         precondition(timeout.errorDescription.contains("Starta om Spotify"))
-        let track = SpotifyTrack(title: "Track", artist: "Artist", artwork: "", duration: 200, position: 61, playing: true)
+        let track = MediaTrack(title: "Track", artist: "Artist", artwork: "", duration: 200, position: 61, playing: true)
         precondition(track.elapsed == "1:01")
         precondition(track.remaining == "−2:19")
         precondition(track.progress == 0.305)
-        let ended = SpotifyTrack(title: "", artist: "", artwork: "", duration: 20, position: 30, playing: false)
+        let ended = MediaTrack(title: "", artist: "", artwork: "", duration: 20, position: 30, playing: false)
         precondition(ended.progress == 1 && ended.remaining == "−0:00")
         for url in ["https://i.scdn.co/image/example", "https://image-cdn-ak.spotifycdn.com/image/example"] {
-            precondition(SpotifyTrack.allowsArtworkURL(URL(string: url)!))
+            precondition(MediaTrack.allowsArtworkURL(URL(string: url)!))
         }
         for url in ["https://scdn.co.evil.test/image", "https://example.com/image", "http://i.scdn.co/image", "https://user:password@i.scdn.co/image"] {
-            precondition(!SpotifyTrack.allowsArtworkURL(URL(string: url)!))
+            precondition(!MediaTrack.allowsArtworkURL(URL(string: url)!))
         }
         let javascript = JSContext()!
         func evaluate(_ source: String, application: String) throws -> SpotifyBridge.Response {

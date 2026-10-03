@@ -11,7 +11,7 @@ struct CodexAppletView: View {
     @FocusState private var focus: Focus?
 
     init(service: CodexService? = nil, state: CodexAppletState? = nil, restoreFocus: @escaping () -> Void = {}) {
-        _service = State(initialValue: service ?? .shared)
+        _service = State(initialValue: service ?? CodexService())
         _state = State(initialValue: state ?? CodexAppletState())
         self.restoreFocus = restoreFocus
     }
@@ -124,7 +124,7 @@ struct CodexAppletView: View {
                         .accessibilityLabel("Projekt: \(selection.project?.name ?? "Välj projekt")")
                         .popover(isPresented: $state.showsProjects, arrowEdge: .bottom) {
                             ActionList(title: "Projekt", actions: service.projects.map { project in
-                                NotchAction(id: project.name, symbol: "folder", selected: project.id == selection.project?.id) {
+                                AppletAction(id: project.name, symbol: "folder", selected: project.id == selection.project?.id) {
                                     state.selectProject(project)
                                 }
                             }) { state.showsProjects = false }

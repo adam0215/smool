@@ -19,7 +19,7 @@ The app appears in the menu bar. Toggle the panel with ⌃⌥Space. Escape also 
 
 The home view shows the current time, a Swedish date, and battery status. Its Spotify and Codex cards open applets inside the notch. The time-aware greeting sits above four circular glass tabs. Page indicators and the Actions menu stay on the right. On notched displays the header sits below the camera. Applets use compact horizontal layouts, 144–176 points high. Players and Codex threads sit directly on black. Playlist tiles, the glass usage dial, and the composer provide elevation where needed. The calendar places its date beside an event card. The composer starts on one line and expands up to five lines before scrolling. The home tiles keep their layout.
 
-`NotchTab` names the four destinations. `AppletPages` owns vertical page navigation. Clickable indicators in the header show the available pages without stacking cards. Each applet owns selection and actions inside its cards.
+`Applets/BuiltInApplets.swift` registers the destinations in tab order. Each applet owns its services, state, view, actions, page indicators, keyboard handling, content height, and background. The panel and header use the shared `Applet` interface. `AppletPages` handles vertical navigation inside a view. The home cards are shortcuts to registered applets; their layout stays fixed.
 
 | Key | Action |
 | --- | --- |
@@ -45,6 +45,20 @@ The expanded panel has black-tinted Liquid Glass below its opaque black header. 
 
 Reopening shows the last loaded content while services refresh. A shared in-memory cache keeps up to 24 decoded album and playlist covers with their gradient colors, so they are available on the first frame. The audio glow also retains its last frame until capture resumes. Project thumbnails are cached too. Codex retains a display snapshot while reconnecting, but commands still check the live connection. Calendar refreshes keep the loaded day's events visible. These caches last for the app session; a first visit still needs to load data. Polling and audio capture stop when their views close.
 
+### Applet architecture
+
+The implementations live in `smool/Applets/Codex`, `Spotify`, `Music`, and `Home`. Home owns the dashboard and its calendar view. Shared media models, artwork, player controls, and macOS/Spotify adapters live in `smool/Shared/Media`. Both music applets use these adapters without depending on each other. Codex owns its service instance, including drafts and cached content.
+
+To add an applet:
+
+1. Implement `Applet` in its own folder with a stable `AppletID`, title, icon, tint, content height, and `makeView`. Return an `AnyView` at this boundary; internal views keep their concrete SwiftUI types.
+2. Provide pages, actions, background, or arrow handling as needed. The defaults suit a single view. Use observable state for values that change the header or panel size.
+3. Add its instance to `builtInApplets()`. Registration order supplies tabs, circular navigation, and ⌘1–⌘9. No host switch needs updating.
+
+Remove an entry from `builtInApplets()` to disconnect it. Its services are no longer created, and its tab and shortcuts disappear. A missing target disables its branded home card while preserving the dashboard layout. `homeShortcut` optionally connects an applet to one of the two existing branded cards; adding a new card is a separate dashboard design change.
+
+The registry retains applet instances for the app session. Views start polling in `.task` and stop when their view disappears, keeping loaded state between visits. `deactivate()` handles leaving an applet; `dismissOverlay()` closes transient UI when the panel closes. `AppletContext` supplies the layout, home shortcut routing, and focus restoration without exposing other applets' services.
+
 ### Spotify
 
 The player shows artwork, title, artist, a thin progress bar, play/pause, and next track in one row. Elapsed and remaining time are available through the progress bar’s tooltip and accessibility label. It uses macOS playback commands while Spotify is the current system player, and Spotify’s scripting dictionary for artwork, playlists, and playback when another app is active. If Spotify’s scripting process times out, the player uses the system snapshot until Spotify restarts. macOS may ask to allow smool to control Spotify. Allow it in System Settings → Privacy & Security → Automation if necessary. Polling runs only while this applet is visible. The integration never reads login credentials or tokens. Artwork uses a separate ephemeral network session with cookies and credential storage disabled; image URLs and redirects are restricted to Spotify’s HTTPS CDN domains.
@@ -63,6 +77,6 @@ Codex has pages for active threads, previous threads, and a glass ring showing t
 
 The integration uses the installed Codex CLI for history and account limits, and the desktop app's local IPC connection to follow and message existing threads. Desktop IPC is versioned but private; an incompatible or unavailable connection produces an explicit error. History alone is never treated as evidence that a thread is running. Choosing an unconnected historical thread opens that exact thread in Codex, waits for its owner, and returns focus to smool before composing. smool does not resume a second competing session or answer approval requests on your behalf.
 
-Run `Tests/run-checks.sh` for navigation, geometry, Spotify URL/privacy constraints, Codex protocol/state fixtures, and lighting checks. These checks never send prompts or change playback.
+Run `Tests/run-checks.sh` for applet registration/removal, retained state, navigation, geometry, Spotify URL/privacy constraints, Codex protocol/state fixtures, and lighting checks. These checks never send prompts or change playback.
 
 The bundled Spotify and Codex logos are the SVG assets from the [home design in Figma](https://www.figma.com/design/G2aym3oehQkvnPmGcSge4L/Smool?node-id=2-386), using the monochrome artwork supplied in the design. The logo library is [SVGL](https://svgl.app/).

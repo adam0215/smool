@@ -31,7 +31,7 @@ struct AlbumArtwork {
         case .embedded(let data):
             return decode(data)
         case .spotify(let url):
-            guard SpotifyTrack.allowsArtworkURL(url) else { return nil }
+            guard MediaTrack.allowsArtworkURL(url) else { return nil }
             let configuration = URLSessionConfiguration.ephemeral
             configuration.httpCookieStorage = nil
             configuration.urlCredentialStorage = nil
@@ -101,6 +101,6 @@ private final class SpotifyArtworkRedirects: NSObject, URLSessionTaskDelegate {
         newRequest request: URLRequest,
         completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
-        completionHandler(request.url.map(SpotifyTrack.allowsArtworkURL) == true ? request : nil)
+        completionHandler(request.url.map(MediaTrack.allowsArtworkURL) == true ? request : nil)
     }
 }

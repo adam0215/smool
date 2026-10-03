@@ -2,83 +2,48 @@ import SwiftUI
 
 struct NotchContentView: View {
     let presentation: NotchPresentation
-    let selectTab: (NotchTab) -> Void
+    let selectApplet: (AppletID) -> Void
     var restoreFocus: () -> Void = {}
-    var openCalendar: () -> Void = {}
-    var closeCalendar: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var artwork: AlbumArtwork?
     @State private var loadedArtworkSource: AlbumArtwork.Source?
 
-    private var artworkSource: AlbumArtwork.Source? {
-        switch presentation.tab {
-        case .spotify:
-            if presentation.spotifyState.page == .playlists {
-                return presentation.spotifyState.playlist?.artworkURL.map(AlbumArtwork.Source.spotify)
-            }
-            guard case .ready(let track) = presentation.spotify.state else { return nil }
-            return track.artworkURL.map(AlbumArtwork.Source.spotify)
-        case .music:
-            if let data = presentation.music.media?.artworkData {
-                return .embedded(data)
-            }
-            return presentation.music.artworkURL.map(AlbumArtwork.Source.spotify)
-        default: return nil
-        }
-    }
+    private var background: AppletBackground? { presentation.activeApplet.background }
+    private var artworkSource: AlbumArtwork.Source? { background?.artworkSource }
 
     private var displayedArtwork: AlbumArtwork? {
         if loadedArtworkSource == artworkSource, let artwork { return artwork }
         return AlbumArtworkCache.shared.cached(artworkSource)
     }
 
-    private var isPlaying: Bool {
-        switch presentation.tab {
-        case .spotify:
-            guard case .ready(let track) = presentation.spotify.state else { return false }
-            return track.playing
-        case .music:
-            return presentation.music.media?.track.playing == true
-        default:
-            return false
-        }
-    }
-
     var body: some View {
         VStack(spacing: 8) {
-            NotchTabBar(presentation: presentation, select: selectTab)
+            NotchTabBar(presentation: presentation, select: selectApplet)
 
-            Group {
-                switch presentation.tab {
-                case .home:
-                    if presentation.showCalendar {
-                        CalendarAppletView(service: presentation.calendar, close: closeCalendar)
-                    } else {
-                        TimelineView(.everyMinute) { context in
-                            NotchHomeView(layout: presentation.layout, date: context.date, openTab: selectTab, openCalendar: openCalendar)
-                        }
-                    }
-                case .spotify:
-                    SpotifyAppletView(service: presentation.spotify, state: presentation.spotifyState, artwork: displayedArtwork?.image)
-                case .codex:
-                    CodexAppletView(state: presentation.codexState, restoreFocus: restoreFocus)
-                case .music:
-                    MusicAppletView(service: presentation.music, artwork: displayedArtwork?.image)
-                }
-            }
-            .id(presentation.tab)
+            presentation.activeApplet.makeView(
+                context: AppletContext(
+                    layout: presentation.layout,
+                    restoreFocus: restoreFocus,
+                    openShortcut: { shortcut in
+                        if let applet = presentation.registry.applet(for: shortcut) { selectApplet(applet.id) }
+                    },
+                    canOpenShortcut: { presentation.registry.applet(for: $0) != nil },
+                    shortcutNumber: { presentation.registry.shortcutNumber(for: $0) }
+                ),
+                artwork: displayedArtwork?.image
+            )
+            .id(presentation.selection)
             .transition(.opacity)
         }
         .background {
-            if presentation.tab != .home {
+            if let background {
                 AppletGlow(
-                    tab: presentation.tab,
+                    background: background,
                     artwork: displayedArtwork ?? artwork,
                     artworkSource: displayedArtwork == nil ? loadedArtworkSource : artworkSource,
                     darkHeight: max(presentation.layout.navigationHeight + 8, presentation.layout.expandedSize.height - 144),
                     isExpanded: presentation.isExpanded,
-                    isPlaying: isPlaying,
                     audio: presentation.audio
                 )
             }
@@ -96,33 +61,28 @@ struct NotchContentView: View {
 }
 
 private struct AppletGlow: View {
-    let tab: NotchTab
+    let background: AppletBackground
     let artwork: AlbumArtwork?
     let artworkSource: AlbumArtwork.Source?
     let darkHeight: CGFloat
     let isExpanded: Bool
-    let isPlaying: Bool
     let audio: SystemAudioLevel
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var usesAudioGlow: Bool { isPlaying && !reduceMotion && (tab == .music || tab == .spotify) }
+    private var usesAudioGlow: Bool { background.isPlaying && !reduceMotion }
     private var capturesAudio: Bool { isExpanded && usesAudioGlow }
 
     var body: some View {
         ZStack {
             if usesAudioGlow {
-                MusicGlow(colors: artwork?.colors, fallback: HomeGlow.color(for: tab == .spotify ? .spotify : nil),
+                MusicGlow(colors: artwork?.colors, fallback: background.color,
                           darkHeight: darkHeight, audio: audio.spectrum)
                     .id(artworkSource)
                     .transition(.opacity)
             } else {
-                HomeGlow(
-                    spotify: tab == .spotify ? 1 : 0,
-                    codex: tab == .codex ? 1 : 0,
-                    darkHeight: darkHeight
-                )
-                .opacity(artwork == nil ? 1 : 0)
+                BottomGlow(color: background.color, horizontalPosition: background.horizontalPosition, darkHeight: darkHeight)
+                    .opacity(artwork == nil ? 1 : 0)
 
                 if let artwork {
                     ArtworkGlow(colors: artwork.colors, darkHeight: darkHeight)
