@@ -63,7 +63,8 @@ struct FloatingComposer: View {
     var onSend: (() -> Void)? = nil
     var onClose: () -> Void
 
-    @FocusState private var isFocused: Bool
+    private enum Focus: Hashable { case navigation, message }
+    @FocusState private var focus: Focus?
 
     private var sendIsEnabled: Bool {
         onSend != nil && canSend && !isSending && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -76,12 +77,13 @@ struct FloatingComposer: View {
                     Button(action: onChooseRecipient) {
                         HStack(spacing: 5) {
                             Text(recipient).lineLimit(1).truncationMode(.middle)
-                            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                            Text("⌘L").font(.system(size: 9))
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .disabled(isSending)
+                    .keyboardShortcut("l", modifiers: .command)
                     .accessibilityLabel("Choose recipient, \(recipient)")
                 } else {
                     Text(recipient).lineLimit(1).truncationMode(.middle)
@@ -109,7 +111,7 @@ struct FloatingComposer: View {
                     .disabled(!isEditable)
                     .font(.system(size: 14))
                     .lineLimit(1...4)
-                    .focused($isFocused)
+                    .focused($focus, equals: .message)
                     .accessibilityLabel("Message to \(recipient)")
                     .padding(.vertical, 8)
                     .padding(.leading, 8)
@@ -140,12 +142,15 @@ struct FloatingComposer: View {
                 }
             }
 
-            if onSend != nil {
-                Text("⌘↵ Send")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.trailing, 4)
+            if onSend != nil || focus == .navigation {
+                HStack {
+                    if focus == .navigation, isEditable { Text("↵ Edit") }
+                    Spacer(minLength: 8)
+                    if onSend != nil { Text("⌘↵ Send") }
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
             }
         }
         .padding(.horizontal, 24)
@@ -156,6 +161,15 @@ struct FloatingComposer: View {
             cornerStyle: .circular
         ))
         .fixedSize(horizontal: false, vertical: true)
+        .focusable(interactions: .edit)
+        .focused($focus, equals: .navigation)
+        .focusEffectDisabled()
+        .onAppletFocusRestore { focus = .navigation }
+        .onKeyPress(.return) { key in
+            guard focus == .navigation, key.modifiers.isEmpty, isEditable else { return .ignored }
+            focus = .message
+            return .handled
+        }
         .onKeyPress(.escape) {
             onClose()
             return .handled
@@ -163,7 +177,7 @@ struct FloatingComposer: View {
         .task {
             await Task.yield()
             guard !Task.isCancelled else { return }
-            isFocused = isEditable
+            focus = isEditable ? .message : .navigation
         }
     }
 }
