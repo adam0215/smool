@@ -64,8 +64,14 @@ struct NotchView: View {
     }
 
     var body: some View {
-        shape
-            .fill(.black)
+        Color.clear
+            .background {
+                if presentation.isExpanded {
+                    NotchGlass(shape: shape, darkHeight: presentation.layout.navigationHeight)
+                } else {
+                    shape.fill(.black)
+                }
+            }
             .frame(width: size.width)
             .animation(horizontalAnimation, value: presentation.isExpanded)
             .frame(height: size.height, alignment: .top)
@@ -75,6 +81,11 @@ struct NotchView: View {
                     NotchContentView(presentation: presentation, selectTab: selectTab, restoreFocus: restoreFocus, openCalendar: openCalendar, closeCalendar: closeCalendar)
                         .frame(width: presentation.layout.expandedSize.width, height: presentation.layout.expandedSize.height)
                         .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(.easeOut(duration: 0.16))))
+                }
+            }
+            .overlay {
+                if presentation.isExpanded {
+                    NotchGlassEdge(shape: shape, darkHeight: presentation.layout.navigationHeight)
                 }
             }
             .clipShape(shape)
