@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct ActionFailure: LocalizedError {
@@ -60,17 +61,101 @@ enum ActionDestination: Codable, Equatable, Sendable {
         }
     }
 
+    var suggestedName: String {
+        switch self {
+        case .application(let url, _):
+            let bundle = Bundle(url: url)
+            return bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+                ?? url.deletingPathExtension().lastPathComponent
+        case .folder(let url, _):
+            return url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
+        case .website(let url):
+            let host = url.host ?? url.absoluteString
+            return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        case .codexThread(let url):
+            return "Thread \(url.lastPathComponent.prefix(8))"
+        case .shortcut(_, let name):
+            return name
+        }
+    }
+
+    static func inferred(_ input: String) throws -> Self {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            throw ActionFailure(message: "Enter an app name, folder path, website or Codex thread.")
+        }
+        if UUID(uuidString: text) != nil || text.lowercased().hasPrefix("codex:") {
+            return try thread(text)
+        }
+
+        let localURL: URL?
+        if text.lowercased().hasPrefix("file:") {
+            guard let parts = URLComponents(string: text),
+                  parts.host == nil || parts.host == "" || parts.host == "localhost",
+                  parts.user == nil, parts.password == nil, parts.port == nil,
+                  parts.query == nil, parts.fragment == nil,
+                  parts.path.hasPrefix("/"), let url = parts.url else {
+                throw ActionFailure(message: "Enter a local app or folder path.")
+            }
+            localURL = url
+        } else if text.hasPrefix("/") || text.hasPrefix("~/") || text == "~" {
+            localURL = URL(fileURLWithPath: (text as NSString).expandingTildeInPath)
+        } else {
+            localURL = installedApplication(named: text)
+        }
+        if let url = localURL {
+            let values = try url.resourceValues(forKeys: [.isApplicationKey])
+            return try local(url, kind: values.isApplication == true ? .application : .folder)
+        }
+        return try web(text)
+    }
+
+    private static func installedApplication(named input: String) -> URL? {
+        guard !input.contains("/"), !input.contains(":") else { return nil }
+        let name = input.lowercased().hasSuffix(".app") ? input : input + ".app"
+        let directories = ["~/Applications", "/Applications", "/System/Applications",
+                           "/Applications/Utilities", "/System/Applications/Utilities"]
+        for directory in directories {
+            let url = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
+            let contents = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+            if let match = contents?.first(where: { $0.lastPathComponent.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+                return match
+            }
+        }
+        return nil
+    }
+
     static func web(_ input: String) throws -> Self {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.contains(where: { $0.isWhitespace || $0.isNewline }),
-              let parts = URLComponents(string: text),
+        let hasScheme = text.range(of: "^[a-zA-Z][a-zA-Z0-9+.-]*:", options: .regularExpression) != nil
+        let hasPort = text.range(of: "^[^/:?#]+:[0-9]+(?:[/?#]|$)", options: .regularExpression) != nil
+        let address = hasScheme && !hasPort ? text : "https://" + text
+        guard !text.contains(where: { $0.isWhitespace || $0.isNewline || $0 == "\\" }),
+              text.range(of: "%(?![0-9a-fA-F]{2})", options: .regularExpression) == nil,
+              var parts = URLComponents(string: address),
               ["http", "https"].contains(parts.scheme?.lowercased() ?? ""),
-              let host = parts.host, !host.isEmpty,
+              let host = parts.host, validWebHost(host, requiresDomain: !hasScheme || hasPort),
               parts.user == nil, parts.password == nil,
-              let url = parts.url else {
-            throw ActionFailure(message: "Enter a complete http or https address without login credentials.")
+              parts.port.map({ (1...65535).contains($0) }) ?? true,
+              parts.url != nil else {
+            throw ActionFailure(message: "Enter a website address, such as example.com, without login credentials.")
         }
-        return .website(url)
+        parts.scheme = parts.scheme?.lowercased()
+        parts.host = host.lowercased()
+        return .website(parts.url!)
+    }
+
+    private static func validWebHost(_ host: String, requiresDomain: Bool) -> Bool {
+        if host.lowercased() == "localhost" { return true }
+        if host.hasPrefix("["), host.hasSuffix("]") {
+            var address = in6_addr()
+            return inet_pton(AF_INET6, String(host.dropFirst().dropLast()), &address) == 1
+        }
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        return (!requiresDomain || labels.count > 1) && labels.allSatisfy { label in
+            !label.isEmpty && label.first != "-" && label.last != "-"
+                && label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
+        }
     }
 
     static func thread(_ input: String) throws -> Self {
@@ -78,14 +163,14 @@ enum ActionDestination: Codable, Equatable, Sendable {
         if let id = UUID(uuidString: text) {
             return .codexThread(URL(string: "codex://threads/\(id.uuidString.lowercased())")!)
         }
-        guard let parts = URLComponents(string: text), parts.scheme == "codex", parts.host == "threads",
+        guard let parts = URLComponents(string: text), parts.scheme?.lowercased() == "codex", parts.host?.lowercased() == "threads",
               parts.user == nil, parts.password == nil, parts.port == nil,
               parts.query == nil, parts.fragment == nil,
-              parts.path.first == "/", UUID(uuidString: String(parts.path.dropFirst())) != nil,
-              let url = parts.url else {
+              parts.path.first == "/",
+              let id = UUID(uuidString: String(parts.path.dropFirst())) else {
             throw ActionFailure(message: "Enter a thread ID or a codex://threads/ link.")
         }
-        return .codexThread(url)
+        return .codexThread(URL(string: "codex://threads/\(id.uuidString.lowercased())")!)
     }
 
     static func local(_ url: URL, kind: ActionKind) throws -> Self {

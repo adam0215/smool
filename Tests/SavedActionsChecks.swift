@@ -7,18 +7,64 @@ struct SavedActionsChecks {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        for invalid in ["javascript:alert(1)", "file:///tmp", "https://", "https://user:password@example.com", "example.com", "https://exa mple.com"] {
+        for invalid in ["", "javascript:alert(1)", "file:///tmp", "https://", "https://user:password@example.com",
+                        "user@example.com", "https://exa mple.com", "https://example..com", "example.com:99999",
+                        "mailto:hello@example.com", "https://example.com/%zz", "https://example.com\\other",
+                        "https://[garbage]", "https://[1:2:3:4:5:6:7:8:9]"] {
             rejects { _ = try ActionDestination.web(invalid) }
         }
         let website = try ActionDestination.web(" https://example.com/path?q=å ")
+        for (input, expected) in [
+            (" example.com ", "https://example.com"),
+            ("WWW.Example.com/path?q=1#next", "https://www.example.com/path?q=1#next"),
+            ("example.com:8443/path", "https://example.com:8443/path"),
+            ("localhost:3000", "https://localhost:3000"),
+            ("127.0.0.1:8080", "https://127.0.0.1:8080"),
+            ("[::1]:8080", "https://[::1]:8080"),
+            ("HTTPS://EXAMPLE.COM", "https://example.com"),
+            ("http://intranet", "http://intranet")
+        ] {
+            let destination = try ActionDestination.inferred(input)
+            precondition(destination == .website(URL(string: expected)!))
+        }
+        let namedWebsite = try ActionDestination.inferred("www.example.com/path")
+        precondition(namedWebsite.suggestedName == "example.com")
+        for invalid in ["", "unknown app that does not exist", "javascript:alert(1)", "file://remote/tmp", "file:///tmp?query=1"] {
+            rejects { _ = try ActionDestination.inferred(invalid) }
+        }
         let threadID = UUID()
         let thread = try ActionDestination.thread(threadID.uuidString)
         let threadURL = try ActionDestination.thread("codex://threads/\(threadID.uuidString.lowercased())")
         precondition(thread == threadURL)
+        let inferredThread = try ActionDestination.inferred(threadID.uuidString)
+        let uppercaseThread = try ActionDestination.inferred("CODEX://THREADS/\(threadID.uuidString)")
+        precondition(inferredThread == thread && uppercaseThread == thread)
+        precondition(thread.suggestedName == "Thread \(threadID.uuidString.lowercased().prefix(8))")
         for invalid in ["codex://settings", "codex://threads/not-an-id", "codex://threads/\(threadID)?execute=1", "codex://threads/\(threadID)/other", "codex://user@threads/\(threadID)", "codex://threads/%2F\(threadID)"] {
             rejects { _ = try ActionDestination.thread(invalid) }
         }
         let folder = try ActionDestination.local(root, kind: .folder)
+        let inferredFolder = try ActionDestination.inferred(root.path)
+        let inferredFileURL = try ActionDestination.inferred(root.absoluteString)
+        precondition(inferredFolder.kind == .folder && inferredFileURL.kind == .folder)
+        precondition(inferredFolder.suggestedName == root.lastPathComponent)
+        let homeFolder = try ActionDestination.inferred("~")
+        precondition(homeFolder.kind == .folder)
+        let regularFile = root.appendingPathComponent("document.txt")
+        try Data("text".utf8).write(to: regularFile)
+        rejects { _ = try ActionDestination.inferred(regularFile.path) }
+        let app = root.appendingPathComponent("Example.app/Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        let info: [String: String] = ["CFBundlePackageType": "APPL", "CFBundleIdentifier": "test.example",
+                                    "CFBundleDisplayName": "Example App", "CFBundleExecutable": "Example"]
+        let plist = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+        try plist.write(to: app.appendingPathComponent("Info.plist"))
+        let inferredApp = try ActionDestination.inferred(app.deletingLastPathComponent().path)
+        precondition(inferredApp.kind == .application && inferredApp.suggestedName == "Example App")
+        if FileManager.default.fileExists(atPath: "/System/Applications/TextEdit.app") {
+            let installedApp = try ActionDestination.inferred("textedit")
+            precondition(installedApp.kind == .application && installedApp.suggestedName == "TextEdit")
+        }
         rejects { _ = try ActionDestination.local(root, kind: .application) }
         rejects { _ = try ActionDestination.local(URL(string: "https://example.com")!, kind: .folder) }
         let shortcutID = UUID()
@@ -110,7 +156,7 @@ struct SavedActionsChecks {
         try Data().write(to: blockedURL)
         let blocked = QuickActionStore(url: blockedURL.appendingPathComponent("actions.json"), launcher: launcher)
         precondition(!blocked.save(webAction) && blocked.actions.isEmpty)
-        print("Passed: URL validation, local bookmarks, shortcut parsing, persistence, ordering, edits, deletion, corrupt-file preservation, failed writes and injected launches.")
+        print("Passed: resource inference, website normalization, suggested names, URL validation, local bookmarks, shortcut parsing, persistence, ordering, edits, deletion, corrupt-file preservation, failed writes and injected launches.")
     }
 
     static func rejects(_ body: () throws -> Void) {
