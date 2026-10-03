@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor @Observable
 final class NotesApplet: Applet {
     let id = AppletID(rawValue: "notes")
-    let title = "Anteckningar"
+    let title = "Notes"
     let icon = AppletIcon.symbol("note.text")
     let tint = Color.yellow
     let store: NotesStore
@@ -20,11 +20,11 @@ final class NotesApplet: Applet {
     var contentHeight: CGFloat { 218 }
     var hasPresentedOverlay: Bool { pendingDeletion != nil }
     var status: AppletStatus? {
-        store.errorMessage.map { _ in AppletStatus(kind: .needsAttention, label: "Anteckningar behöver åtgärd", symbol: "exclamationmark.triangle") }
+        store.errorMessage.map { _ in AppletStatus(kind: .needsAttention, label: "Notes need attention", symbol: "exclamationmark.triangle") }
     }
 
     var actions: [AppletAction] {
-        [AppletAction(id: "Ny anteckning", symbol: "square.and.pencil", shortcut: "⌘N") { self.createNote() }]
+        [AppletAction(id: "New note", symbol: "square.and.pencil", shortcut: "⌘N") { self.createNote() }]
     }
 
     @discardableResult

@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor @Observable
 final class QuickActionsApplet: Applet {
     let id = AppletID(rawValue: "quick-actions")
-    let title = "Snabbåtgärder"
+    let title = "Actions"
     let icon = AppletIcon.symbol("bolt")
     let tint = Color.orange
     let contentHeight: CGFloat = 300
@@ -15,8 +15,8 @@ final class QuickActionsApplet: Applet {
 
     var hasPresentedOverlay: Bool { editor != nil }
     var status: AppletStatus? {
-        if store.runningID != nil { return AppletStatus(kind: .working, label: "Kör snabbåtgärd") }
-        if store.error != nil { return AppletStatus(kind: .needsAttention, label: "Kontrollera snabbåtgärd") }
+        if store.runningID != nil { return AppletStatus(kind: .working, label: "Running action") }
+        if store.error != nil { return AppletStatus(kind: .needsAttention, label: "Check action") }
         return nil
     }
 
@@ -39,21 +39,30 @@ private struct QuickActionsAppletView: View {
     @FocusState private var listFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Dina snabbåtgärder").font(.headline)
+                Text("Your actions").font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Button { applet.editor = ActionEditorRequest() } label: {
-                    HStack(spacing: 5) { Image(systemName: "plus"); Text("Lägg till") }
-                        .padding(.horizontal, 12).padding(.vertical, 7)
-                        .modifier(FloatingGlass(cornerRadius: 20))
+                    Label("Add", systemImage: "plus")
                 }
-                    .buttonStyle(.plain).disabled(!applet.store.canSave)
+                    .buttonStyle(NotchControlStyle()).disabled(!applet.store.canSave)
                     .keyboardShortcut("n", modifiers: .command)
             }
             if applet.store.actions.isEmpty {
-                Text("Samla appar, mappar, webblänkar och Apple Genvägar här.")
-                    .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 10) {
+                    Image(systemName: "bolt")
+                        .font(.system(size: 24, weight: .light))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                    Text("A shortcut to your everyday tasks")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("Keep apps, folders, links and Apple Shortcuts here.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -67,9 +76,11 @@ private struct QuickActionsAppletView: View {
                 }
             }
             ActionFeedback(error: applet.store.error, result: applet.store.result)
-            if !applet.store.canSave { Button("Läs in igen") { applet.store.reload() } }
+            if !applet.store.canSave { Button("Reload") { applet.store.reload() } }
         }
-        .padding(16)
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
         .focusable(interactions: .edit).focused($listFocused).focusEffectDisabled()
         .task {
             if applet.selectedID == nil { applet.selectedID = applet.store.actions.first?.id }
@@ -100,31 +111,35 @@ private struct QuickActionsAppletView: View {
                 Task { await applet.store.run(action) }
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: action.destination.kind.symbol).frame(width: 20)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(action.name).lineLimit(1)
-                        Text(action.destination.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    Image(systemName: action.destination.kind.symbol)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(action.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                        Text(action.destination.detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                     }
                     Spacer()
                     if applet.store.runningID == action.id { ProgressView().controlSize(.mini) }
-                    else { Image(systemName: "play.fill").font(.caption) }
+                    else { Image(systemName: "play.fill").font(.system(size: 10)).foregroundStyle(.secondary) }
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain).disabled(applet.store.runningID != nil)
-            .accessibilityLabel("Kör \(action.name)")
+            .accessibilityLabel("Run \(action.name)")
             Menu {
-                Button("Redigera") { applet.editor = ActionEditorRequest(action: action) }
-                Button("Flytta upp") { applet.store.move(action.id, offset: -1) }.disabled(index == 0)
-                Button("Flytta ned") { applet.store.move(action.id, offset: 1) }.disabled(index == applet.store.actions.count - 1)
-                Button("Ta bort", role: .destructive) {
+                Button("Edit") { applet.editor = ActionEditorRequest(action: action) }
+                Button("Move up") { applet.store.move(action.id, offset: -1) }.disabled(index == 0)
+                Button("Move down") { applet.store.move(action.id, offset: 1) }.disabled(index == applet.store.actions.count - 1)
+                Button("Delete", role: .destructive) {
                     applet.store.delete(action.id)
                     if applet.selectedID == action.id { applet.selectedID = applet.store.actions.first?.id }
                 }
             } label: { Image(systemName: "ellipsis") }
-                .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Åtgärder för \(action.name)")
+                .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Actions for \(action.name)")
         }
-        .padding(9)
-        .background(.white.opacity(applet.selectedID == action.id ? 0.1 : 0.03), in: .rect(cornerRadius: 9))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .background(.white.opacity(applet.selectedID == action.id ? 0.09 : 0.025), in: .rect(cornerRadius: 14))
     }
 }

@@ -13,5 +13,5 @@ swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -
 "${swiftc[@]}" smool/Applets/Timers/*.swift smool/Applets/Applet.swift \
     smool/NotchLayout.swift smool/ScreenNotch.swift smool/HomeApp.swift \
     smool/Shared/Media/AlbumArtwork.swift smool/Shared/Media/MediaTrack.swift \
-    smool/Shared/FloatingComposer.swift Tests/TimerAppletChecks.swift -o "$checks/timer-applet"
+    smool/Shared/FloatingComposer.swift smool/NotchControlStyle.swift Tests/TimerAppletChecks.swift -o "$checks/timer-applet"
 "$checks/timer-applet" "$checks/renders"

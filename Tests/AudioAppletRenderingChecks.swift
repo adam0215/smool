@@ -11,7 +11,7 @@ struct AudioAppletRenderingChecks {
             let hardware = RenderAudioDevices(adjustable: adjustable)
             let applet = AudioApplet(service: AudioService(devices: hardware))
             applet.service.start()
-            precondition(applet.id.rawValue == "audio" && applet.title == "Ljud")
+            precondition(applet.id.rawValue == "audio" && applet.title == "Audio")
             precondition(applet.handleArrow(.down, command: false) && applet.selectedControl == 1)
             precondition(applet.handleArrow(.down, command: false) && applet.selectedControl == 2)
             precondition(!applet.handleArrow(.left, command: true))

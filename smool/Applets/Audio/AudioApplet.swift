@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor @Observable
 final class AudioApplet: Applet {
     let id = AppletID(rawValue: "audio")
-    let title = "Ljud"
+    let title = "Audio"
     let icon = AppletIcon.symbol("speaker.wave.2")
     let tint = Color.cyan
     let service: AudioService

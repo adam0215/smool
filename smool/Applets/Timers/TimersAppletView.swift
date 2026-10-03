@@ -14,11 +14,12 @@ struct TimersAppletView: View {
                 timerDeck(timer)
             }
             if let error = applet.store.persistenceError {
-                Text(error).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)
+                Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(2)
             }
         }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(.black)
         .focusable(interactions: .edit)
@@ -46,7 +47,7 @@ struct TimersAppletView: View {
             return .handled
         }
         .background {
-            Button("Ny timer") { applet.isCreating = true }
+            Button("New timer") { applet.isCreating = true }
                 .keyboardShortcut("n", modifiers: .command)
                 .disabled(!applet.store.canAddTimer).hidden()
         }
@@ -56,72 +57,79 @@ struct TimersAppletView: View {
     private var timerForm: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Ny timer").font(.system(size: 13, weight: .medium))
+                Text("New timer").font(.system(size: 13, weight: .semibold))
                 Spacer()
                 if !applet.store.timers.isEmpty {
-                    Button("Tillbaka") { applet.isCreating = false }
-                        .buttonStyle(.plain).foregroundStyle(.secondary)
-                        .help("Tillbaka · esc")
+                    Button("Back") { applet.isCreating = false }
+                        .buttonStyle(NotchControlStyle()).foregroundStyle(.secondary)
+                        .help("Back · esc")
                 }
             }
             HStack(spacing: 12) {
                 TextField("25 min", text: $applet.durationInput)
                     .focused($focus, equals: .duration)
-                    .accessibilityLabel("Tid, minuter eller minuter och sekunder")
-                    .frame(width: 130)
+                    .accessibilityLabel("Duration, in minutes or minutes and seconds")
+                    .font(.system(size: 20, weight: .light, design: .rounded))
+                    .monospacedDigit()
+                    .frame(width: 108)
                 Divider().frame(height: 20)
-                TextField("Namn, valfritt", text: $applet.nameInput)
+                TextField("Name, optional", text: $applet.nameInput)
                     .focused($focus, equals: .name)
-                    .accessibilityLabel("Timerns namn, valfritt")
+                    .accessibilityLabel("Timer name, optional")
                 Button(action: applet.startTimer) {
-                    Image(systemName: "play.fill").frame(width: 24, height: 24)
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                        .background(.white.opacity(0.12), in: Circle())
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Starta timer")
+                .accessibilityLabel("Start timer")
                 .disabled(!applet.store.canAddTimer)
             }
             .textFieldStyle(.plain)
-            .font(.system(size: 14))
-            .padding(14)
-            .modifier(FloatingGlass(cornerRadius: 20))
+            .font(.system(size: 13))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(.white.opacity(0.055), in: .rect(cornerRadius: 14))
             .onSubmit { applet.startTimer() }
 
             Text(applet.inputError ?? TimerDuration.syntax)
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .foregroundStyle(applet.inputError == nil ? .secondary : Color.orange)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Utan enhet = minuter · Högst 7 dygn · ↵ Starta")
-                .font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("No unit = minutes · Up to 7 days · ↵ Start")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
         }
     }
 
     private func timerDeck(_ timer: SmoolTimer) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Text(timer.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                Text(timer.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 Spacer()
                 if applet.store.timers.count > 1 {
                     Button { _ = applet.handleArrow(.left, command: false) } label: {
-                        Image(systemName: "chevron.left")
+                        Image(systemName: "chevron.left").frame(width: 28, height: 28).contentShape(Circle())
                     }
-                    .accessibilityLabel("Föregående timer")
+                    .accessibilityLabel("Previous timer")
                     Text("\((applet.store.timers.firstIndex { $0.id == timer.id } ?? 0) + 1) / \(applet.store.timers.count)")
                         .monospacedDigit().foregroundStyle(.secondary)
                     Button { _ = applet.handleArrow(.right, command: false) } label: {
-                        Image(systemName: "chevron.right")
+                        Image(systemName: "chevron.right").frame(width: 28, height: 28).contentShape(Circle())
                     }
-                    .accessibilityLabel("Nästa timer")
+                    .accessibilityLabel("Next timer")
                 }
-                Button { applet.isCreating = true } label: { Image(systemName: "plus") }
-                    .accessibilityLabel("Ny timer").help("Ny timer · ⌘N")
+                Button { applet.isCreating = true } label: { Image(systemName: "plus").frame(width: 28, height: 28).contentShape(Circle()) }
+                    .accessibilityLabel("New timer").help("New timer · ⌘N")
                     .disabled(!applet.store.canAddTimer)
             }
             .buttonStyle(.plain).font(.system(size: 11))
 
             HStack(alignment: .firstTextBaseline, spacing: 14) {
                 TimerCountdownView(timer: timer)
-                    .font(.system(size: 42, weight: .light, design: .rounded))
-                Text(timer.isExpired ? "Klar" : timer.isPaused ? "Pausad" : "Återstår")
+                    .font(.system(size: 44, weight: .light, design: .rounded))
+                Text(timer.isExpired ? "Done" : timer.isPaused ? "Paused" : "Remaining")
                     .font(.system(size: 12))
                     .foregroundStyle(timer.isExpired ? Color.orange : .secondary)
                 Spacer()
@@ -129,32 +137,34 @@ struct TimersAppletView: View {
 
             HStack(spacing: 10) {
                 Button(action: applet.toggleSelectedTimer) {
-                    Label(timer.isExpired ? "Kvittera" : timer.isPaused ? "Fortsätt" : "Pausa",
+                    Label(timer.isExpired ? "Dismiss" : timer.isPaused ? "Resume" : "Pause",
                           systemImage: timer.isExpired ? "checkmark" : timer.isPaused ? "play.fill" : "pause.fill")
                 }
-                .buttonStyle(FloatingControlStyle(isProminent: true))
-                .help("Mellanslag eller ↵")
+                .buttonStyle(NotchControlStyle(isSelected: true))
+                .help("Space or ↵")
 
                 Button("+1 min") { applet.store.extend(timer.id) }
-                    .buttonStyle(FloatingControlStyle())
+                    .buttonStyle(NotchControlStyle())
                     .keyboardShortcut("e", modifiers: .command)
-                    .help("Förläng med en minut · ⌘E")
+                    .help("Add one minute · ⌘E")
 
                 Spacer()
                 if !timer.isExpired {
                     Button { applet.store.remove(timer.id) } label: {
                         Image(systemName: "trash")
+                            .frame(width: 28, height: 28)
+                            .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .keyboardShortcut(.delete, modifiers: .command)
-                    .accessibilityLabel("Avsluta och ta bort \(timer.title)")
-                    .help("Avsluta och ta bort · ⌘⌫")
+                    .accessibilityLabel("Stop and delete \(timer.title)")
+                    .help("Stop and delete · ⌘⌫")
                 }
             }
             .controlSize(.small)
-            Text("←→ Välj timer · Mellanslag Pausa/fortsätt · ⌘N Ny")
-                .font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("←→ Choose timer · Space Pause/resume · ⌘N New")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
         }
     }
 
@@ -181,6 +191,6 @@ struct TimerCountdownView: View {
         Text(TimerDuration.display(timer.remaining(at: date)))
             .monospacedDigit()
             .contentTransition(.identity)
-            .accessibilityLabel("\(TimerDuration.display(timer.remaining(at: date))) återstår")
+            .accessibilityLabel("\(TimerDuration.display(timer.remaining(at: date))) remaining")
     }
 }

@@ -29,10 +29,10 @@ final class TimersApplet: Applet {
         let symbol: String
         switch timer.state {
         case .expired:
-            label = "\(timer.title) är klar"
+            label = "\(timer.title) is done"
             symbol = "bell.fill"
         case .paused(let remaining):
-            label = "\(timer.title) · \(TimerDuration.display(remaining)) pausad"
+            label = "\(timer.title) · \(TimerDuration.display(remaining)) paused"
             symbol = "pause.fill"
         case .running:
             label = timer.title
