@@ -27,6 +27,7 @@ struct TimersAppletView: View {
         .focusable(interactions: .edit)
         .focused($focus, equals: .deck)
         .focusEffectDisabled()
+        .onAppletFocusRestore { focus = .deck }
         .task {
             applet.store.refresh()
             await Task.yield()

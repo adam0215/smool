@@ -41,6 +41,7 @@ struct AudioAppletView: View {
         .focusable(interactions: .edit)
         .focused($focused)
         .focusEffectDisabled()
+        .onAppletFocusRestore { focused = true }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: applet.picker)
         .onAppear { service.start() }
         .onDisappear { service.stop() }
