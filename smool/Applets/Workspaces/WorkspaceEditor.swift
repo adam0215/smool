@@ -160,6 +160,9 @@ struct WorkspaceEditor: View {
             ActionFeedback(error: store.error, result: nil)
             Text("↑↓ choose · Space include · ↵ edit · ⌘K actions · Esc back")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
         }
         .font(.system(size: 12))
         .padding(20)

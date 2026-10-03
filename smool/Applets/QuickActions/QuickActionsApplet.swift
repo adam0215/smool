@@ -6,7 +6,6 @@ final class QuickActionsApplet: Applet {
     let title = "Actions"
     let icon = AppletIcon.symbol("bolt")
     let tint = Color.orange
-    let contentHeight: CGFloat = 320
     let store: QuickActionStore
     var selectedID: UUID?
     var highlightedID: String?
@@ -17,6 +16,12 @@ final class QuickActionsApplet: Applet {
     @ObservationIgnored private var hostActions: [AppletAction] = []
 
     init(store: QuickActionStore = QuickActionStore()) { self.store = store }
+
+    var contentHeight: CGFloat {
+        if editor != nil { return 250 }
+        if deletingAction != nil { return 180 }
+        return 280
+    }
 
     var hasPresentedOverlay: Bool { editor != nil || deletingAction != nil }
     var status: AppletStatus? {
@@ -168,7 +173,7 @@ private struct QuickActionsAppletView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .padding(.horizontal, applet.hasPresentedOverlay ? NotchLayout.contentInset : 24)
         .padding(.top, 8)
-        .padding(.bottom, applet.hasPresentedOverlay ? NotchLayout.contentInset : 16)
+        .padding(.bottom, applet.hasPresentedOverlay ? NotchLayout.contentInset : 24)
     }
 
     private var actionList: some View {
@@ -207,10 +212,11 @@ private struct QuickActionsAppletView: View {
             }
             ActionFeedback(error: applet.store.error, result: applet.store.result)
             if !applet.store.canSave { Button("Reload saved actions") { applet.store.reload() } }
-            HStack {
-                Text("↑↓ choose · ↵ run · ⇧⌘N new action · ⇧⌘E edit · Esc back")
-                Spacer(minLength: 0)
-            }.font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("↑↓ choose · ↵ run · ⇧⌘N new action · ⇧⌘E edit · Esc back")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
         }
         .focusable(interactions: .edit).focused($listFocused).focusEffectDisabled()
         .onAppletFocusRestore { listFocused = true }

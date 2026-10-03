@@ -6,7 +6,6 @@ final class WorkspacesApplet: Applet {
     let title = "Workspaces"
     let icon = AppletIcon.symbol("square.grid.2x2")
     let tint = Color.teal
-    let contentHeight: CGFloat = 320
     let store: WorkspaceStore
     var selectedID: UUID?
     var editor: WorkspaceDraft?
@@ -15,6 +14,16 @@ final class WorkspacesApplet: Applet {
     private var newDraft: WorkspaceDraft?
 
     init(store: WorkspaceStore = WorkspaceStore()) { self.store = store }
+
+    var contentHeight: CGFloat {
+        if editor?.resourceEditor != nil { return 250 }
+        if deletingWorkspace != nil { return 180 }
+        let feedbackHeight: CGFloat = store.error != nil ? 44 : (store.result != nil ? 24 : 0)
+        if let editor {
+            return min(320, max(230, 190 + CGFloat(editor.workspace.resources.count) * 36) + feedbackHeight)
+        }
+        return min(320, max(180, 120 + CGFloat(store.workspaces.count) * 60) + feedbackHeight)
+    }
 
     var selected: SavedWorkspace? { store.workspaces.first(where: { $0.id == selectedID }) ?? store.workspaces.first }
     var hasPresentedOverlay: Bool { editor != nil || deletingWorkspace != nil }
@@ -138,18 +147,13 @@ private struct WorkspacesAppletView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .padding(.horizontal, applet.hasPresentedOverlay ? NotchLayout.contentInset : 24)
         .padding(.top, 8)
-        .padding(.bottom, applet.hasPresentedOverlay ? NotchLayout.contentInset : 16)
+        .padding(.bottom, applet.hasPresentedOverlay ? NotchLayout.contentInset : 24)
     }
 
     private var workspaceList: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Open a group of resources together").font(.system(size: 11)).foregroundStyle(.secondary)
-                Spacer()
-                Button("New  ⌘N") { applet.edit() }
-                    .buttonStyle(.plain).keyboardShortcut("n", modifiers: .command)
-                    .disabled(!applet.store.canSave)
-            }
+            Text("Open a group of resources together")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 3) {
@@ -183,23 +187,26 @@ private struct WorkspacesAppletView: View {
                             Image(systemName: "square.grid.2x2").font(.system(size: 24, weight: .light)).foregroundStyle(.tertiary)
                             Text("Everything for your next project").font(.system(size: 13, weight: .medium))
                             Text("Apps, folders and links, ready in one step.").font(.system(size: 11)).foregroundStyle(.secondary)
-                            Button("Create workspace  ⌘N") { applet.edit() }.buttonStyle(FloatingControlStyle())
-                                .disabled(!applet.store.canSave)
                         }.frame(maxWidth: .infinity)
                     }
                 }
             }
             ActionFeedback(error: applet.store.error, result: applet.store.result)
             if !applet.store.canSave { Button("Reload") { applet.store.reload() } }
-            Text("↑↓ choose · ↵ open · ⌘E edit · ⌘K actions · Esc back")
+            Text(applet.store.workspaces.isEmpty ? "⌘N new workspace · ⌘K actions · Esc back" : "↑↓ choose · ↵ open · ⌘N new · ⌘E edit · ⌘K actions")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
         }
         .focusable(interactions: .edit).focused($listFocused).focusEffectDisabled()
         .onAppletFocusRestore { listFocused = true }
         .task { await Task.yield(); listFocused = true }
         .onKeyPress(.return) { applet.openSelected(); return .handled }
-        .onKeyPress(keys: ["e", .delete], phases: .down) { key in
-            guard key.modifiers.contains(.command), let selected = applet.selected else { return .ignored }
+        .onKeyPress(keys: ["n", "e", .delete], phases: .down) { key in
+            guard key.modifiers.intersection([.command, .control, .option, .shift]) == .command else { return .ignored }
+            if key.key == "n" { applet.edit(); return .handled }
+            guard let selected = applet.selected else { return .ignored }
             if key.key == "e" { applet.edit(selected) }
             else { applet.deletingWorkspace = selected }
             return .handled
