@@ -11,7 +11,7 @@ struct NotchLayout {
 
     var headerSize: CGSize { notch.size ?? ScreenNotch.referenceSize }
 
-    var navigationHeight: CGFloat { (notch.obscuresCenter ? headerSize.height : 0) + 40 }
+    var navigationHeight: CGFloat { (notch.obscuresCenter ? headerSize.height : 0) + 58 }
 
     var collapsedSize: CGSize {
         notch.size ?? CGSize(width: headerSize.width, height: 0)

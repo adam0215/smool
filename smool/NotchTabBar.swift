@@ -5,7 +5,7 @@ struct NotchTabBar: View {
     let select: (NotchTab) -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
             TimelineView(.everyMinute) { context in
                 Text(greeting(at: context.date))
                     .font(.caption2.weight(.medium))
@@ -15,40 +15,43 @@ struct NotchTabBar: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            GlassEffectContainer(spacing: 4) {
-                HStack(spacing: 4) {
-                    ForEach(NotchTab.allCases, id: \.self) { tab in
-                        Button { select(tab) } label: {
-                            tabIcon(tab)
-                                .foregroundStyle(.white.opacity(presentation.tab == tab ? 1 : 0.65))
-                                .frame(width: 25, height: 22)
-                                .glassEffect(.clear.tint(tab.tint.opacity(presentation.tab == tab ? 0.12 : 0.015)), in: .capsule)
-                                .overlay { Capsule().strokeBorder(.white.opacity(presentation.tab == tab ? 0.18 : 0), lineWidth: 0.5) }
+            HStack(spacing: 10) {
+                GlassEffectContainer(spacing: 4) {
+                    HStack(spacing: 4) {
+                        ForEach(NotchTab.allCases, id: \.self) { tab in
+                            Button { select(tab) } label: {
+                                tabIcon(tab)
+                                    .foregroundStyle(.white.opacity(presentation.tab == tab ? 1 : 0.65))
+                                    .frame(width: 26, height: 26)
+                                    .glassEffect(.clear.tint(tab.tint.opacity(presentation.tab == tab ? 0.12 : 0.015)), in: .circle)
+                                    .overlay { Circle().strokeBorder(.white.opacity(presentation.tab == tab ? 0.18 : 0), lineWidth: 0.5) }
+                            }
+                            .buttonStyle(.plain).focusable(false)
+                            .accessibilityLabel(tab.title)
+                            .accessibilityAddTraits(presentation.tab == tab ? .isSelected : [])
+                            .help(tab.title)
                         }
-                        .buttonStyle(.plain).focusable(false)
-                        .accessibilityLabel(tab.title)
-                        .accessibilityAddTraits(presentation.tab == tab ? .isSelected : [])
-                        .help(tab.title)
                     }
                 }
-            }
 
-            pageIndicators
-            TimelineView(.everyMinute) { _ in
-                if let battery = BatteryStatus.current() {
-                    HStack(spacing: 3) {
-                        Text("\(battery.percentage)%").font(.system(size: 9)).monospacedDigit()
-                        Image(systemName: battery.symbolName).font(.system(size: 10))
+                Spacer(minLength: 8)
+                pageIndicators
+                TimelineView(.everyMinute) { _ in
+                    if let battery = BatteryStatus.current() {
+                        HStack(spacing: 3) {
+                            Text("\(battery.percentage)%").font(.system(size: 9)).monospacedDigit()
+                            Image(systemName: battery.symbolName).font(.system(size: 10))
+                        }
+                        .foregroundStyle(.secondary)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(battery.description)
                     }
-                    .foregroundStyle(.secondary)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(battery.description)
                 }
+                NotchActionsMenu(presentation: presentation)
             }
-            NotchActionsMenu(presentation: presentation)
         }
         .padding(.horizontal, 20)
-        .frame(height: 40)
+        .frame(height: 58)
         .padding(.top, presentation.layout.notch.obscuresCenter ? presentation.layout.headerSize.height : 0)
     }
 
