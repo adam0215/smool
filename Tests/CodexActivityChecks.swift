@@ -26,6 +26,8 @@ struct CodexActivityChecks {
         precondition(presentation.items[3].details.contains("andra raden"))
         precondition(presentation.items[3].links.isEmpty, "Tool path arguments do not become artifact links.")
         precondition(presentation.attention == .working)
+        precondition(presentation.latestMessage?.text == "Jag läser filen.")
+        precondition(presentation.runningTools.map(\.id) == ["turn:t1/c1"])
 
         let complete = json(#"""
         {"type":"patches","baseRevision":4,"revision":7,"patches":[
@@ -43,6 +45,7 @@ struct CodexActivityChecks {
         precondition(completed.items.last?.text.hasPrefix("Klar.") == true)
         precondition(completed.items.last?.links.map(\.url.absoluteString) == ["file:///tmp/report.md", "https://github.com/example/repo/pull/42"])
         precondition(completed.items.allSatisfy { !$0.isRunning })
+        precondition(completed.runningTools.isEmpty && completed.latestMessage?.text.hasPrefix("Klar.") == true)
         precondition(completed.items.prefix(4).map(\.id) == presentation.items.map(\.id), "Stable item IDs preserve reading anchors across updates.")
         precondition(stream.apply(complete, owner: "owner-a") == .ignored)
         precondition(stream.apply(snapshot, owner: "owner-a") == .ignored, "A delayed snapshot must not erase a newer final answer.")
@@ -133,7 +136,58 @@ struct CodexActivityChecks {
         checkStatusProjection()
         checkProjectionBudget()
         checkLinkBounds()
+        checkCurrentActivity()
         print("Codex activity checks passed")
+    }
+
+    static func checkCurrentActivity() {
+        let state = json(#"""
+        {"turns":[
+          {"turnId":"old","status":"inProgress","items":[
+            {"type":"reasoning","id":"old-note","summary":["Old public note"],"content":["PRIVATE OLD CONTENT"]},
+            {"type":"commandExecution","id":"old-tool","command":"old","status":"inProgress"}
+          ]},
+          {"turnId":"current","status":"inProgress","items":[
+            {"type":"userMessage","id":"u","content":[{"type":"text","text":"New request"}]},
+            {"type":"reasoning","id":"note","summary":["Checking the current file"],"content":["PRIVATE CURRENT CONTENT"]},
+            {"type":"commandExecution","id":"done","command":"done","status":"completed"},
+            {"type":"commandExecution","id":"running","command":"current","status":"inProgress"}
+          ]}
+        ]}
+        """#)
+        let current = CodexActivityPresentation(state: state, revision: 1)
+        precondition(current.latestMessage?.text == "New request")
+        precondition(current.runningTools.map(\.id) == ["turn:current/running"])
+        precondition(current.workingSummary?.text == "Checking the current file")
+        precondition(!current.items.contains { ($0.text + $0.details).contains("PRIVATE") })
+        var changed = state.object
+        var turns = state["turns"].array
+        var last = turns[1].object
+        var entries = last["items"]!.array
+        var tool = entries[3].object
+        tool["status"] = .string("completed")
+        entries[3] = .object(tool)
+        last["items"] = .array(entries)
+        turns[1] = .object(last)
+        changed["turns"] = .array(turns)
+        let toolCompleted = CodexActivityPresentation(state: .object(changed), revision: 2)
+        precondition(toolCompleted.runningTools.isEmpty && toolCompleted.workingSummary != nil,
+                     "Finished tools disappear before the turn completes")
+        entries.append(.object(["type": .string("agentMessage"), "id": .string("answer"), "text": .string("Current answer")]))
+        last["items"] = .array(entries)
+        last["status"] = .string("completed")
+        turns[1] = .object(last)
+        changed["turns"] = .array(turns)
+        let completed = CodexActivityPresentation(state: .object(changed), revision: 2)
+        precondition(completed.workingSummary == nil && completed.runningTools.isEmpty,
+                     "Old in-progress turns must never supply current tools or summaries")
+        precondition(completed.latestMessage?.text == "Current answer")
+        last["status"] = .string("inProgress")
+        last["items"] = .array([.object(["type": .string("userMessage"), "content": .array([])])])
+        turns[1] = .object(last)
+        changed["turns"] = .array(turns)
+        precondition(CodexActivityPresentation(state: .object(changed), revision: 3).workingSummary == nil,
+                     "A new turn cannot inherit an earlier public note")
     }
 
     static func checkProjectionBudget() {

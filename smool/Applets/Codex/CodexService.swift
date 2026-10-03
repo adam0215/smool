@@ -59,6 +59,15 @@ struct CodexLimit: Identifiable {
     }
 }
 
+struct CodexHistoryPreview: Equatable {
+    var message: CodexActivityItem?
+    var isLoading = false
+    var error: String?
+    let updatedAt: Date
+    var status: String?
+    var isActive = false
+}
+
 @MainActor @Observable
 final class CodexService {
     private(set) var threads: [CodexThread] = []
@@ -77,6 +86,7 @@ final class CodexService {
     var includesArchived = false
     var selectedThreadID: String?
     private(set) var activities: [String: CodexActivityPresentation] = [:]
+    private(set) var historyPreviews: [String: CodexHistoryPreview] = [:]
     private(set) var activityErrors: [String: String] = [:]
     private(set) var unreadThreadIDs: Set<String> = []
     private(set) var attentionByThread: [String: CodexAttention] = [:]
@@ -94,6 +104,11 @@ final class CodexService {
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
     @ObservationIgnored private var retryDelay: Duration = .seconds(1)
     @ObservationIgnored private let projectActivity: @Sendable (CodexActivityStream) -> CodexActivityPresentation
+    @ObservationIgnored private let historyRequest: (@MainActor (String, CodexJSON) async throws -> CodexJSON)?
+    @ObservationIgnored private var historyTask: Task<Void, Never>?
+    @ObservationIgnored private var historyToken = UUID()
+    @ObservationIgnored private var historyLoadingID: String?
+    @ObservationIgnored private var historyAccess: [String] = []
 
     @ObservationIgnored private var projectCatalog = CodexProjects(json: .null)
     @ObservationIgnored private let catalog = CodexClient(desktop: false)
@@ -103,8 +118,10 @@ final class CodexService {
     @ObservationIgnored private var session = UUID()
     @ObservationIgnored private var refreshing = false
 
-    init(projectActivity: @escaping @Sendable (CodexActivityStream) -> CodexActivityPresentation = { $0.presentation }) {
+    init(historyRequest: (@MainActor (String, CodexJSON) async throws -> CodexJSON)? = nil,
+         projectActivity: @escaping @Sendable (CodexActivityStream) -> CodexActivityPresentation = { $0.presentation }) {
         self.projectActivity = projectActivity
+        self.historyRequest = historyRequest
         desktop.onMessage = { [weak self] in self?.receive($0) }
         desktop.onDisconnect = { [weak self] in self?.lostLiveConnection() }
     }
@@ -113,6 +130,7 @@ final class CodexService {
         isVisible = visible
         if visible { schedulePublication(after: .zero) }
         else {
+            cancelHistoryPreview()
             publicationTask?.cancel()
             projectionTask?.cancel()
         }
@@ -157,7 +175,15 @@ final class CodexService {
 
     func selectThread(_ id: String?) {
         selectedThreadID = id
-        guard let id else { return }
+        guard let id else {
+            publicationTask?.cancel()
+            projectionTask?.cancel()
+            streams.removeAll()
+            streamTokens.removeAll()
+            dirtyStreams.removeAll()
+            return
+        }
+        cancelHistoryPreview()
         markRead(id)
         streamAccess.removeAll { $0 == id }
         streamAccess.append(id)
@@ -180,6 +206,7 @@ final class CodexService {
     }
 
     func stop() {
+        cancelHistoryPreview()
         lifecycleTask?.cancel()
         lifecycleTask = nil
         publicationTask?.cancel()
@@ -196,6 +223,103 @@ final class CodexService {
         var disconnected = threads
         for index in disconnected.indices { disconnected[index].isConnected = false; disconnected[index].status = nil }
         if disconnected != threads { threads = disconnected }
+    }
+
+    /// Read a bounded newest-first slice without resuming or following the thread.
+    func loadHistoryPreview(_ thread: CodexThread, force: Bool = false) async {
+        historyAccess.removeAll { $0 == thread.id }
+        historyAccess.append(thread.id)
+        while historyAccess.count > 12 {
+            historyPreviews[historyAccess.removeFirst()] = nil
+        }
+        if !force, let cached = historyPreviews[thread.id], !cached.isLoading,
+           cached.updatedAt == thread.updatedAt, cached.status == thread.status, cached.isActive == thread.isActive {
+            if historyLoadingID != thread.id { cancelHistoryPreview() }
+            return
+        }
+
+        cancelHistoryPreview()
+        let token = UUID()
+        historyToken = token
+        historyLoadingID = thread.id
+        historyPreviews[thread.id] = CodexHistoryPreview(isLoading: true, updatedAt: thread.updatedAt,
+                                                       status: thread.status, isActive: thread.isActive)
+        let session = session
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if historyToken == token {
+                    historyTask = nil
+                    historyLoadingID = nil
+                }
+            }
+            do {
+                var cursor: String?
+                var seenCursors: Set<String> = []
+                var message: CodexActivityItem?
+                var exhausted = false
+                // Installed app-server schema: thread/items/list returns { turnId, item }
+                // entries. Metadata thread.preview is the opening prompt, not the latest reply.
+                for _ in 0..<4 {
+                    try Task.checkCancellation()
+                    var params: [String: CodexJSON] = [
+                        "threadId": .string(thread.id), "limit": .number(50), "sortDirection": .string("desc")
+                    ]
+                    if let cursor { params["cursor"] = .string(cursor) }
+                    let page: CodexJSON
+                    if let historyRequest {
+                        page = try await historyRequest("thread/items/list", .object(params))
+                    } else {
+                        try await catalog.connect()
+                        page = try await catalog.request("thread/items/list", params: .object(params), timeout: .seconds(8))
+                    }
+                    try Task.checkCancellation()
+                    guard historyToken == token, self.session == session else { return }
+                    guard case .array(let entries) = page["data"], entries.count <= 50 else {
+                        throw CodexConnectionError(message: "Codex returned an unsupported history page.")
+                    }
+                    for entry in entries {
+                        let item = entry["item"]
+                        let id = "turn:\(entry["turnId"].string ?? "unknown")/\(item["id"].string ?? "message")"
+                        if let latest = CodexActivityPresentation.message(item, id: id) {
+                            message = latest
+                            break
+                        }
+                    }
+                    if message != nil { break }
+                    cursor = page["nextCursor"].string
+                    if cursor == nil { exhausted = true; break }
+                    if let cursor, !seenCursors.insert(cursor).inserted { break }
+                }
+                historyPreviews[thread.id] = CodexHistoryPreview(
+                    message: message,
+                    error: message == nil && !exhausted ? "No recent message found in the preview window. Open the thread in Codex." : nil,
+                    updatedAt: thread.updatedAt, status: thread.status, isActive: thread.isActive
+                )
+            } catch {
+                guard historyToken == token, self.session == session else { return }
+                if Task.isCancelled || error is CancellationError {
+                    historyPreviews[thread.id] = nil
+                } else {
+                    historyPreviews[thread.id] = CodexHistoryPreview(error: error.localizedDescription, updatedAt: thread.updatedAt,
+                                                                   status: thread.status, isActive: thread.isActive)
+                }
+            }
+        }
+        historyTask = task
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: { task.cancel() }
+    }
+
+    private func cancelHistoryPreview() {
+        historyToken = UUID()
+        historyTask?.cancel()
+        historyTask = nil
+        if let historyLoadingID, historyPreviews[historyLoadingID]?.isLoading == true {
+            historyPreviews[historyLoadingID] = nil
+        }
+        historyLoadingID = nil
     }
 
     func refresh() async {

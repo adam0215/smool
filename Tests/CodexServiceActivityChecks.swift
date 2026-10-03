@@ -126,19 +126,137 @@ struct CodexServiceActivityChecks {
         precondition(service.activities["fifth"]?.items.last?.text == "Sista uppdateringen")
 
         await checkProjectionIsolation()
+        await checkHistoryPreviews()
         checkCancelledHandoff()
         print("Codex service activity checks passed")
+    }
+
+    @MainActor private static func checkHistoryPreviews() async {
+        func thread(_ id: String, updatedAt: Double = 1) -> CodexThread {
+            CodexThread(json: .object(["id": .string(id), "preview": .string("Opening prompt"), "updatedAt": .number(updatedAt)]))!
+        }
+        func page(_ text: String) -> CodexJSON {
+            .object(["data": .array([.object([
+                "turnId": .string("latest"), "item": .object([
+                    "type": .string("agentMessage"), "id": .string("answer"), "text": .string(text)
+                ])
+            ])]), "nextCursor": .null])
+        }
+        var requests = 0
+        let service = CodexService(historyRequest: { method, params in
+            precondition(method == "thread/items/list")
+            precondition(params["sortDirection"].string == "desc" && params["limit"].number == 50)
+            requests += 1
+            if params["cursor"].string == nil {
+                return .object(["data": .array([.object([
+                    "turnId": .string("latest"), "item": .object([
+                        "type": .string("reasoning"), "summary": .array([.string("Public note")]), "content": .array([.string("PRIVATE")])
+                    ])
+                ])]), "nextCursor": .string("older")])
+            }
+            return page("Latest answer")
+        })
+        await service.loadHistoryPreview(thread("history"))
+        precondition(requests == 2 && service.historyPreviews["history"]?.message?.text == "Latest answer")
+        precondition(service.selectedThreadID == nil && service.activities.isEmpty && service.threads.isEmpty,
+                     "Reading a preview does not connect, resume, select, or retain a live transcript")
+        await service.loadHistoryPreview(thread("history"))
+        precondition(requests == 2, "An unchanged thread uses the bounded cache")
+        await service.loadHistoryPreview(thread("history", updatedAt: 2))
+        precondition(requests == 4, "New thread metadata invalidates the preview")
+        await service.loadHistoryPreview(thread("history", updatedAt: 2), force: true)
+        precondition(requests == 6)
+        var active = thread("history", updatedAt: 2)
+        active.status = "active"
+        active.isConnected = true
+        await service.loadHistoryPreview(active)
+        precondition(requests == 8)
+        active.status = "idle"
+        await service.loadHistoryPreview(active)
+        precondition(requests == 10, "Completion invalidates a preview even before updatedAt changes")
+        for index in 0..<15 { await service.loadHistoryPreview(thread("cached-\(index)")) }
+        precondition(service.historyPreviews.count == 12 && service.historyPreviews["history"] == nil)
+
+        var pages = 0
+        let bounded = CodexService(historyRequest: { _, _ in
+            pages += 1
+            return .object(["data": .array([]), "nextCursor": .string("page-\(pages)")])
+        })
+        await bounded.loadHistoryPreview(thread("bounded"))
+        precondition(pages == 4 && bounded.historyPreviews["bounded"]?.error != nil)
+        let failed = CodexService(historyRequest: { _, _ in throw CodexConnectionError(message: "Read failed") })
+        await failed.loadHistoryPreview(thread("failed"))
+        precondition(failed.historyPreviews["failed"]?.error == "Read failed")
+        precondition(failed.historyPreviews["failed"]?.isLoading == false)
+        let empty = CodexService(historyRequest: { _, _ in .object(["data": .array([]), "nextCursor": .null]) })
+        await empty.loadHistoryPreview(thread("empty"))
+        precondition(empty.historyPreviews["empty"]?.isLoading == false && empty.historyPreviews["empty"]?.error == nil)
+        precondition(empty.historyPreviews["empty"]?.message == nil)
+
+        let started = AsyncStream<Void>.makeStream()
+        var starts = started.stream.makeAsyncIterator()
+        var pending: CheckedContinuation<CodexJSON, any Error>?
+        let delayed = CodexService(historyRequest: { _, params in
+            if params["threadId"].string != "delayed" { return page("Current preview") }
+            return try await withCheckedThrowingContinuation { continuation in
+                pending = continuation
+                started.continuation.yield(())
+            }
+        })
+        let obsolete = Task { await delayed.loadHistoryPreview(thread("delayed")) }
+        await starts.next()
+        precondition(delayed.historyPreviews["delayed"]?.isLoading == true)
+        await delayed.loadHistoryPreview(thread("current"))
+        pending?.resume(returning: page("Stale preview"))
+        await obsolete.value
+        precondition(delayed.historyPreviews["delayed"] == nil && delayed.historyPreviews["current"]?.message?.text == "Current preview")
+
+        let firstRead = Task { await delayed.loadHistoryPreview(thread("delayed")) }
+        await starts.next()
+        let firstResponse = pending!
+        let replacementRead = Task { await delayed.loadHistoryPreview(thread("delayed")) }
+        await starts.next()
+        firstResponse.resume(returning: page("Superseded preview"))
+        await firstRead.value
+        precondition(delayed.historyPreviews["delayed"]?.isLoading == true)
+        pending?.resume(returning: page("Replacement preview"))
+        await replacementRead.value
+        precondition(delayed.historyPreviews["delayed"]?.message?.text == "Replacement preview")
+
+        let cancelled = Task { await delayed.loadHistoryPreview(thread("delayed"), force: true) }
+        await starts.next()
+        cancelled.cancel()
+        pending?.resume(returning: page("Cancelled preview"))
+        await cancelled.value
+        precondition(delayed.historyPreviews["delayed"] == nil)
+        let stopped = Task { await delayed.loadHistoryPreview(thread("delayed")) }
+        await starts.next()
+        delayed.stop()
+        pending?.resume(returning: page("Stopped preview"))
+        await stopped.value
+        precondition(delayed.historyPreviews["delayed"] == nil)
+        started.continuation.finish()
+
+        service.selectThread("selected")
+        service.receive(event("selected", snapshot("selected", revision: 1)))
+        await service.publishActivities()
+        service.selectThread(nil)
+        service.receive(event("selected", snapshot("selected", revision: 2, active: false, text: "New hidden body")))
+        await service.publishActivities()
+        precondition(service.activities["selected"]?.latestMessage?.text == "Pågår",
+                     "History selection stops projecting full live transcripts")
+        precondition(service.attentionByThread["selected"] == .idle, "Lightweight status subscriptions remain available")
     }
 
     @MainActor private static func checkProjectionIsolation() async {
         let started = AsyncStream<Void>.makeStream()
         let release = DispatchSemaphore(value: 0)
-        let service = CodexService { stream in
+        let service = CodexService(projectActivity: { stream in
             precondition(!Thread.isMainThread, "Transcript formatting must run away from the UI thread.")
             started.continuation.yield(())
             release.wait()
             return stream.presentation
-        }
+        })
         var starts = started.stream.makeAsyncIterator()
         service.selectThread("isolated")
         service.receive(event("isolated", snapshot("isolated", revision: 1)))

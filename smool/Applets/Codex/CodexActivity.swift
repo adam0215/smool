@@ -1,27 +1,5 @@
 import Foundation
 
-struct CodexReadingPosition: Equatable {
-    var anchorID: String?
-    var contentOffset: CGFloat = 0
-    var followsLatest = true
-    var hasNewActivity = false
-    var expandedGroups: Set<String> = []
-    var revision: Int?
-    var omittedItemCount = 0
-
-    mutating func receive(revision next: Int) {
-        if let revision, next > revision, !followsLatest { hasNewActivity = true }
-        revision = next
-    }
-
-    mutating func userScrolled(to offset: CGFloat, atBottom: Bool) {
-        contentOffset = max(0, offset)
-        followsLatest = atBottom
-        if atBottom { hasNewActivity = false }
-    }
-}
-
-
 enum CodexAttention: Equatable, Sendable {
     case idle, working, waitingForUser, approval, failed(String)
 
@@ -90,6 +68,13 @@ struct CodexActivityItem: Identifiable, Equatable, Sendable {
 
 struct CodexActivityPresentation: Equatable, Sendable {
     var items: [CodexActivityItem] = []
+    private(set) var latestMessage: CodexActivityItem?
+    private(set) var workingSummary: CodexActivityItem?
+    private var currentTurnPrefix: String?
+    var runningTools: [CodexActivityItem] {
+        guard let currentTurnPrefix else { return [] }
+        return items.filter { $0.kind == .tool && $0.isRunning && $0.id.hasPrefix(currentTurnPrefix) }
+    }
     var attention: CodexAttention = .idle
     var revision = 0
     var omittedItemCount = 0
@@ -118,6 +103,29 @@ struct CodexActivityPresentation: Equatable, Sendable {
     init(state: CodexJSON, revision: Int) {
         self.revision = revision
         attention = .from(state: state)
+        let turns = Self.turns(in: state)
+        if let current = turns.last, current.value["status"].string == "inProgress" {
+            currentTurnPrefix = "\(current.key)/"
+            if let summary = current.value["items"].array.last(where: {
+                $0["type"].string == "reasoning" && Self.hasJoinedText($0["summary"].array.compactMap(\.string))
+            }) {
+                workingSummary = Self.item(id: "\(current.key)/\(summary["id"].string ?? "summary")", kind: .info,
+                                           title: "Working note", text: summary["summary"].array.compactMap(\.string).joined(separator: "\n"))
+            }
+        }
+        for turn in turns.reversed() {
+            for (index, entry) in turn.value["items"].array.enumerated().reversed() {
+                if let message = Self.message(entry, id: "\(turn.key)/\(entry["id"].string ?? "item:\(index)")") {
+                    latestMessage = message
+                    break
+                }
+            }
+            if latestMessage != nil { break }
+            if Self.hasContentText(turn.value["params"]["input"]) {
+                latestMessage = Self.item(id: "\(turn.key)/prompt", kind: .user, title: "You", text: Self.contentText(turn.value["params"]["input"]))
+                break
+            }
+        }
         var kept: [CodexActivityItem] = []
         var bytes = 0
         var omitted = 0
@@ -139,7 +147,7 @@ struct CodexActivityPresentation: Equatable, Sendable {
 
         // Visit newest items first. Once full, only count older visible entries, without
         // formatting tool arguments, joining output or extracting links from that history.
-        for turn in Self.turns(in: state).reversed() {
+        for turn in turns.reversed() {
             let entries = turn.value["items"].array
             let active = turn.value["status"].string == "inProgress"
             if turn.value["status"].string == "failed", let message = turn.value["error"]["message"].string,
@@ -212,6 +220,7 @@ struct CodexActivityPresentation: Equatable, Sendable {
         }
         // The reducer keeps raw array indices intact for subsequent patches.
         items = kept.reversed()
+        if let message = items.last(where: { $0.id == latestMessage?.id }) { latestMessage = message }
         omittedItemCount = omitted
     }
 
@@ -219,6 +228,16 @@ struct CodexActivityPresentation: Equatable, Sendable {
         case userMessage, steeringUserMessage, agentMessage, plan, commandExecution
         case mcpToolCall, dynamicToolCall, collabAgentToolCall, userInputResponse
         case permissionRequest, fileChange, webSearch, error, contextCompaction, reasoning
+    }
+
+    /// Shared by live projection and newest-first history pages. No tool or reasoning payload is retained.
+    static func message(_ entry: CodexJSON, id: String) -> CodexActivityItem? {
+        switch entry["type"].string {
+        case "userMessage": return item(id: id, kind: .user, title: "You", text: contentText(entry["content"]))
+        case "steeringUserMessage": return item(id: id, kind: .user, title: "You", text: contentText(entry["input"]))
+        case "agentMessage": return item(id: id, kind: .assistant, title: "Codex", text: entry["text"].string ?? "")
+        default: return nil
+        }
     }
 
     private static func hasJoinedText(_ parts: [String]) -> Bool {
