@@ -7,6 +7,7 @@ final class AudioService {
     private(set) var error: String?
     @ObservationIgnored private let devices: any AudioDeviceControlling
     @ObservationIgnored private var isObserving = false
+    @ObservationIgnored private var volumeBeforeMute: [AudioDeviceID: Float32] = [:]
 
     init(devices: any AudioDeviceControlling = CoreAudioDevices()) {
         self.devices = devices
@@ -44,6 +45,16 @@ final class AudioService {
             self.error = "Could not change the volume. Check the audio device."
         }
         refresh()
+    }
+
+    func toggleMute() {
+        guard state.volume.isAdjustable else { return }
+        if state.volume.value > 0 {
+            volumeBeforeMute[state.outputID] = state.volume.value
+            setVolume(0)
+        } else {
+            setVolume(volumeBeforeMute[state.outputID] ?? 0.5)
+        }
     }
 
     private func refresh() {

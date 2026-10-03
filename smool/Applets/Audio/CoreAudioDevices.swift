@@ -19,7 +19,7 @@ final class CoreAudioDevices: AudioDeviceControlling {
             var size = UInt32(MemoryLayout.size(ofValue: name))
             let status = AudioObjectGetPropertyData(id, &property, 0, nil, &size, &name)
             let title = status == noErr ? name?.takeRetainedValue() as String? : nil
-            return AudioDevice(id: id, name: title ?? "Ljudenhet", hasOutput: output, hasInput: input)
+            return AudioDevice(id: id, name: title ?? "Audio device", hasOutput: output, hasInput: input)
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         let output = try scalar(system, address(AudioDirection.output.defaultSelector), as: AudioDeviceID.self)
         let input = try scalar(system, address(AudioDirection.input.defaultSelector), as: AudioDeviceID.self)

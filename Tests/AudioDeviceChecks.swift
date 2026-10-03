@@ -39,6 +39,15 @@ struct AudioDeviceChecks {
         hardware.fails = false
         service.select(10, for: .output)
         precondition(service.error == nil && service.state.outputID == 10)
+        service.toggleMute()
+        precondition(service.state.volume.value == 0)
+        service.toggleMute()
+        precondition(service.state.volume.value == 0.4, "Unmute restores the output’s previous volume")
+        service.select(20, for: .output)
+        let beforeMute = hardware.writes.count
+        service.toggleMute()
+        precondition(hardware.writes.count == beforeMute, "Mute must not write to fixed-volume devices")
+        service.select(10, for: .output)
         hardware.state.devices.removeAll { $0.id == 10 }
         hardware.state.outputID = 20
         hardware.state.volume = AudioVolume(channels: [])
