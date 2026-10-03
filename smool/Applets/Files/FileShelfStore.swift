@@ -7,7 +7,9 @@ final class FileShelfStore {
     private(set) var files: [ResolvedShelfFile] = []
     private(set) var isLoading = false
     private(set) var error: String?
-    var selection: UUID?
+    private(set) var selection: UUID?
+    private(set) var selectedIDs: Set<UUID> = []
+    private var selectionAnchor: UUID?
 
     @ObservationIgnored private let repository: FileShelfRepository
     @ObservationIgnored private var pending: Task<Void, Never>?
@@ -22,21 +24,55 @@ final class FileShelfStore {
         repository = FileShelfRepository(storageURL: url)
     }
 
-    var selectedFile: ResolvedShelfFile? { files.first { $0.id == selection } ?? files.first }
+    var selectedFile: ResolvedShelfFile? { files.first { $0.id == selection } }
+    var selectedURLs: [URL] { files.filter { selectedIDs.contains($0.id) }.compactMap(\.url) }
+
+    func select(_ id: UUID, extending: Bool = false, toggling: Bool = false) {
+        guard let index = files.firstIndex(where: { $0.id == id }) else { return }
+        if extending, let anchor = selectionAnchor,
+           let anchorIndex = files.firstIndex(where: { $0.id == anchor }) {
+            let range = Set(files[min(index, anchorIndex)...max(index, anchorIndex)].map(\.id))
+            selectedIDs = toggling ? selectedIDs.union(range) : range
+            selection = id
+        } else if toggling {
+            if selectedIDs.remove(id) == nil {
+                selectedIDs.insert(id)
+                selection = id
+            } else if selection == id {
+                selection = files.first { selectedIDs.contains($0.id) }?.id
+            }
+            selectionAnchor = id
+        } else {
+            selectedIDs = [id]
+            selection = id
+            selectionAnchor = id
+        }
+    }
+
+    func selectAll() {
+        selectedIDs = Set(files.map(\.id))
+        selection = selection ?? files.first?.id
+        selectionAnchor = selection
+    }
+
+    func removeSelected() {
+        let ids = files.filter { selectedIDs.contains($0.id) }.map(\.id)
+        for id in ids { remove(id: id) }
+    }
 
     func refresh() { enqueue { try await $0.refresh() } }
     func add(urls: [URL]) { enqueue { try await $0.add(urls: urls) } }
     func remove(id: UUID) { enqueue { try await $0.remove(id: id) } }
     func reportImportError(_ error: Error) {
-        self.error = "Filen kunde inte väljas. \(error.localizedDescription)"
+        self.error = "The file could not be selected. \(error.localizedDescription)"
     }
 
     func finishPendingChanges() async { await pending?.value }
 
-    func moveSelection(_ offset: Int) {
+    func moveSelection(_ offset: Int, extending: Bool = false) {
         guard !files.isEmpty else { return }
         let current = files.firstIndex { $0.id == selection } ?? 0
-        selection = files[min(max(current + offset, 0), files.count - 1)].id
+        select(files[min(max(current + offset, 0), files.count - 1)].id, extending: extending)
     }
 
     func icon(for file: ResolvedShelfFile) -> NSImage {
@@ -58,7 +94,7 @@ final class FileShelfStore {
                 let snapshot = try await operation(repository)
                 apply(snapshot)
             } catch {
-                self.error = "Filhyllan kunde inte sparas eller läsas. Dina sparade referenser finns kvar. \(error.localizedDescription)"
+                self.error = "The file shelf could not be saved or loaded. Your saved references are kept. \(error.localizedDescription)"
             }
             queuedOperations -= 1
             isLoading = queuedOperations > 0
@@ -74,7 +110,18 @@ final class FileShelfStore {
         }
         files = snapshot.files
         error = snapshot.message
-        if !files.contains(where: { $0.id == selection }) { selection = files.first?.id }
+        let availableIDs = Set(files.map(\.id))
+        let hadSelection = !selectedIDs.isEmpty
+        selectedIDs.formIntersection(availableIDs)
+        if let selection, !selectedIDs.contains(selection) { self.selection = nil }
+        if selectedIDs.isEmpty, hadSelection || selectionAnchor == nil, let first = files.first {
+            select(first.id)
+        } else if selection == nil {
+            selection = files.first { selectedIDs.contains($0.id) }?.id
+        }
+        if let selectionAnchor, !availableIDs.contains(selectionAnchor) {
+            self.selectionAnchor = selection
+        }
     }
 
     deinit {

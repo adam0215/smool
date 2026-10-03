@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor @Observable
 final class FilesApplet: Applet {
     let id = AppletID(rawValue: "files")
-    let title = "Filhylla"
+    let title = "Files"
     let icon = AppletIcon.symbol("tray.full")
     let tint = Color.cyan
     let store: FileShelfStore
@@ -20,15 +20,15 @@ final class FilesApplet: Applet {
 
     var actions: [AppletAction] {
         var actions = [
-            AppletAction(id: "Lägg till filer", symbol: "plus", shortcut: "⌘O") { self.showsImporter = true },
-            AppletAction(id: "Uppdatera filhyllan", symbol: "arrow.clockwise", shortcut: "⌘R") { self.store.refresh() }
+            AppletAction(id: "Add files", symbol: "plus", shortcut: "⌘O") { self.showsImporter = true },
+            AppletAction(id: "Refresh shelf", symbol: "arrow.clockwise", shortcut: "⌘R") { self.store.refresh() }
         ]
         if let file = store.selectedFile {
-            if let url = file.url {
-                actions.append(AppletAction(id: "Förhandsvisa", symbol: "eye", shortcut: "mellanslag") { self.previewURL = url })
-                actions.append(AppletAction(id: "Visa i Finder", symbol: "folder") { NSWorkspace.shared.activateFileViewerSelecting([url]) })
+            if file.url != nil {
+                actions.append(AppletAction(id: "Preview", symbol: "eye", shortcut: "Space") { self.previewURL = file.url })
+                actions.append(AppletAction(id: "Show in Finder", symbol: "folder") { NSWorkspace.shared.activateFileViewerSelecting(self.store.selectedURLs) })
             }
-            actions.append(AppletAction(id: "Ta bort från hyllan", symbol: "minus.circle", shortcut: "⌘⌫") { self.store.remove(id: file.id) })
+            actions.append(AppletAction(id: "Remove from shelf", symbol: "minus.circle", shortcut: "⌘⌫") { self.store.removeSelected() })
         }
         return actions
     }
