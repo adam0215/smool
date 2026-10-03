@@ -7,6 +7,29 @@ struct NotchContentView: View {
     var openCalendar: () -> Void = {}
     var closeCalendar: () -> Void = {}
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var artwork: AlbumArtwork?
+    @State private var loadedArtworkSource: AlbumArtwork.Source?
+
+    private var artworkSource: AlbumArtwork.Source? {
+        switch presentation.tab {
+        case .spotify:
+            guard presentation.spotifyState.page == .player,
+                  case .ready(let track) = presentation.spotify.state else { return nil }
+            return track.artworkURL.map(AlbumArtwork.Source.spotify)
+        case .music:
+            if let data = presentation.music.media?.artworkData {
+                return .embedded(data)
+            }
+            return presentation.music.artworkURL.map(AlbumArtwork.Source.spotify)
+        default: return nil
+        }
+    }
+
+    private var cover: NSImage? {
+        loadedArtworkSource == artworkSource ? artwork?.image : nil
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             NotchTabBar(layout: presentation.layout, selection: presentation.tab, select: selectTab)
@@ -22,11 +45,11 @@ struct NotchContentView: View {
                         }
                     }
                 case .spotify:
-                    SpotifyAppletView(service: presentation.spotify, state: presentation.spotifyState)
+                    SpotifyAppletView(service: presentation.spotify, state: presentation.spotifyState, artwork: cover)
                 case .codex:
                     CodexAppletView(state: presentation.codexState, restoreFocus: restoreFocus)
                 case .music:
-                    MusicAppletView(service: presentation.music)
+                    MusicAppletView(service: presentation.music, artwork: cover)
                 }
             }
             .id(presentation.tab)
@@ -34,12 +57,31 @@ struct NotchContentView: View {
         }
         .background {
             if presentation.tab != .home {
-                HomeGlow(
-                    spotify: presentation.tab == .spotify ? 1 : 0,
-                    codex: presentation.tab == .codex ? 1 : 0,
-                    darkHeight: max(presentation.layout.headerSize.height + 16, presentation.layout.expandedSize.height - 128)
-                )
+                let darkHeight = max(presentation.layout.headerSize.height + 16, presentation.layout.expandedSize.height - 144)
+                ZStack {
+                    HomeGlow(
+                        spotify: presentation.tab == .spotify ? 1 : 0,
+                        codex: presentation.tab == .codex ? 1 : 0,
+                        darkHeight: darkHeight
+                    )
+                    .opacity(artwork == nil ? 1 : 0)
+
+                    if let artwork {
+                        ArtworkGlow(colors: artwork.colors, darkHeight: darkHeight)
+                            .id(loadedArtworkSource)
+                            .transition(.opacity)
+                    }
+                }
                 .opacity(0.65)
+            }
+        }
+        .task(id: artworkSource) {
+            let source = artworkSource
+            let loaded = if let source { await AlbumArtwork.load(source) } else { nil as AlbumArtwork? }
+            guard !Task.isCancelled else { return }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.9)) {
+                artwork = loaded
+                loadedArtworkSource = source
             }
         }
     }

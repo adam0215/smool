@@ -17,10 +17,12 @@ final class SpotifyAppletState {
 struct SpotifyAppletView: View {
     let service: SpotifyService
     let state: SpotifyAppletState
+    let artwork: NSImage?
 
-    init(service: SpotifyService = SpotifyService(), state: SpotifyAppletState = SpotifyAppletState()) {
+    init(service: SpotifyService = SpotifyService(), state: SpotifyAppletState = SpotifyAppletState(), artwork: NSImage? = nil) {
         self.service = service
         self.state = state
+        self.artwork = artwork
     }
 
     var body: some View {
@@ -36,7 +38,7 @@ struct SpotifyAppletView: View {
                 : "↑↓ kort   ·   ←→ spellista   ·   ↵ spela"
         ) { page in
             switch page {
-            case .player: SpotifyPlayerView(service: service, selectedControl: $state.selectedControl)
+            case .player: SpotifyPlayerView(service: service, artwork: artwork, selectedControl: $state.selectedControl)
             case .playlists: SpotifyPlaylistsView(service: service, selection: $state.playlist, isEditing: $state.editingPlaylistLink, link: $state.playlistLinkDraft)
             }
         }
@@ -57,6 +59,7 @@ struct SpotifyAppletView: View {
 
 private struct SpotifyPlayerView: View {
     let service: SpotifyService
+    let artwork: NSImage?
     @Binding var selectedControl: Int
 
     var body: some View {
@@ -100,7 +103,7 @@ private struct SpotifyPlayerView: View {
     private func player(_ track: SpotifyTrack) -> some View {
         VStack(spacing: 10) {
             HStack(spacing: 14) {
-                SpotifyArtwork(url: track.artworkURL)
+                SpotifyArtwork(image: artwork)
                 .frame(width: 78, height: 78)
                 .clipShape(.rect(cornerRadius: 12))
                 .accessibilityLabel("Skivomslag")

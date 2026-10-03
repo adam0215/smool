@@ -4,6 +4,9 @@ import Observation
 @MainActor @Observable
 final class MusicService {
     private let bridge = MediaBridge()
+    private let spotify = SpotifyBridge()
+    private var artworkTrack: [String]?
+    private(set) var artworkURL: URL?
     private(set) var media: SystemMedia?
     private(set) var error: String?
     private(set) var isLoading = true
@@ -22,9 +25,25 @@ final class MusicService {
             try Task.checkCancellation()
             media = result
             error = nil
+            isLoading = false
+            let identity = result.map { [$0.bundleIdentifier, $0.track.title, $0.track.artist] }
+            if identity != artworkTrack {
+                artworkURL = nil
+                if let result, result.artworkData == nil, result.bundleIdentifier == "com.spotify.client",
+                   let response = try? await spotify.run(), let track = response.track,
+                   track.title == result.track.title, track.artist == result.track.artist {
+                    try Task.checkCancellation()
+                    guard identity == media.map({ [$0.bundleIdentifier, $0.track.title, $0.track.artist] }) else { return }
+                    artworkURL = track.artworkURL
+                }
+                try Task.checkCancellation()
+                artworkTrack = identity
+            }
         } catch is CancellationError { return }
         catch {
             media = nil
+            artworkURL = nil
+            artworkTrack = nil
             self.error = "Kunde inte läsa datorns uppspelning."
         }
         isLoading = false

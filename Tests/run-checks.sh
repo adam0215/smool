@@ -18,3 +18,6 @@ swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -
 "$checks/lighting" "$checks/renders"
 "${swiftc[@]}" smool/NotchHeader.swift smool/NotchLayout.swift smool/ScreenNotch.swift Tests/NotchHeaderRenderingChecks.swift -o "$checks/header"
 "$checks/header" "$checks/renders"
+
+"${swiftc[@]}" smool/MediaBridge.swift smool/SpotifyService.swift smool/AlbumArtwork.swift smool/ArtworkGlow.swift Tests/ArtworkGlowChecks.swift -o "$checks/artwork-glow"
+"$checks/artwork-glow" "$checks/renders"

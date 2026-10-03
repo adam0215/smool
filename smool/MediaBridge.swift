@@ -5,6 +5,7 @@ struct SystemMedia: Decodable, Sendable {
     let bundleIdentifier: String
     let appName: String
     let track: SpotifyTrack
+    let artworkData: Data?
 }
 
 /// MediaRemote is private. Keep its version-dependent calls inside one subprocess.
@@ -38,7 +39,13 @@ actor MediaBridge {
         if (playing && Number.isFinite(timestamp)) {
             position += Math.max(0, (Date.now() - timestamp) / 1000);
         }
+        let artwork = null;
+        try {
+            const data = item.nowPlayingInfo.objectForKey('kMRMediaRemoteNowPlayingInfoArtworkData');
+            if (data && !data.isNil()) artwork = ObjC.unwrap(data.base64EncodedStringWithOptions(0));
+        } catch (_) {}
         return JSON.stringify({
+            artworkData: artwork,
             bundleIdentifier: ObjC.unwrap(client.bundleIdentifier) || '',
             appName: ObjC.unwrap(client.displayName) || '',
             track: {title: title, artist: info.kMRMediaRemoteNowPlayingInfoArtist || '',

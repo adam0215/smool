@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MusicAppletView: View {
     let service: MusicService
+    var artwork: NSImage? = nil
     @State private var selectedControl = 1
     @FocusState private var focused: Bool
     private let commands: [MediaBridge.Command] = [.previousTrack, .togglePlayback, .nextTrack]
@@ -9,13 +10,17 @@ struct MusicAppletView: View {
     var body: some View {
         VStack(spacing: 16) {
             if let media = service.media {
-                Image(systemName: "waveform")
-                    .font(.system(size: 30, weight: .light))
-                    .foregroundStyle(.secondary)
-                VStack(spacing: 5) {
-                    Text(media.track.title).font(.system(size: 22, weight: .medium)).lineLimit(1)
-                    Text(media.track.artist).font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                    Text(media.appName).font(.caption2).foregroundStyle(.tertiary)
+                HStack(spacing: 16) {
+                    SpotifyArtwork(image: artwork)
+                        .frame(width: 86, height: 86)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .accessibilityLabel("Skivomslag")
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(media.track.title).font(.system(size: 22, weight: .medium)).lineLimit(1)
+                        Text(media.track.artist).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                        Text(media.appName).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 HStack(spacing: 20) {
                     control("Föregående låt", symbol: "backward.end.fill", index: 0)
