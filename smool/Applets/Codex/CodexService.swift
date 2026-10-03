@@ -530,12 +530,16 @@ final class CodexService {
         } onCancel: { worker.cancel() }
         projectionTask = nil
         guard !Task.isCancelled, !worker.isCancelled, self.session == session else {
-            dirtyStreams.formUnion(snapshots.keys.filter { streams[$0] != nil })
+            dirtyStreams.formUnion(snapshots.keys.filter { streams[$0]?.state != nil })
             return
         }
         for (id, presentation) in presentations {
-            guard streams[id] != nil, streamTokens[id] == tokens[id],
-                  streams[id]?.owner == snapshots[id]?.owner else { continue }
+            guard let current = streams[id], current.state != nil else { continue }
+            guard streamTokens[id] == tokens[id], current.owner == snapshots[id]?.owner else {
+                // Disconnect invalidates the worker, not the last received transcript.
+                dirtyStreams.insert(id)
+                continue
+            }
             if activities[id] != presentation { activities[id] = presentation }
         }
     }

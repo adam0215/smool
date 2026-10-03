@@ -178,6 +178,23 @@ struct CodexServiceActivityChecks {
         release.signal()
         await newOwner.value
         precondition(service.activities["isolated"]?.items.last?.text == "New owner")
+        service.receive(event("isolated", snapshot("isolated", revision: 2, active: false, text: "Final answer before disconnect"), owner: "owner-b"))
+        let disconnected = Task { await service.publishActivities() }
+        await starts.next()
+        service.receive(.object([
+            "type": .string("broadcast"), "method": .string("client-status-changed"),
+            "params": .object(["clientId": .string("owner-b"), "status": .string("disconnected")])
+        ]))
+        release.signal()
+        await disconnected.value
+        precondition(service.threads.first { $0.id == "isolated" }?.isConnected == false)
+        precondition(service.activities["isolated"]?.items.last?.text == "New owner", "The invalidated worker cannot publish directly.")
+        // No replacement snapshot arrives. Reopening must project the retained final answer.
+        release.signal()
+        await service.publishActivities()
+        precondition(service.activities["isolated"]?.items.last?.text == "Final answer before disconnect",
+                     "A disconnected in-flight projection must stay dirty until its retained content is published.")
+        precondition(service.activities["isolated"]?.revision == 2)
         started.continuation.finish()
     }
 
