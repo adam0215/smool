@@ -27,7 +27,10 @@ final class TimersApplet: Applet {
 
     func dismissOverlay() { isCreating = false }
 
-    var background: AppletBackground? { AppletBackground(color: .orange) }
+    var background: AppletBackground? {
+        guard !showsForm, selectedTimer?.deadline != nil else { return nil }
+        return AppletBackground(color: .orange)
+    }
 
     var actions: [AppletAction] {
         var actions: [AppletAction] = []

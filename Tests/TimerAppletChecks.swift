@@ -10,7 +10,7 @@ struct TimerAppletChecks {
         let applet = TimersApplet(store: store)
         precondition(applet.id.rawValue == "timers" && applet.title == "Timers" && applet.showsForm)
         precondition(!applet.handleArrow(.left, command: false))
-        precondition(applet.background != nil)
+        precondition(applet.background == nil, "The duration form stays unlit")
         precondition(!applet.handleEditingArrow(.left), "Editing preserves horizontal caret movement")
         precondition(applet.handleEditingArrow(.up))
         precondition(applet.durationInput == "26")
@@ -40,14 +40,18 @@ struct TimerAppletChecks {
         applet.startTimer()
         precondition(applet.inputError == nil && !applet.showsForm && store.timers.count == 1)
         let first = applet.selectedTimer!.id
+        precondition(applet.background != nil, "A running timer lights its view")
         precondition(applet.actions.map(\.id) == ["New timer", "Add one minute", "Stop timer"])
         precondition(applet.status?.countdownDeadline == store.timers[0].deadline)
         try render(applet, name: "timer-running", output: output)
         applet.toggleSelectedTimer()
         precondition(applet.status?.countdownDeadline == nil && applet.status?.symbol == "pause.fill")
+        precondition(applet.background == nil, "Pausing removes the timer glow")
         precondition(applet.status?.label.contains("25:00") == true)
         applet.toggleSelectedTimer()
+        precondition(applet.background != nil, "Resuming restores the timer glow")
         applet.isCreating = true
+        precondition(applet.background == nil, "A running timer must not light the new-timer form")
         applet.durationInput = "1:30"
         applet.startTimer()
         let second = applet.selectedTimer!.id
@@ -57,6 +61,7 @@ struct TimerAppletChecks {
         precondition(!applet.handleArrow(.up, command: false))
         applet.toggleSelectedTimer()
         precondition(applet.selectedTimer?.isPaused == true)
+        precondition(applet.background == nil, "Another running timer must not light the selected paused timer")
         try render(applet, name: "timer-paused", output: output)
         applet.toggleSelectedTimer()
         precondition(applet.selectedTimer?.deadline != nil)
@@ -65,6 +70,7 @@ struct TimerAppletChecks {
         applet.isCreating = false
         now += 1800
         store.refresh()
+        precondition(applet.background == nil, "Completed timers stay unlit")
         precondition(applet.status?.kind == .needsAttention && applet.status?.countdownDeadline == nil)
         applet.selectedID = second
         applet.isCreating = true
