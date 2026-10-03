@@ -4,12 +4,13 @@ import SwiftUI
 /// applying another glass effect to each control.
 struct FloatingGlass: ViewModifier {
     var cornerRadius: CGFloat = 24
+    var cornerStyle: RoundedCornerStyle = .continuous
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: cornerStyle)
 
         Group {
             if reduceTransparency {
@@ -54,7 +55,8 @@ struct FloatingControlStyle: PrimitiveButtonStyle {
 struct FloatingComposer: View {
     @Binding var text: String
     var recipient: String
-    var placeholder = "Skriv ett meddelande…"
+    var placeholder = "Write a message…"
+    var isEditable = true
     var isSending = false
     var canSend = true
     var onChooseRecipient: (() -> Void)?
@@ -68,7 +70,7 @@ struct FloatingComposer: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 if let onChooseRecipient {
                     Button(action: onChooseRecipient) {
@@ -80,7 +82,7 @@ struct FloatingComposer: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isSending)
-                    .accessibilityLabel("Välj mottagare, \(recipient)")
+                    .accessibilityLabel("Choose recipient, \(recipient)")
                 } else {
                     Text(recipient).lineLimit(1).truncationMode(.middle)
                 }
@@ -90,25 +92,27 @@ struct FloatingComposer: View {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .semibold))
-                        .frame(width: 24, height: 24)
+                        .frame(width: 28, height: 28)
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Stäng utkast")
-                .help("Stäng · esc")
+                .accessibilityLabel("Close draft")
+                .help("Close · esc")
             }
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
+            .padding(.leading, 8)
 
             HStack(alignment: .bottom, spacing: 10) {
                 TextField(placeholder, text: $text, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .lineLimit(1...5)
+                    .disabled(!isEditable)
+                    .font(.system(size: 14))
+                    .lineLimit(1...4)
                     .focused($isFocused)
-                    .accessibilityLabel("Meddelande till \(recipient)")
-                    .padding(.vertical, 5)
+                    .accessibilityLabel("Message to \(recipient)")
+                    .padding(.vertical, 8)
+                    .padding(.leading, 8)
 
                 if let onSend {
                     Button {
@@ -123,22 +127,26 @@ struct FloatingComposer: View {
                                     .font(.system(size: 13, weight: .semibold))
                             }
                         }
-                        .frame(width: 28, height: 28)
-                        .background(.primary.opacity(sendIsEnabled ? 0.12 : 0.04), in: Circle())
+                        .frame(width: 36, height: 36)
+                        .foregroundStyle(sendIsEnabled ? Color.black : Color.secondary)
+                        .background(.white.opacity(sendIsEnabled ? 0.94 : 0.06), in: Circle())
                         .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .disabled(!sendIsEnabled)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .accessibilityLabel(isSending ? "Skickar meddelande" : "Skicka meddelande")
-                    .help("Skicka · ⌘↵")
+                    .accessibilityLabel(isSending ? "Sending message" : "Send message")
+                    .help("Send · ⌘↵")
                 }
             }
-            .padding(.vertical, 10)
-            .padding(.leading, 18)
-            .padding(.trailing, 10)
-            .modifier(FloatingGlass())
         }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
+        .frame(minHeight: 2 * (NotchLayout.bottomRadius - NotchLayout.contentInset))
+        .modifier(FloatingGlass(
+            cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset,
+            cornerStyle: .circular
+        ))
         .fixedSize(horizontal: false, vertical: true)
         .onKeyPress(.escape) {
             onClose()
@@ -146,7 +154,8 @@ struct FloatingComposer: View {
         }
         .task {
             await Task.yield()
-            isFocused = true
+            guard !Task.isCancelled else { return }
+            isFocused = isEditable
         }
     }
 }

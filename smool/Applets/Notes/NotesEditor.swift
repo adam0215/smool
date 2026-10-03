@@ -9,13 +9,7 @@ struct NotesEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            FloatingComposer(
-                text: $text,
-                recipient: "Note",
-                placeholder: "Write a thought…",
-                isEditable: !isReadOnly,
-                onClose: onClose
-            )
+            Spacer(minLength: 0)
 
             HStack {
                 Text(saveStatus)
@@ -30,7 +24,14 @@ struct NotesEditor: View {
                 }
             }
             .padding(.horizontal, 16)
-            Spacer(minLength: 0)
+
+            FloatingComposer(
+                text: $text,
+                recipient: "Note",
+                placeholder: "Write a thought…",
+                isEditable: !isReadOnly,
+                onClose: onClose
+            )
         }
     }
 }

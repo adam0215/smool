@@ -32,9 +32,9 @@ struct CodexActivityView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 17) {
+            LazyVStack(alignment: .leading, spacing: 20) {
                 if presentation.omittedItemCount > 0 {
-                    Text("Äldre aktivitet finns i Codex")
+                    Text("Older activity is available in Codex")
                         .font(.system(size: 10)).foregroundStyle(.tertiary)
                 }
                 ForEach(groups) { group in
@@ -45,7 +45,7 @@ struct CodexActivityView: View {
                     }
                 }
                 if presentation.items.isEmpty {
-                    Text("Aktiviteten visas när Codex delar trådens innehåll.")
+                    Text("Activity appears when Codex shares the thread content.")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -106,12 +106,12 @@ struct CodexActivityView: View {
                     readingPosition.hasNewActivity = false
                     scrollPosition.scrollTo(edge: .bottom)
                 } label: {
-                    Label("Ny aktivitet", systemImage: "arrow.down")
+                    Label("New activity", systemImage: "arrow.down")
                         .font(.system(size: 11, weight: .medium))
                 }
                 .buttonStyle(FloatingControlStyle())
                 .padding(.bottom, 4)
-                .accessibilityHint("Gå till den senaste aktiviteten och följ nya händelser")
+                .accessibilityHint("Jump to the latest activity and follow updates")
             }
         }
         .task(id: presentation.items.isEmpty) {
@@ -157,7 +157,7 @@ struct CodexActivityView: View {
                     Image(systemName: failed ? "exclamationmark.circle" : "checkmark")
                         .foregroundStyle(failed ? Color.orange : Color.secondary)
                 }
-                Text(running?.title ?? (group.items.count == 1 ? group.items[0].title : "\(group.items.count) verktygsanrop"))
+                Text(running?.title ?? (group.items.count == 1 ? group.items[0].title : "\(group.items.count) tool calls"))
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if running != nil, group.items.count > 1 {
@@ -182,19 +182,19 @@ private struct CodexActivityMessage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text(item.kind == .user ? "Du" : item.title)
+                Text(item.kind == .user ? "You" : item.title)
                     .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
                 if item.isRunning { ProgressView().controlSize(.mini) }
                 if item.isError { Image(systemName: "exclamationmark.circle").foregroundStyle(.orange) }
             }
             if !item.text.isEmpty {
                 Text(markdown(item.text))
-                    .font(.system(size: 12)).lineSpacing(3)
+                    .font(.system(size: 13)).lineSpacing(4)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !item.details.isEmpty {
-                DisclosureGroup("Detaljer") {
+                DisclosureGroup("Details") {
                     Text(item.details).font(.system(size: 11, design: .monospaced))
                         .textSelection(.enabled).padding(.top, 5)
                 }
@@ -203,8 +203,8 @@ private struct CodexActivityMessage: View {
             CodexActivityLinks(links: item.links)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(item.kind == .user ? 10 : 0)
-        .background(item.kind == .user ? Color.white.opacity(0.045) : .clear, in: RoundedRectangle(cornerRadius: 12))
+        .padding(item.kind == .user ? 12 : 0)
+        .background(item.kind == .user ? Color.white.opacity(0.045) : .clear, in: RoundedRectangle(cornerRadius: 14))
     }
 
     private func markdown(_ text: String) -> AttributedString {

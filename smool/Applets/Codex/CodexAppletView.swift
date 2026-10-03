@@ -25,8 +25,8 @@ struct CodexAppletView: View {
 
     private var editingHint: String {
         switch state.scope {
-        case .composer: "⌘↵ skicka   ·   esc tillbaka"
-        case .search: "Sök efter titel eller innehåll   ·   ↓ trådar   ·   esc tillbaka"
+        case .composer: "⌘↵ Send   ·   esc Back"
+        case .search: "Search titles or content   ·   ↓ Threads   ·   esc Back"
         case .deck: ""
         }
     }
@@ -38,7 +38,7 @@ struct CodexAppletView: View {
             title: { $0.rawValue },
             isNavigating: state.scope == .deck && !state.showsProjects,
             editingHint: editingHint,
-            navigationHint: state.page == .usage ? "↑↓ Byt sida · ⌘K Åtgärder" : "↑↓ Byt sida · ←→ Välj tråd · ↵ Skriv\n⌘P Välj projekt · ⌘←→ Byt projekt\n⌘F Sök · ? Stäng hjälpen"
+            navigationHint: state.page == .usage ? "↑↓ Change page · ⌘K Actions" : "↑↓ Change page · ←→ Select thread · ↵ Write\n⌘P Choose project · ⌘←→ Change project\n⌘F Search · ? Close help"
         ) { page in
             if page == .usage {
                 CodexUsageView(service: service)
@@ -50,7 +50,7 @@ struct CodexAppletView: View {
             if case .composer(let thread) = state.scope {
                 composer(thread)
                     .id(thread.id)
-                    .padding(12)
+                    .padding(NotchLayout.contentInset)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -86,23 +86,23 @@ struct CodexAppletView: View {
             return .handled
         }
         .background {
-            Button("Välj projekt") { state.openProjects() }.keyboardShortcut("p", modifiers: .command).hidden()
-            Button("Sök trådar", action: beginSearch).keyboardShortcut("f", modifiers: .command).hidden()
-            Button("Gruppera per projekt") {
+            Button("Choose project") { state.openProjects() }.keyboardShortcut("p", modifiers: .command).hidden()
+            Button("Search threads", action: beginSearch).keyboardShortcut("f", modifiers: .command).hidden()
+            Button("Group by project") {
                 state.groupsByProject.toggle()
                 state.page = .history
                 state.scope = .deck
             }
                 .keyboardShortcut("p", modifiers: [.command, .shift]).hidden()
-            Button("Visa arkiverade") {
+            Button("Show archived") {
                 state.page = .history
                 state.scope = .deck
                 Task { await service.setIncludesArchived(!service.includesArchived) }
             }.keyboardShortcut("a", modifiers: [.command, .shift]).hidden()
-            Button("Expandera") { state.isExpanded.toggle() }.keyboardShortcut("e", modifiers: .command).hidden()
-            Button("Nästa tråd") { moveThread(1) }.keyboardShortcut("]", modifiers: .command).hidden()
-            Button("Föregående tråd") { moveThread(-1) }.keyboardShortcut("[", modifiers: .command).hidden()
-            Button("Uppdatera", action: refreshOrConnect).keyboardShortcut("r", modifiers: .command).hidden()
+            Button("Expand") { state.isExpanded.toggle() }.keyboardShortcut("e", modifiers: .command).hidden()
+            Button("Next thread") { moveThread(1) }.keyboardShortcut("]", modifiers: .command).hidden()
+            Button("Previous thread") { moveThread(-1) }.keyboardShortcut("[", modifiers: .command).hidden()
+            Button("Refresh", action: refreshOrConnect).keyboardShortcut("r", modifiers: .command).hidden()
         }
         .onChange(of: state.scope) { _, scope in
             if scope == .search { Task { await Task.yield(); focus = .search } }
@@ -125,7 +125,7 @@ struct CodexAppletView: View {
             HStack(spacing: 12) {
                 if state.scope == .search {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Sök trådar", text: query)
+                    TextField("Search threads", text: query)
                         .textFieldStyle(.plain)
                         .focused($focus, equals: .search)
                         .onSubmit { if let thread = threadSelection.selectedThread { compose(thread) } }
@@ -136,14 +136,14 @@ struct CodexAppletView: View {
                         Button { state.showsProjects = true } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: "folder")
-                                Text(selection.project?.name ?? "Välj projekt").lineLimit(1)
+                                Text(selection.project?.name ?? "Choose project").lineLimit(1)
                                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
                             }
                         }
-                        .help("Välj projekt · ⌘P · ⌘←→ byter projekt")
-                        .accessibilityLabel("Projekt: \(selection.project?.name ?? "Välj projekt")")
+                        .help("Choose project · ⌘P · ⌘←→ Change project")
+                        .accessibilityLabel("Project: \(selection.project?.name ?? "Choose project")")
                         .popover(isPresented: $state.showsProjects, arrowEdge: .bottom) {
-                            ActionList(title: "Projekt", actions: service.projects.map { project in
+                            ActionList(title: "Project", actions: service.projects.map { project in
                                 AppletAction(id: project.name, symbol: "folder", selected: project.id == selection.project?.id) {
                                     state.selectProject(project)
                                 }
@@ -161,11 +161,11 @@ struct CodexAppletView: View {
                     .monospacedDigit().foregroundStyle(.tertiary)
                     if service.includesArchived, state.page == .history {
                         Image(systemName: "archivebox").foregroundStyle(.secondary)
-                            .accessibilityLabel("Inkluderar arkiverade trådar")
+                            .accessibilityLabel("Includes archived threads")
                     }
                 }
             }
-            .font(.system(size: 10)).buttonStyle(.plain)
+            .font(.system(size: 11, weight: .medium)).buttonStyle(.plain)
             .focusable(false)
 
             if let thread = selection.selectedThread {
@@ -173,20 +173,20 @@ struct CodexAppletView: View {
                     HStack(spacing: 8) {
                         ProjectIcon(path: thread.project?.roots.first ?? thread.projectPath, isActive: thread.isActive)
                             .frame(width: 22, height: 22)
-                        Text(thread.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                        Text(thread.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                         Spacer(minLength: 0)
                         if !service.unreadThreadIDs.subtracting([thread.id]).isEmpty {
                             Circle().fill(.purple).frame(width: 5, height: 5)
-                                .accessibilityLabel("Ny aktivitet i andra trådar")
+                                .accessibilityLabel("New activity in other threads")
                         }
                         Button { state.isExpanded.toggle() } label: {
                             Image(systemName: state.isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                         }
-                        .help(state.isExpanded ? "Minimera · ⌘E" : "Expandera · ⌘E")
-                        .accessibilityLabel(state.isExpanded ? "Minimera flödet" : "Expandera flödet")
+                        .help(state.isExpanded ? "Collapse · ⌘E" : "Expand · ⌘E")
+                        .accessibilityLabel(state.isExpanded ? "Collapse feed" : "Expand feed")
                         Button { compose(thread) } label: { Image(systemName: "square.and.pencil") }
-                            .help("Skriv till tråden · ↵")
-                            .accessibilityLabel("Skriv till tråden")
+                            .help("Write to thread · ↵")
+                            .accessibilityLabel("Write to thread")
                     }
                     .buttonStyle(.plain)
                     if let presentation = service.activities[thread.id] {
@@ -197,10 +197,10 @@ struct CodexAppletView: View {
                         .id(thread.id)
                     } else {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(thread.preview.isEmpty ? "Inget flöde inläst" : thread.preview)
+                            Text(thread.preview.isEmpty ? "No activity loaded" : thread.preview)
                                 .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(3)
                             if !thread.isConnected {
-                                Button("Anslut tråden i Codex") { connect(thread) }
+                                Button("Connect thread in Codex") { connect(thread) }
                                     .buttonStyle(.plain).font(.system(size: 11))
                             } else { ProgressView().controlSize(.mini) }
                         }
@@ -233,21 +233,35 @@ struct CodexAppletView: View {
     }
 
     private var emptyTitle: String {
-        if service.isLoading { return "Hämtar trådar…" }
-        if !query.wrappedValue.isEmpty { return "Inga matchande trådar" }
-        if state.page == .active, service.liveError != nil { return "Aktiva trådar är inte tillgängliga" }
-        return state.page == .active ? "Inga trådar arbetar just nu" : "Inga tidigare trådar"
+        if service.isLoading { return "Loading threads…" }
+        if !query.wrappedValue.isEmpty { return "No matching threads" }
+        if state.page == .active, service.liveError != nil { return "Active threads are unavailable" }
+        return state.page == .active ? "No threads are working right now" : "No previous threads"
     }
 
     private func composer(_ thread: CodexThread) -> some View {
         let draft = Binding(get: { service.drafts[thread.id] ?? "" }, set: { service.drafts[thread.id] = $0 })
         let connected = service.threads.contains { $0.id == thread.id && $0.isConnected }
         let connecting = service.isConnectingThreadID == thread.id
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 10) {
+            if let error = service.error {
+                Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(3)
+                    .padding(.horizontal, 24)
+            } else if !connected {
+                HStack {
+                    Text(connecting ? "Connecting thread… Your draft is saved." : "Connect the thread in Codex to send.")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(connecting ? "Connecting…" : "Connect") { connect(thread) }
+                        .buttonStyle(NotchControlStyle(isSelected: true))
+                        .disabled(service.isConnectingThreadID != nil)
+                }
+            }
+
             FloatingComposer(
                 text: draft,
                 recipient: thread.title,
-                placeholder: "Skriv till Codex…",
+                placeholder: "Write to Codex…",
                 isSending: service.isSending,
                 canSend: connected,
                 onChooseRecipient: { state.showsRecipientPicker = true },
@@ -262,28 +276,16 @@ struct CodexAppletView: View {
                 },
                 onClose: returnToDeck
             )
-            if let error = service.error {
-                Text(error).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(3)
-            } else if !connected {
-                HStack {
-                    Text(connecting ? "Ansluter tråden… Utkastet är kvar." : "Anslut tråden i Codex för att skicka.")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(connecting ? "Ansluter…" : "Anslut") { connect(thread) }
-                        .buttonStyle(FloatingControlStyle())
-                        .disabled(service.isConnectingThreadID != nil)
-                }
-            }
         }
-        .padding(8)
-        .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 26))
     }
 
     private var recipientPicker: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Välj mottagare").font(.headline)
-            TextField("Sök tråd…", text: $recipientQuery)
-                .textFieldStyle(.roundedBorder)
+            Text("Choose recipient").font(.headline)
+            TextField("Search threads…", text: $recipientQuery)
+                .textFieldStyle(.plain)
+                .padding(12)
+                .background(.white.opacity(0.055), in: .rect(cornerRadius: 12))
                 .focused($focus, equals: .recipient)
                 .onSubmit { if let thread = recipientThreads.first { chooseRecipient(thread) } }
             if let text = state.pendingText {
@@ -294,16 +296,16 @@ struct CodexAppletView: View {
                     ForEach(recipientThreads) { thread in
                         Button { chooseRecipient(thread) } label: {
                             Label(thread.title, systemImage: thread.isActive ? "waveform" : "bubble.left")
-                                .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                                .lineLimit(1).frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
                         }
                         .buttonStyle(.plain)
                     }
                 }
             }
             .frame(maxHeight: 280)
-            if service.displayedThreads.isEmpty { Text("Öppna en tråd i Codex för att välja mottagare.").foregroundStyle(.secondary) }
+            if service.displayedThreads.isEmpty { Text("Open a thread in Codex to choose a recipient.").foregroundStyle(.secondary) }
         }
-        .padding(16).frame(width: 330).preferredColorScheme(.dark)
+        .padding(20).frame(width: 350).preferredColorScheme(.dark)
         .task { await Task.yield(); focus = .recipient }
         .onKeyPress(.escape) { state.showsRecipientPicker = false; return .handled }
     }
@@ -336,21 +338,21 @@ struct CodexAppletView: View {
             Text(statusTitle(thread)).font(.system(size: 10)).foregroundStyle(.secondary)
             Spacer()
             if let url = CodexDesktopProtocol.threadURL(thread.id) {
-                Link("Öppna i Codex", destination: url).font(.system(size: 10))
+                Link("Open in Codex", destination: url).font(.system(size: 10))
             }
         }
     }
 
     private func statusTitle(_ thread: CodexThread) -> String {
         guard service.threads.contains(where: { $0.id == thread.id && $0.isConnected }) else {
-            return "Frånkopplad · sparat flöde"
+            return "Disconnected · saved activity"
         }
         switch service.attentionByThread[thread.id] ?? .idle {
-        case .idle: return "Klart · ↵ följdfråga"
-        case .working: return "Arbetar"
-        case .waitingForUser: return "Väntar på ditt svar i Codex"
-        case .approval: return "Godkännande behövs i Codex"
-        case .failed: return "Ett fel behöver hanteras i Codex"
+        case .idle: return "Done · ↵ Follow up"
+        case .working: return "Working"
+        case .waitingForUser: return "Waiting for your reply in Codex"
+        case .approval: return "Approval needed in Codex"
+        case .failed: return "An error needs attention in Codex"
         }
     }
 
