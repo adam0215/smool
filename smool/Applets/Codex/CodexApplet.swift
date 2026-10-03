@@ -96,6 +96,13 @@ final class CodexApplet: Applet {
         return true
     }
 
+    func deactivate() {
+        state.showsProjects = false
+        state.showsRecipientPicker = false
+        state.scope = .deck
+        state.isExpanded = false
+    }
+
     func dismissOverlay() {
         if state.showsProjects || state.showsRecipientPicker {
             state.showsProjects = false
