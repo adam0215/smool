@@ -10,11 +10,24 @@ struct AudioSpectrum: Equatable {
     private(set) var bass = AudioEnvelope()
     private(set) var middle = AudioEnvelope()
     private(set) var treble = AudioEnvelope()
+    private(set) var visibility = 0.0
+    private(set) var phase = 0.0
+
+    var lift: Double { max(bass.lift, middle.lift, treble.lift) }
 
     mutating func update(_ bands: AudioBands, elapsed: Double) {
+        guard elapsed.isFinite, elapsed > 0 else { return }
+        let elapsed = min(elapsed, 0.1)
         bass.update(rms: bands.bass, elapsed: elapsed)
         middle.update(rms: bands.middle, elapsed: elapsed)
         treble.update(rms: bands.treble, elapsed: elapsed)
+
+        // Brightness follows the whole phrase, while individual bands shape the moving light.
+        let level = max(bass.level, middle.level, treble.level)
+        let target = pow(level, 0.65)
+        visibility += (target - visibility) * (1 - exp(-elapsed / (target > visibility ? 0.45 : 0.85)))
+        if level == 0, visibility < 0.02 { visibility = 0 }
+        if visibility > 0 { phase += elapsed * (0.48 + level * 0.18) }
     }
 }
 
@@ -22,14 +35,11 @@ struct AudioSpectrum: Equatable {
 struct AudioEnvelope: Equatable {
     private(set) var level = 0.0
     private(set) var pulse = 0.0
-    private(set) var phase = 0.0
     private var baseline = 0.0
     private var energy = 0.0
     private var attack = 0.0
 
     var lift: Double { min(1, level * 0.8 + pulse * 0.35) }
-    var opacity: Double { min(1, pow(level, 1.3) + pulse * 0.2) }
-    var colorMix: Double { min(1, level * 0.55 + pulse * 0.35 + (sin(phase) + 1) * 0.1) }
 
     mutating func update(rms: Double, elapsed: Double) {
         guard elapsed.isFinite, elapsed > 0 else { return }
@@ -48,7 +58,7 @@ struct AudioEnvelope: Equatable {
             pulse = 0
             energy = 0
             attack = 0
+            baseline = 0
         }
-        phase += elapsed * level * 0.55
     }
 }

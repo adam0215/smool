@@ -22,7 +22,7 @@ struct MusicGlowChecks {
         var peak = AudioSpectrum()
         for _ in 0..<30 { peak.update(AudioBands(bass: 1, middle: 1, treble: 1), elapsed: 1.0 / 30) }
         var faded = beat
-        for _ in 0..<150 { faded.update(AudioBands(), elapsed: 1.0 / 30) }
+        for _ in 0..<210 { faded.update(AudioBands(), elapsed: 1.0 / 30) }
 
         for colors in [cover, nil] {
             var upperLight: [String: Double] = [:]
@@ -67,9 +67,28 @@ struct MusicGlowChecks {
                     if x >= 320 { right += brightness }
                 }
             }
-            precondition(name == "bass" ? left > right * 5 : right > left * 5,
-                         "Bass belongs on the left and treble on the right.")
+            precondition(name == "bass" ? left > right * 1.4 : right > left * 1.4,
+                         "Active bands must still dominate their side despite the shared flowing light.")
+            precondition(min(left, right) > 10, "Light must remain present across quiet bands while music plays.")
             try pixels.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("music-glow-\(name).png"))
+
+            for _ in 0..<60 { spectrum.update(bands, elapsed: 1.0 / 30) }
+            let later = ImageRenderer(content: MusicGlow(colors: nil, fallback: .green, darkHeight: 80, audio: spectrum)
+                .frame(width: 480, height: 224).background(.black))
+            let moved = NSBitmapImageRep(cgImage: later.cgImage!)
+            var leftMovement = 0.0
+            var rightMovement = 0.0
+            for y in 80..<224 {
+                for x in 0..<480 {
+                    let before = pixels.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!.greenComponent
+                    let after = moved.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!.greenComponent
+                    if x < 160 { leftMovement += abs(after - before) }
+                    if x >= 320 { rightMovement += abs(after - before) }
+                }
+            }
+            precondition(min(leftMovement, rightMovement) > 50,
+                         "Visible drift must reach both sides even with a single sustained frequency band.")
+            try moved.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("music-glow-\(name)-drift.png"))
         }
         print("Passed: black notch band at peak volume, dark silence, rising light, and artwork/fallback rendering.")
     }
