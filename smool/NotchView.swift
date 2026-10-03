@@ -58,6 +58,13 @@ final class NotchPresentation {
 
     var collapsedSize: CGSize { layout.collapsedSize(statusCount: statusItems.count) }
 
+    func presentCapturedSelection(_ preview: SelectionPreview) {
+        showsSettings = false
+        showsActions = false
+        activeApplet.dismissOverlay()
+        capturedSelection = preview
+    }
+
     func select(_ id: AppletID) {
         guard registry.applet(for: id) != nil else { return }
         showsSettings = false

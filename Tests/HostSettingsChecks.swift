@@ -133,6 +133,17 @@ struct HostSettingsChecks {
         presentation.select(presentation.selection)
         precondition(!presentation.showsSettings, "Selecting the current applet returns from settings.")
 
+        presentation.showsSettings = true
+        presentation.showsActions = true
+        presentation.changeSettingsSection(.general)
+        let demoBeforeCapture = settings.demoNotchEnabled
+        presentation.presentCapturedSelection(.failure(.noSelection))
+        precondition(!presentation.showsSettings && !presentation.showsActions)
+        precondition(presentation.capturedSelection != nil)
+        precondition(!presentation.handleSettingsKey(49, modifiers: [], characters: " "))
+        precondition(settings.demoNotchEnabled == demoBeforeCapture, "A capture preview cannot change settings behind it")
+        presentation.capturedSelection = nil
+
         defaults.set(["missing-1", "missing-2", "missing-3"], forKey: "frontAppletIDs")
         let missing = NotchPresentation(registry: AppletRegistry(applets), settings: AppSettings(defaults: defaults))
         missing.changeSettingsSection(.applets)

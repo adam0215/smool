@@ -55,6 +55,7 @@ extension NotchPresentation {
     }
 
     func handleSettingsKey(_ key: UInt16, modifiers: NSEvent.ModifierFlags, characters: String?) -> Bool {
+        guard showsSettings, capturedSelection == nil else { return false }
         let modifiers = modifiers.intersection([.command, .control, .option, .shift])
         if modifiers == .command, key == 125 || key == 126 {
             moveSettingsApplet(key == 126 ? -1 : 1)

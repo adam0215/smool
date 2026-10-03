@@ -37,7 +37,7 @@ final class NotchPanelController: NSObject {
             catch let error as SelectionCaptureError { preview = .failure(error) }
             catch { preview = .failure(.unsupported) }
             guard let self, !Task.isCancelled else { return }
-            self.presentation.capturedSelection = preview
+            self.presentation.presentCapturedSelection(preview)
             self.open()
             self.resizeContent()
         }
@@ -219,7 +219,10 @@ final class NotchPanelController: NSObject {
     }
 
     func goBackOrClose() {
-        if presentation.showsSettings {
+        if presentation.capturedSelection != nil {
+            presentation.capturedSelection = nil
+            restoreFocus()
+        } else if presentation.showsSettings {
             presentation.showsSettings = false
             resizeContent()
         } else {
@@ -271,6 +274,9 @@ final class NotchPanelController: NSObject {
 
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self, self.isOpen else { return event }
+            if self.presentation.capturedSelection != nil, event.type == .keyDown, event.window === self.panel {
+                return event
+            }
             if event.type == .keyDown, event.window === self.panel,
                self.presentation.showsSettings, event.keyCode == 53 {
                 self.goBackOrClose()
@@ -281,9 +287,6 @@ final class NotchPanelController: NSObject {
                self.presentation.handleSettingsKey(event.keyCode, modifiers: event.modifierFlags,
                                                    characters: event.charactersIgnoringModifiers) {
                 return nil
-            }
-            if self.presentation.capturedSelection != nil, event.type == .keyDown, event.window === self.panel {
-                return event
             }
             if event.type == .keyDown, event.window === self.panel,
                event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command {
