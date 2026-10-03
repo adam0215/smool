@@ -100,6 +100,16 @@ struct HomeCardGlass: ViewModifier {
     let illumination: Double
     var isSelected = false
 
+    func body(content: Content) -> some View {
+        content.modifier(CardGlass(shape: shape, illumination: illumination, isSelected: isSelected))
+    }
+}
+
+struct CardGlass<S: InsettableShape>: ViewModifier {
+    let shape: S
+    var illumination = 1.0
+    var isSelected = false
+
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func body(content: Content) -> some View {
