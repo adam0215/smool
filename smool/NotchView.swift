@@ -12,6 +12,18 @@ final class NotchPresentation {
     let spotifyState = SpotifyAppletState()
     let codexState = CodexAppletState()
     var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900))
+
+    var contentHeight: CGFloat { contentHeight(for: tab, calendar: showCalendar) }
+
+    func contentHeight(for tab: NotchTab, calendar: Bool) -> CGFloat {
+        if tab == .home, calendar { return 168 }
+        if tab == .spotify, spotifyState.editingPlaylistLink { return 196 }
+        if tab == .codex {
+            if case .composer = codexState.scope { return 224 }
+            if codexState.page == .usage { return 176 }
+        }
+        return tab.contentHeight
+    }
 }
 
 struct NotchView: View {
@@ -23,6 +35,7 @@ struct NotchView: View {
     var restoreFocus: () -> Void = {}
     var openCalendar: () -> Void = {}
     var closeCalendar: () -> Void = {}
+    var resizeContent: () -> Void = {}
 
     private var size: CGSize {
         presentation.isExpanded ? presentation.layout.expandedSize : presentation.layout.collapsedSize
@@ -71,6 +84,7 @@ struct NotchView: View {
             .environment(\.locale, Locale(identifier: "sv_SE"))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("smool")
+            .onChange(of: presentation.contentHeight) { _, _ in resizeContent() }
             .onExitCommand(perform: close)
     }
 }

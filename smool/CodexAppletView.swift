@@ -7,7 +7,7 @@ enum CodexPage: String, CaseIterable {
 }
 
 enum CodexScope: Equatable {
-    case deck, threads, search
+    case deck, search
     case composer(CodexThread)
 }
 
@@ -26,7 +26,7 @@ struct CodexAppletView: View {
     @State private var isVisible = false
     private let restoreFocus: () -> Void
 
-    private enum Focus: Hashable { case threads, search, composer }
+    private enum Focus: Hashable { case search, composer }
     @FocusState private var focus: Focus?
 
     init(service: CodexService? = nil, state: CodexAppletState? = nil, restoreFocus: @escaping () -> Void = {}) {
@@ -53,9 +53,8 @@ struct CodexAppletView: View {
 
     private var editingHint: String {
         switch state.scope {
-        case .composer: "⌘↵ skicka   ·   esc trådar"
+        case .composer: "⌘↵ skicka   ·   esc tillbaka"
         case .search: "Sök efter titel eller innehåll   ·   ↓ trådar   ·   esc tillbaka"
-        case .threads: "↑↓ välj tråd   ·   ↵ skriv   ·   ⌘F sök   ·   esc kort"
         case .deck: ""
         }
     }
@@ -65,10 +64,11 @@ struct CodexAppletView: View {
             pages: CodexPage.allCases,
             selection: $state.page,
             title: { $0.rawValue },
-            showsTitle: state.page != .usage,
+            showsTitle: state.page != .usage && (state.scope == .deck || state.scope == .search),
+            elevated: state.page != .usage,
             isNavigating: state.scope == .deck,
             editingHint: editingHint,
-            navigationHint: state.page == .usage ? "↑↓ kort   ·   ⌘R uppdatera" : "↑↓ kort   ·   ↵ välj tråd   ·   ⌘F sök"
+            navigationHint: state.page == .usage ? "↑↓ kort   ·   ⌘R uppdatera" : "↑↓ Byt kort\n←→ Välj tråd · ↵ Skriv\n⌘F Sök · ? Stäng hjälpen"
         ) { page in
             if case .composer(let thread) = state.scope {
                 composer(thread)
@@ -78,18 +78,14 @@ struct CodexAppletView: View {
                 threadList
             }
         }
-        .onKeyPress(keys: [.upArrow, .downArrow]) { key in
-            guard state.scope == .threads, unmodified(key) else { return .ignored }
-            moveThread(key.key == .upArrow ? -1 : 1)
+        .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { key in
+            guard state.scope == .deck, state.page != .usage, unmodified(key) else { return .ignored }
+            moveThread(key.key == .leftArrow ? -1 : 1)
             return .handled
         }
-        .onKeyPress(keys: [.return, .tab], phases: .down) { key in
+        .onKeyPress(.return, phases: .down) { key in
             guard state.page != .usage, unmodified(key) else { return .ignored }
-            if state.scope == .deck {
-                enterThreads()
-                return .handled
-            }
-            if state.scope == .threads, key.key == .return, let thread = selectedThread {
+            if state.scope == .deck, let thread = selectedThread {
                 compose(thread)
                 return .handled
             }
@@ -98,11 +94,8 @@ struct CodexAppletView: View {
         .onKeyPress(.escape) {
             switch state.scope {
             case .deck: return .ignored
-            case .composer: enterThreads()
-            case .search: enterThreads()
-            case .threads:
-                focus = nil
-                state.scope = .deck
+            case .composer: returnToDeck()
+            case .search: returnToDeck()
             }
             return .handled
         }
@@ -123,104 +116,67 @@ struct CodexAppletView: View {
     }
 
     private var threadList: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
                 if state.scope == .search {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField("Sök trådar", text: query)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 11))
                         .focused($focus, equals: .search)
                         .onSubmit { if let thread = selectedThread { compose(thread) } }
-                        .onKeyPress(keys: [.upArrow, .downArrow]) { key in
-                            guard unmodified(key) else { return .ignored }
-                            enterThreads()
-                            if key.key == .upArrow { moveThread(-1) }
-                            return .handled
-                        }
-                        .onExitCommand { enterThreads() }
+                        .onKeyPress(.downArrow) { returnToDeck(); return .handled }
+                        .onExitCommand { returnToDeck() }
                 } else {
-                    Button(action: beginSearch) {
-                        ShortcutLabel(query.wrappedValue.isEmpty ? "Sök trådar" : query.wrappedValue, keys: "⌘F")
-                            .lineLimit(1)
+                    if !query.wrappedValue.isEmpty {
+                        Text(query.wrappedValue).lineLimit(1).foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    Text(selectedThread.map { thread in
+                        "\((threads.firstIndex(where: { $0.id == thread.id }) ?? 0) + 1) / \(threads.count)"
+                    } ?? "")
+                    .monospacedDigit().foregroundStyle(.tertiary)
+                    Spacer()
+                    Button(action: beginSearch) { Image(systemName: "magnifyingglass") }
+                        .help("Sök · ⌘F").accessibilityLabel("Sök trådar")
                 }
-                Spacer(minLength: 0)
                 if state.page == .history {
-                    Button {
-                        Task { await service.setIncludesArchived(!service.includesArchived) }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: service.includesArchived ? "archivebox.fill" : "archivebox")
-                            Text("⇧⌘A").font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
-                        }
+                    Button { Task { await service.setIncludesArchived(!service.includesArchived) } } label: {
+                        Image(systemName: service.includesArchived ? "archivebox.fill" : "archivebox")
                     }
                     .keyboardShortcut("a", modifiers: [.command, .shift])
-                    .buttonStyle(.plain)
                     .foregroundStyle(service.includesArchived ? .primary : .secondary)
                     .accessibilityLabel(service.includesArchived ? "Dölj arkiverade trådar" : "Visa arkiverade trådar")
-                    .help("Inkludera arkiverade trådar")
                 }
-                Text("\(threads.count)")
-                    .font(.system(size: 10).monospacedDigit())
-                    .foregroundStyle(.secondary)
             }
-            .frame(height: 20)
+            .font(.system(size: 10)).buttonStyle(.plain)
+            .focusable(false)
 
-            if threads.isEmpty {
-                emptyState
-            } else {
-                ScrollViewReader { scroll in
-                    ScrollView {
-                        LazyVStack(spacing: 3) {
-                            ForEach(threads) { thread in
-                                threadRow(thread).id(thread.id)
+            if let thread = selectedThread {
+                Button { compose(thread) } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: thread.isActive ? "waveform" : "bubble.left")
+                            .font(.system(size: 28, weight: .light))
+                            .foregroundStyle(thread.isActive ? Color.green.opacity(0.8) : .white.opacity(0.4))
+                            .frame(width: 36)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(thread.title).font(.system(size: 17, weight: .medium)).lineLimit(2)
+                            if !thread.preview.isEmpty {
+                                Text(thread.preview).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "arrow.turn.down.left").font(.system(size: 13)).foregroundStyle(.tertiary)
                     }
-                    .scrollIndicators(.hidden)
-                    .frame(height: 123)
-                    .focusable(state.scope == .threads, interactions: .edit)
-                    .focused($focus, equals: .threads)
-                    .focusEffectDisabled()
-                    .onChange(of: selectedThread?.id) { _, id in
-                        if let id { scroll.scrollTo(id) }
-                    }
-                    .onAppear { if let id = selectedThread?.id { scroll.scrollTo(id) } }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain).focusable(false)
+                .accessibilityLabel("\(thread.title), \(thread.isActive ? "arbetar" : "tidigare tråd")")
+            } else {
+                emptyState
             }
             if let error = service.error {
-                Text(error).font(.system(size: 9)).foregroundStyle(.orange).lineLimit(1)
+                Text(error).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(1)
             }
         }
-    }
-
-    private func threadRow(_ thread: CodexThread) -> some View {
-        let selected = selectedThread?.id == thread.id && state.scope == .threads
-        return Button { compose(thread) } label: {
-            HStack(spacing: 8) {
-                Circle().fill(thread.isActive ? Color.green : .white.opacity(0.2)).frame(width: 4, height: 4)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(thread.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                    Text(thread.preview.isEmpty ? (thread.isArchived ? "Arkiverad tråd" : "Ingen förhandsvisning") : thread.preview)
-                        .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer(minLength: 2)
-                Text(selected ? "↵" : "")
-                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 39)
-            .background(.white.opacity(selected ? 0.065 : 0), in: .rect(cornerRadius: 10))
-            .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(selected ? 0.2 : 0), lineWidth: 0.5) }
-            .contentShape(.rect(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-        .focusable(false)
-        .accessibilityLabel("\(thread.title), \(thread.isActive ? "arbetar" : thread.isArchived ? "arkiverad" : "tidigare tråd")")
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var emptyState: some View {
@@ -232,10 +188,7 @@ struct CodexAppletView: View {
                 Text(error).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 123)
-        .focusable(state.scope == .threads, interactions: .edit)
-        .focused($focus, equals: .threads)
-        .focusEffectDisabled()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var emptyTitle: String {
@@ -250,7 +203,7 @@ struct CodexAppletView: View {
         let connected = service.threads.contains { $0.id == thread.id && $0.isConnected }
         let connecting = service.isConnectingThreadID == thread.id
         return VStack(alignment: .leading, spacing: 7) {
-            Text(thread.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+            Text(thread.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
             TextEditor(text: draft)
                 .font(.system(size: 12))
                 .scrollContentBackground(.hidden)
@@ -258,7 +211,7 @@ struct CodexAppletView: View {
                 .background(.white.opacity(0.035), in: .rect(cornerRadius: 10))
                 .focused($focus, equals: .composer)
                 .accessibilityLabel("Meddelande till \(thread.title)")
-                .onExitCommand { enterThreads() }
+                .onExitCommand { returnToDeck() }
                 .task { await Task.yield(); focus = .composer }
             if let error = service.error {
                 Text(error).font(.system(size: 9)).foregroundStyle(.orange).lineLimit(1)
@@ -267,8 +220,7 @@ struct CodexAppletView: View {
                     .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
             }
             HStack {
-                Button(action: enterThreads) { ShortcutLabel("Tillbaka", keys: "esc") }
-                    .buttonStyle(.plain)
+                Text("esc tillbaka").font(.system(size: 10)).foregroundStyle(.tertiary)
                 Spacer()
                 if !connected {
                     Button(action: refreshOrConnect) {
@@ -283,10 +235,12 @@ struct CodexAppletView: View {
                     Task {
                         if await service.send(text, to: thread), draft.wrappedValue == text {
                             draft.wrappedValue = ""
-                            if case .composer(let recipient) = state.scope, recipient.id == thread.id { enterThreads() }
+                            if case .composer(let recipient) = state.scope, recipient.id == thread.id { returnToDeck() }
                         }
                     }
-                } label: { ShortcutLabel(service.isSending ? "Skickar…" : "Skicka", keys: "⌘↵") }
+                } label: { Image(systemName: "arrow.up").font(.system(size: 14, weight: .semibold)) }
+                .accessibilityLabel("Skicka meddelande")
+                .help("Skicka · ⌘↵")
                 .buttonStyle(NotchControlStyle())
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!connected || service.isSending || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -302,11 +256,11 @@ struct CodexAppletView: View {
         Task { await Task.yield(); focus = .search }
     }
 
-    private func enterThreads() {
+    private func returnToDeck() {
         connectionTask?.cancel()
-        state.scope = .threads
+        state.scope = .deck
         if let thread = selectedThread { state.selection[state.page] = thread.id }
-        Task { await Task.yield(); focus = .threads }
+        focus = nil
     }
 
     private func moveThread(_ offset: Int) {
@@ -339,7 +293,6 @@ struct CodexAppletView: View {
     private func restoreLocalFocus() {
         switch state.scope {
         case .deck: break
-        case .threads: focus = .threads
         case .search: focus = .search
         case .composer: focus = .composer
         }

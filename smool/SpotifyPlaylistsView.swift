@@ -20,7 +20,7 @@ struct SpotifyPlaylistsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 4) {
             if isEditing {
                 linkEditor
             } else {
@@ -32,7 +32,7 @@ struct SpotifyPlaylistsView: View {
                         } label: {
                             VStack(spacing: 10) {
                                 Image(systemName: playlist.symbol)
-                                    .font(.system(size: 24, weight: .light))
+                                    .font(.system(size: 28, weight: .light))
                                     .foregroundStyle(selection == playlist ? .primary : .secondary)
                                 Text(playlist.title)
                                     .font(.system(size: 10, weight: .medium))
@@ -52,32 +52,18 @@ struct SpotifyPlaylistsView: View {
                         .buttonStyle(.plain)
                         .focusable(false)
                         .accessibilityAddTraits(selection == playlist ? .isSelected : [])
+                        .help("↵ Spela eller anslut · ⌘L Ändra länk")
                     }
                 }
 
-
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(selection.subtitle).font(.system(size: 11))
-                        Text(savedURI.isEmpty ? "Anslut din personliga lista en gång." : "Spela direkt i Spotify.")
-                            .font(.system(size: 9)).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    if !savedURI.isEmpty {
-                        Button { beginEditing() } label: { ShortcutLabel("Ändra", keys: "⌘L") }
-                            .keyboardShortcut("l", modifiers: .command)
-                            .buttonStyle(NotchControlStyle())
-                            .focusable(false)
-                            .accessibilityLabel("Ändra spellistelänk")
-                    }
-                    Button(action: activate) {
-                        ShortcutLabel(savedURI.isEmpty ? "Anslut" : "Spela", keys: "↵")
-                    }
+                Group {
+                    Button("Ändra spellistelänk", action: beginEditing)
+                        .keyboardShortcut("l", modifiers: .command)
+                    Button("Spela eller anslut", action: activate)
                         .keyboardShortcut(.return, modifiers: [])
-                        .buttonStyle(NotchControlStyle())
-                        .focusable(false)
                         .disabled(service.isPerformingAction)
                 }
+                .hidden().frame(height: 0)
                 if let error = service.actionError {
                     Text(error).font(.system(size: 9)).foregroundStyle(.orange).lineLimit(2)
                 }
@@ -89,7 +75,7 @@ struct SpotifyPlaylistsView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Anslut \(selection.title)")
                 .font(.system(size: 14, weight: .medium))
-            Text("Öppna Spotifys lista, välj Dela och kopiera länken. Du behöver bara göra det en gång.")
+            Text("Klistra in länken från Dela i Spotify.")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             TextField("Spotify-spellistelänk", text: $link)
@@ -108,9 +94,6 @@ struct SpotifyPlaylistsView: View {
                     .keyboardShortcut("o", modifiers: .command)
                     .buttonStyle(NotchControlStyle()).focusable(false)
                 Spacer()
-                Button { finishEditing() } label: { ShortcutLabel("Tillbaka", keys: "esc") }
-                    .keyboardShortcut(.escape, modifiers: [])
-                    .buttonStyle(NotchControlStyle()).focusable(false)
                 Button(action: saveLink) { ShortcutLabel("Spara", keys: "↵") }
                     .keyboardShortcut(.return, modifiers: [])
                     .buttonStyle(NotchControlStyle()).focusable(false)

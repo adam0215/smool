@@ -41,7 +41,7 @@ final class NotchPanelController: NSObject {
         resizeTransition += 1
         let currentTransition = transition
         presentation.layout = NotchLayout(screen: screen, demoNotch: demoNotchEnabled)
-        presentation.layout.contentHeight = presentation.showCalendar && presentation.tab == .home ? 320 : presentation.tab.contentHeight
+        presentation.layout.contentHeight = presentation.contentHeight
 
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -121,7 +121,11 @@ final class NotchPanelController: NSObject {
                 else { self.panel?.makeKeyAndOrderFront(nil) }
             },
             openCalendar: { [weak self] in self?.setCalendarVisible(true) },
-            closeCalendar: { [weak self] in self?.setCalendarVisible(false) }
+            closeCalendar: { [weak self] in self?.setCalendarVisible(false) },
+            resizeContent: { [weak self] in
+                guard let self, self.presentation.layout.contentHeight != self.presentation.contentHeight else { return }
+                self.resize(tab: self.presentation.tab, calendar: self.presentation.showCalendar)
+            }
         ))
         content.safeAreaRegions = []
         panel.contentView = content
@@ -141,7 +145,7 @@ final class NotchPanelController: NSObject {
         resizeTransition += 1
         let resize = resizeTransition
         var targetLayout = presentation.layout
-        targetLayout.contentHeight = calendar ? 320 : tab.contentHeight
+        targetLayout.contentHeight = presentation.contentHeight(for: tab, calendar: calendar)
         let targetFrame = targetLayout.windowFrame
 
         // Grow the transparent host before animating, then trim it afterward.

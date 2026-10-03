@@ -6,6 +6,7 @@ struct PageStack<Page: Hashable, Content: View>: View {
     @Binding var selection: Page
     let title: (Page) -> String
     var showsTitle = true
+    var elevated = true
     var isNavigating = true
     var editingHint = "⌘↵ skicka   ·   esc tillbaka"
     var navigationHint: String? = nil
@@ -22,35 +23,26 @@ struct PageStack<Page: Hashable, Content: View>: View {
         }
     }
 
-    private var cardShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 16,
-            bottomLeadingRadius: NotchLayout.bottomRadius - NotchLayout.contentInset,
-            bottomTrailingRadius: NotchLayout.bottomRadius - NotchLayout.contentInset,
-            topTrailingRadius: 16,
-            style: .circular
-        )
-    }
-
     var body: some View {
         ZStack(alignment: .top) {
-            ForEach(Array(neighbors.enumerated()), id: \.element) { depth, page in
-                GlassEffectContainer(spacing: 0) {
-                    Button { select(page) } label: {
-                        Color.clear
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 22)
-                            .padding(.bottom, 14)
-                            .background(.black, in: .rect(cornerRadius: 16))
-                            .modifier(CardGlass(shape: RoundedRectangle(cornerRadius: 16)))
+            if elevated {
+                ForEach(Array(neighbors.enumerated()), id: \.element) { depth, page in
+                    GlassEffectContainer(spacing: 0) {
+                        Button { select(page) } label: {
+                            Color.clear
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 20)
+                                .background(.black, in: .rect(cornerRadius: 16))
+                                .modifier(CardGlass(shape: RoundedRectangle(cornerRadius: 16)))
+                        }
+                        .buttonStyle(.plain)
+                        .focusable(false)
+                        .disabled(!isNavigating)
+                        .accessibilityLabel("Visa \(title(page))")
                     }
-                    .buttonStyle(.plain)
-                    .focusable(false)
-                    .disabled(!isNavigating)
-                    .accessibilityLabel("Visa \(title(page))")
+                    .padding(.horizontal, CGFloat(neighbors.count - depth) * 12)
+                    .padding(.top, CGFloat(depth) * 6)
                 }
-                .padding(.horizontal, CGFloat(neighbors.count - depth) * 12)
-                .padding(.top, CGFloat(depth) * 24)
             }
 
             GlassEffectContainer(spacing: 0) {
@@ -61,9 +53,13 @@ struct PageStack<Page: Hashable, Content: View>: View {
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.primary)
                             Spacer()
-                            Text("\(index + 1) / \(pages.count)")
-                                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.secondary)
+                            HStack(spacing: 4) {
+                                ForEach(pages, id: \.self) { page in
+                                    Circle().fill(.white.opacity(page == selection ? 0.65 : 0.15))
+                                        .frame(width: 3, height: 3)
+                                }
+                            }
+                            .accessibilityHidden(true)
                         }
                     }
 
@@ -72,19 +68,11 @@ struct PageStack<Page: Hashable, Content: View>: View {
                         .id(selection)
                         .transition(.identity)
                         .clipped()
-
-                    Text(isNavigating ? navigationHint ?? "↑↓ kort   ·   ↵ öppna   ·   ⌘1–4 flik" : editingHint)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .padding(.top, 2)
                 }
-                .padding(16)
-                .modifier(CardGlass(shape: cardShape, isSelected: true))
-                .shadow(color: .black.opacity(0.5), radius: 8, y: -3)
+                .modifier(NotchCard(elevated: elevated))
+                .shadow(color: .black.opacity(elevated ? 0.5 : 0), radius: 8, y: -3)
             }
-            .padding(.top, CGFloat(neighbors.count) * 24)
+            .padding(.top, elevated ? CGFloat(neighbors.count) * 6 : 0)
         }
         .padding(.horizontal, NotchLayout.contentInset)
         .padding(.top, 0)
@@ -92,7 +80,7 @@ struct PageStack<Page: Hashable, Content: View>: View {
         .focusable(interactions: .edit)
         .focused($stackFocused)
         .focusEffectDisabled()
-        .onAppear { stackFocused = isNavigating }
+        .task { await Task.yield(); stackFocused = isNavigating }
         .onChange(of: isNavigating) { _, navigating in
             stackFocused = navigating
         }
@@ -101,6 +89,7 @@ struct PageStack<Page: Hashable, Content: View>: View {
             move(press.key == .upArrow ? -1 : 1)
             return .handled
         }
+        .notchHelp(isNavigating ? navigationHint ?? "↑↓ Byt kort\n↵ Öppna\n⌘1–4 Byt flik\n? Stäng hjälpen" : editingHint)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(title(selection)), kort \(index + 1) av \(pages.count)")
     }

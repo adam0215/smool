@@ -12,7 +12,14 @@ enum NotchTab: Int, CaseIterable, Hashable {
         }
     }
 
-    var contentHeight: CGFloat { self == .home ? 120 : 320 }
+    var contentHeight: CGFloat {
+        switch self {
+        case .home: 120
+        case .spotify: 156
+        case .codex: 156
+        case .music: 144
+        }
+    }
 
     var tint: Color {
         switch self {
