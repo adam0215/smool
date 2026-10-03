@@ -10,6 +10,16 @@ struct TimerAppletChecks {
         let applet = TimersApplet(store: store)
         precondition(applet.id.rawValue == "timers" && applet.title == "Timers" && applet.showsForm)
         precondition(!applet.handleArrow(.left, command: false))
+        precondition(applet.background != nil)
+        applet.adjustDuration(by: 60)
+        precondition(applet.durationInput == "26")
+        applet.durationInput = "0:30"
+        applet.adjustDuration(by: -60)
+        precondition(applet.durationInput == "0:30")
+        applet.durationInput = "10080"
+        applet.adjustDuration(by: 60)
+        precondition(applet.durationInput == "10080")
+        applet.durationInput = ""
         try render(applet, name: "timer-empty", output: output)
         applet.durationInput = "no"
         applet.startTimer()
@@ -19,6 +29,7 @@ struct TimerAppletChecks {
         applet.startTimer()
         precondition(applet.inputError == nil && !applet.showsForm && store.timers.count == 1)
         let first = applet.selectedTimer!.id
+        precondition(applet.actions.map(\.id) == ["New timer", "Add one minute", "Stop timer"])
         precondition(applet.status?.countdownDeadline == store.timers[0].deadline)
         try render(applet, name: "timer-running", output: output)
         applet.toggleSelectedTimer()
@@ -59,6 +70,7 @@ struct TimerAppletChecks {
     @MainActor private static func render(_ applet: TimersApplet, name: String, output: URL) throws {
         let view = TimersAppletView(applet: applet)
             .frame(width: 560, height: applet.contentHeight)
+            .background(.black)
             .environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: view)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: applet.contentHeight),

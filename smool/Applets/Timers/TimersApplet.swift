@@ -23,6 +23,38 @@ final class TimersApplet: Applet {
 
     var showsForm: Bool { isCreating || store.timers.isEmpty }
 
+    var hasPresentedOverlay: Bool { isCreating && !store.timers.isEmpty }
+
+    func dismissOverlay() { isCreating = false }
+
+    var background: AppletBackground? { AppletBackground(color: .orange) }
+
+    var actions: [AppletAction] {
+        var actions: [AppletAction] = []
+        if store.canAddTimer {
+            actions.append(AppletAction(id: "New timer", symbol: "plus", shortcut: "⌘N") {
+                self.isCreating = true
+            })
+        }
+        if !showsForm, let timer = selectedTimer {
+            actions.append(AppletAction(id: "Add one minute", symbol: "plus.circle") {
+                self.store.extend(timer.id)
+            })
+            actions.append(AppletAction(id: timer.isExpired ? "Dismiss timer" : "Stop timer", symbol: "stop") {
+                self.store.remove(timer.id)
+            })
+        }
+        return actions
+    }
+
+    func adjustDuration(by seconds: TimeInterval) {
+        let current = TimerDuration.parse(durationInput) ?? 25 * 60
+        let duration = min(TimerDuration.maximum, max(30, current + seconds))
+        durationInput = duration.truncatingRemainder(dividingBy: 60) == 0
+            ? String(Int(duration / 60)) : TimerDuration.display(duration)
+        inputError = nil
+    }
+
     var status: AppletStatus? {
         guard let timer = store.importantTimer else { return nil }
         let label: String
@@ -48,7 +80,7 @@ final class TimersApplet: Applet {
     }
 
     func makeView(context: AppletContext, artwork: NSImage?) -> AnyView {
-        AnyView(TimersAppletView(applet: self))
+        AnyView(TimersAppletView(applet: self, restoreFocus: context.restoreFocus))
     }
 
     func handleArrow(_ arrow: AppletArrow, command: Bool) -> Bool {
@@ -60,7 +92,7 @@ final class TimersApplet: Applet {
 
     func startTimer() {
         do {
-            selectedID = try store.start(input: durationInput, name: nameInput)
+            selectedID = try store.start(input: durationInput.isEmpty ? "25" : durationInput, name: nameInput)
             durationInput = ""
             nameInput = ""
             inputError = nil
