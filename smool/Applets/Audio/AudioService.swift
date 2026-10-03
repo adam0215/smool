@@ -30,7 +30,7 @@ final class AudioService {
             try devices.select(id, for: direction)
             error = nil
         } catch {
-            self.error = "Kunde inte byta \(direction == .output ? "utgång" : "mikrofon"). Försök igen."
+            self.error = "Could not change the \(direction == .output ? "output" : "microphone"). Try again."
         }
         refresh()
     }
@@ -41,7 +41,7 @@ final class AudioService {
             try devices.setVolume(min(1, max(0, value)), for: state.outputID)
             error = nil
         } catch {
-            self.error = "Kunde inte ändra volymen. Kontrollera ljudenheten."
+            self.error = "Could not change the volume. Check the audio device."
         }
         refresh()
     }
@@ -50,7 +50,7 @@ final class AudioService {
         do { state = try devices.snapshot() }
         catch {
             state = AudioDeviceSnapshot()
-            self.error = "Ljudenheterna kunde inte läsas."
+            self.error = "Audio devices could not be loaded."
         }
     }
 }

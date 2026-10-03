@@ -25,7 +25,7 @@ struct ActionLauncher {
                 url = try URL(resolvingBookmarkData: data, options: [.withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale)
                 try ActionDestination.validateLocal(url, kind: action.destination.kind)
             } catch {
-                throw ActionFailure(message: "Resursen kunde inte hittas. Välj appen eller mappen igen via Redigera.")
+                throw ActionFailure(message: "The resource could not be found. Edit it to choose the app or folder again.")
             }
             let accessing = url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
@@ -51,7 +51,7 @@ enum ShortcutCatalog {
         try output.split(whereSeparator: \.isNewline).map { line in
             guard let start = line.range(of: " (", options: .backwards), line.last == ")",
                   let id = UUID(uuidString: String(line[start.upperBound..<line.index(before: line.endIndex)])) else {
-                throw ActionFailure(message: "Kunde inte läsa listan från Genvägar.")
+                throw ActionFailure(message: "Could not read the list from Shortcuts.")
             }
             return AvailableShortcut(id: id, name: String(line[..<start.lowerBound]))
         }
@@ -75,7 +75,7 @@ enum ShortcutCatalog {
             let data = captureOutput ? output.fileHandleForReading.readDataToEndOfFile() : Data()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else {
-                throw ActionFailure(message: "Genvägar kunde inte slutföra åtgärden. Öppna appen Genvägar och kontrollera att genvägen finns och har behörighet.")
+                throw ActionFailure(message: "Shortcuts could not complete the action. Open Shortcuts and check that the shortcut exists and has permission.")
             }
             return String(decoding: data, as: UTF8.self)
         }.value

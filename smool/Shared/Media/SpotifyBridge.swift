@@ -17,11 +17,11 @@ actor SpotifyBridge {
         var errorDescription: String {
             switch code {
             case -1712:
-                "Spotify verkar ha hängt sig. Starta om Spotify och försök igen."
+                "Spotify is not responding. Restart Spotify and try again."
             case -1743:
-                "Tillåt smool att styra Spotify under Integritet och säkerhet → Automation."
+                "Allow smool to control Spotify in Privacy & Security → Automation."
             default:
-                "Kunde inte läsa svaret från Spotify. Försök igen."
+                "Could not read the response from Spotify. Try again."
             }
         }
     }

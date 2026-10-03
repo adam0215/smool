@@ -41,7 +41,7 @@ final class SpotifyPlaylistCatalog {
         }
         guard !Task.isCancelled else { return }
         if !loaded.isEmpty { playlists = loaded; loadedAt = .now }
-        error = loaded.isEmpty ? "Kunde inte hämta spellistor från Spotify. Försök igen via Åtgärder." : nil
+        error = loaded.isEmpty ? "Could not load playlists from Spotify. Try again from Actions." : nil
     }
 }
 

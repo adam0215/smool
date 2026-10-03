@@ -10,7 +10,7 @@ struct AudioDevice: Identifiable, Equatable {
 enum AudioDirection {
     case output, input
 
-    var title: String { self == .output ? "Utgång" : "Mikrofon" }
+    var title: String { self == .output ? "Output" : "Microphone" }
     var symbol: String { self == .output ? "speaker.wave.2" : "mic" }
     var scope: AudioObjectPropertyScope {
         self == .output ? kAudioDevicePropertyScopeOutput : kAudioDevicePropertyScopeInput

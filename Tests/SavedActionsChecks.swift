@@ -69,7 +69,7 @@ struct SavedActionsChecks {
         opened.removeAll()
         await store.open(workspace.resources.filter { workspace.selectedResourceIDs.contains($0.id) })
         precondition(opened.count == 1 && ran.count == 1)
-        precondition(store.error?.contains("Broken") == true && store.result == "Öppnade 1 av 2 resurser.")
+        precondition(store.error?.contains("Broken") == true && store.result == "Opened 1 of 2 resources.")
         precondition(!store.isOpening)
         workspace.resources = [webAction]
         precondition(store.save(workspace))

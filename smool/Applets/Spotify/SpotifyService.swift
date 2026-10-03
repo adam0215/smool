@@ -75,7 +75,7 @@ final class SpotifyService {
             case "idle": state = .idle
             case "ready":
                 if let track = response.track { state = .ready(track) }
-                else { state = .failed("Spotify skickade ingen låtinformation.") }
+                else { state = .failed("Spotify did not provide any track information.") }
             default: state = response.code == -1743 ? .permissionDenied : .failed(response.errorDescription)
             }
         } catch {
@@ -83,7 +83,7 @@ final class SpotifyService {
             if processIdentifier() != process {
                 state = processIdentifier() == nil ? .notRunning : .loading
             } else {
-                state = .failed("Kunde inte läsa Spotify. Försök igen.")
+                state = .failed("Could not read Spotify. Try again.")
             }
         }
     }
@@ -118,7 +118,7 @@ final class SpotifyService {
                 else { actionError = response.errorDescription }
             }
         } catch {
-            actionError = "Kunde inte bekräfta ändringen i Spotify. Kontrollera spelaren innan du försöker igen."
+            actionError = "Could not confirm the change in Spotify. Check the player before trying again."
         }
         isPerformingAction = false
         if succeeded { await refresh(retry: true) }
@@ -126,7 +126,7 @@ final class SpotifyService {
 
     func openSpotify() {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") else {
-            state = .failed("Installera Spotify på din Mac för att använda spelaren.")
+            state = .failed("Install Spotify on your Mac to use the player.")
             return
         }
         NSWorkspace.shared.openApplication(at: url, configuration: .init())

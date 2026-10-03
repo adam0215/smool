@@ -11,12 +11,12 @@ enum SelectionCaptureError: Error, LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .permission: "Tillåt hjälpmedelsåtkomst för smool för att läsa markerad text."
-        case .noApplication: "Markera text i en annan app och tryck ⌃⌥C."
-        case .noSelection: "Ingen text är markerad. Markera text och tryck ⌃⌥C igen."
-        case .unsupported: "Appen kunde inte lämna den markerade texten."
-        case .secureField: "Text från lösenordsfält hämtas inte."
-        case .tooLong: "Markeringen är för lång. Välj högst 64 kB text."
+        case .permission: "Allow Accessibility access for smool to read selected text."
+        case .noApplication: "Select text in another app and press ⌃⌥C."
+        case .noSelection: "No text is selected. Select text and press ⌃⌥C again."
+        case .unsupported: "The app could not provide the selected text."
+        case .secureField: "Text from password fields is not captured."
+        case .tooLong: "The selection is too long. Select up to 64 kB of text."
         }
     }
 }
@@ -45,7 +45,7 @@ enum SelectedTextCapture {
             throw SelectionCaptureError.noApplication
         }
         let pid = app.processIdentifier
-        let name = app.localizedName ?? "Appen"
+        let name = app.localizedName ?? "App"
 
         return try await Task.detached(priority: .userInitiated) {
             let application = AXUIElementCreateApplication(pid)

@@ -60,9 +60,9 @@ final class TimerStore: NSObject {
 
         var errorDescription: String? {
             switch self {
-            case .invalidDuration: "Ange en tid från 1 sekund till 7 dygn. \(TimerDuration.syntax)."
-            case .limit: "Du kan ha högst \(TimerStore.maximumCount) timers. Ta bort en för att skapa en ny."
-            case .storageUnavailable: "Sparade timers kunde inte läsas. Filen har lämnats orörd."
+            case .invalidDuration: "Enter a duration from 1 second to 7 days. \(TimerDuration.syntax)."
+            case .limit: "You can have up to \(TimerStore.maximumCount) timers. Remove one to create another."
+            case .storageUnavailable: "Saved timers could not be loaded. The file has not been changed."
             }
         }
     }
@@ -167,7 +167,7 @@ final class TimerStore: NSObject {
             timers = saved.timers
         } catch {
             canWrite = false
-            persistenceError = "Kunde inte läsa sparade timers. Filen har lämnats orörd."
+            persistenceError = "Saved timers could not be loaded. The file has not been changed."
         }
     }
 
@@ -187,7 +187,7 @@ final class TimerStore: NSObject {
             try data.write(to: storageURL, options: .atomic)
             persistenceError = nil
         } catch {
-            persistenceError = "Timers kunde inte sparas och kan försvinna vid omstart."
+            persistenceError = "Timers could not be saved and may be lost when you restart."
         }
     }
 }

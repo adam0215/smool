@@ -22,7 +22,7 @@ final class CalendarService {
             if status == .notDetermined {
                 guard requestAccess else {
                     needsPermission = true
-                    message = "Anslut din kalender"
+                    message = "Connect your calendar"
                     return
                 }
                 isRequestingAccess = true
@@ -33,7 +33,7 @@ final class CalendarService {
             needsPermission = EKEventStore.authorizationStatus(for: .event) != .fullAccess
             guard !needsPermission else {
                 events = []
-                message = "Tillåt kalenderåtkomst för smool i Systeminställningar."
+                message = "Allow calendar access for smool in System Settings."
                 return
             }
             guard let end = Calendar.current.date(byAdding: .day, value: 1, to: day) else { return }
@@ -44,7 +44,7 @@ final class CalendarService {
         } catch is CancellationError {
             return
         } catch {
-            message = "Kunde inte läsa kalendern. \(error.localizedDescription)"
+            message = "Could not load the calendar. \(error.localizedDescription)"
         }
     }
 

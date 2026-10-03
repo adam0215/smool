@@ -41,7 +41,7 @@ final class MusicService {
             }
         } catch is CancellationError { return }
         catch {
-            self.error = "Kunde inte läsa datorns uppspelning."
+            self.error = "Could not read the current playback."
         }
         isLoading = false
     }
@@ -52,12 +52,12 @@ final class MusicService {
         defer { isPerformingAction = false }
         do {
             guard try await bridge.send(command, to: media.bundleIdentifier) else {
-                error = "Spelaren har ändrats eller kunde inte ta emot kommandot."
+                error = "The player changed or could not receive the command."
                 return
             }
             await refresh()
         } catch {
-            self.error = "Kunde inte styra uppspelningen."
+            self.error = "Could not control playback."
         }
     }
 }

@@ -46,7 +46,7 @@ actor FileShelfRepository {
             let url = url.standardizedFileURL
             guard !updated.contains(where: { $0.lastKnownURL.resolvingSymlinksInPath() == url.resolvingSymlinksInPath() }) else { continue }
             guard updated.count < Self.capacity else {
-                messages.append("Hyllan rymmer \(Self.capacity) filer. Ta bort en referens för att lägga till fler.")
+                messages.append("The shelf holds up to \(Self.capacity) files. Remove a reference to add more.")
                 break
             }
             let accessing = url.startAccessingSecurityScopedResource()
@@ -56,7 +56,7 @@ actor FileShelfRepository {
                 let bookmark = try Self.bookmark(for: url)
                 updated.insert(ShelfFile(id: UUID(), bookmark: bookmark, name: url.lastPathComponent, lastKnownURL: url), at: 0)
             } catch {
-                messages.append("\(url.lastPathComponent) kunde inte läggas till. Välj filen igen.")
+                messages.append("\(url.lastPathComponent) could not be added. Select the file again.")
             }
         }
         // Keep the order of each incoming batch while placing it before older files.

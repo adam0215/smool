@@ -9,7 +9,7 @@ struct QuickNote: Codable, Identifiable, Equatable, Sendable {
 
     var title: String {
         let line = text.split(whereSeparator: \.isNewline).first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        return line.map { String($0.trimmingCharacters(in: .whitespaces).prefix(60)) } ?? "Ny anteckning"
+        return line.map { String($0.trimmingCharacters(in: .whitespaces).prefix(60)) } ?? "New note"
     }
 }
 
@@ -89,7 +89,7 @@ final class NotesStore {
             isReadOnly = false
         } catch {
             isReadOnly = true
-            errorMessage = "Anteckningarna kunde inte läsas. Den sparade filen har inte ändrats. \(error.localizedDescription)"
+            errorMessage = "Notes could not be loaded. The saved file has not been changed. \(error.localizedDescription)"
         }
     }
 
@@ -159,7 +159,7 @@ final class NotesStore {
             hasUnsavedChanges = false
             errorMessage = nil
         case .failure(let error):
-            errorMessage = "Kunde inte spara. Texten finns kvar här. \(error.localizedDescription)"
+            errorMessage = "Could not save. Your text is still here. \(error.localizedDescription)"
         }
     }
 }

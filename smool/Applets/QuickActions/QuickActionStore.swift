@@ -26,7 +26,7 @@ final class QuickActionStore {
             error = nil
         } catch {
             canSave = false
-            self.error = "Kunde inte läsa snabbåtgärderna. Filen har bevarats. \(error.localizedDescription)"
+            self.error = "Quick actions could not be loaded. The saved file has been preserved. \(error.localizedDescription)"
         }
     }
 
@@ -54,7 +54,7 @@ final class QuickActionStore {
         defer { runningID = nil }
         do {
             try await launcher.perform(action)
-            result = "\(action.name) är klar."
+            result = "\(action.name) completed."
         } catch { self.error = "\(action.name): \(error.localizedDescription)" }
     }
 
@@ -67,7 +67,7 @@ final class QuickActionStore {
             error = nil
             return true
         } catch {
-            self.error = "Kunde inte spara snabbåtgärden. \(error.localizedDescription)"
+            self.error = "Could not save the quick action. \(error.localizedDescription)"
             return false
         }
     }

@@ -12,10 +12,10 @@ enum ActionKind: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .application: "App"
-        case .folder: "Mapp"
-        case .website: "Webblänk"
-        case .codexThread: "Codex-tråd"
-        case .shortcut: "Apple Genväg"
+        case .folder: "Folder"
+        case .website: "Web link"
+        case .codexThread: "Codex thread"
+        case .shortcut: "Apple Shortcut"
         }
     }
     var symbol: String {
@@ -68,7 +68,7 @@ enum ActionDestination: Codable, Equatable, Sendable {
               let host = parts.host, !host.isEmpty,
               parts.user == nil, parts.password == nil,
               let url = parts.url else {
-            throw ActionFailure(message: "Ange en fullständig http- eller https-adress utan inloggningsuppgifter.")
+            throw ActionFailure(message: "Enter a complete http or https address without login credentials.")
         }
         return .website(url)
     }
@@ -83,7 +83,7 @@ enum ActionDestination: Codable, Equatable, Sendable {
               parts.query == nil, parts.fragment == nil,
               parts.path.first == "/", UUID(uuidString: String(parts.path.dropFirst())) != nil,
               let url = parts.url else {
-            throw ActionFailure(message: "Ange ett tråd-ID eller en codex://threads/-länk till en tråd.")
+            throw ActionFailure(message: "Enter a thread ID or a codex://threads/ link.")
         }
         return .codexThread(url)
     }
@@ -96,12 +96,12 @@ enum ActionDestination: Codable, Equatable, Sendable {
 
     static func validateLocal(_ url: URL, kind: ActionKind) throws {
         guard url.isFileURL, kind == .application || kind == .folder else {
-            throw ActionFailure(message: "Välj en lokal app eller mapp.")
+            throw ActionFailure(message: "Choose a local app or folder.")
         }
         let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isApplicationKey])
         guard values.isDirectory == true,
               kind == .application ? values.isApplication == true : values.isApplication != true else {
-            throw ActionFailure(message: kind == .application ? "Välj en app." : "Välj en mapp, inte en app.")
+            throw ActionFailure(message: kind == .application ? "Choose an app." : "Choose a folder, not an app.")
         }
     }
 
@@ -110,10 +110,10 @@ enum ActionDestination: Codable, Equatable, Sendable {
         case .website(let url): _ = try Self.web(url.absoluteString)
         case .codexThread(let url): _ = try Self.thread(url.absoluteString)
         case .application(let url, let data), .folder(let url, let data):
-            guard url.isFileURL, !data.isEmpty else { throw ActionFailure(message: "Välj appen eller mappen igen.") }
+            guard url.isFileURL, !data.isEmpty else { throw ActionFailure(message: "Choose the app or folder again.") }
         case .shortcut(_, let name):
             guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw ActionFailure(message: "Välj en genväg.")
+                throw ActionFailure(message: "Choose a shortcut.")
             }
         }
     }
@@ -140,14 +140,14 @@ struct ActionFile<Value: Codable> {
 
 func validateActions(_ actions: [SavedAction], allowShortcuts: Bool) throws {
     guard Set(actions.map(\.id)).count == actions.count else {
-        throw ActionFailure(message: "Listan innehåller dubbla ID:n.")
+        throw ActionFailure(message: "The list contains duplicate IDs.")
     }
     for action in actions {
         guard !action.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw ActionFailure(message: "Ge resursen ett namn.")
+            throw ActionFailure(message: "Give the resource a name.")
         }
         guard allowShortcuts || action.destination.kind != .shortcut else {
-            throw ActionFailure(message: "Genvägar läggs till under Snabbåtgärder.")
+            throw ActionFailure(message: "Add shortcuts in Quick Actions.")
         }
         try action.destination.validate()
     }

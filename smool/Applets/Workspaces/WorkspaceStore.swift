@@ -33,7 +33,7 @@ final class WorkspaceStore {
             error = nil
         } catch {
             canSave = false
-            self.error = "Kunde inte läsa arbetsytorna. Filen har bevarats. \(error.localizedDescription)"
+            self.error = "Workspaces could not be loaded. The saved file has been preserved. \(error.localizedDescription)"
         }
     }
 
@@ -63,15 +63,15 @@ final class WorkspaceStore {
             do { try await launcher.perform(resource); opened += 1 }
             catch { failures.append("\(resource.name): \(error.localizedDescription)") }
         }
-        result = "Öppnade \(opened) av \(resources.count) resurser."
+        result = "Opened \(opened) of \(resources.count) resources."
         if !failures.isEmpty { error = failures.joined(separator: "\n") }
     }
 
     private func validate(_ items: [SavedWorkspace]) throws {
-        guard Set(items.map(\.id)).count == items.count else { throw ActionFailure(message: "Dubbla arbetsyte-ID:n.") }
+        guard Set(items.map(\.id)).count == items.count else { throw ActionFailure(message: "Duplicate workspace IDs.") }
         for item in items {
             guard !item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw ActionFailure(message: "Ge arbetsytan ett namn.")
+                throw ActionFailure(message: "Give the workspace a name.")
             }
             try validateActions(item.resources, allowShortcuts: false)
         }
@@ -86,7 +86,7 @@ final class WorkspaceStore {
             error = nil
             return true
         } catch {
-            self.error = "Kunde inte spara arbetsytan. \(error.localizedDescription)"
+            self.error = "Could not save the workspace. \(error.localizedDescription)"
             return false
         }
     }
