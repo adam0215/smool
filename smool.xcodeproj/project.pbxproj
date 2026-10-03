@@ -115,8 +115,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = smool;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "smool visar dina kalenderhändelser när du öppnar klockkortet.";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "smool visar och styr din uppspelning i Spotify.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "smool displays your calendar events when you open the clock.";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "smool displays and controls your Spotify playback.";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = se.smool.mac;
@@ -139,8 +139,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = smool;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "smool visar dina kalenderhändelser när du öppnar klockkortet.";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "smool visar och styr din uppspelning i Spotify.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "smool displays your calendar events when you open the clock.";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "smool displays and controls your Spotify playback.";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = se.smool.mac;

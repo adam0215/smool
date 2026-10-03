@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>smool använder datorns ljud för att låta musikvyns färger röra sig med musiken. Inget ljud sparas eller skickas.</string>
+    <string>smool uses system audio to animate the music view. No audio is saved or transmitted.</string>
 </dict>
 </plist>
