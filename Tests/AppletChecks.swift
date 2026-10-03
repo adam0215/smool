@@ -28,7 +28,7 @@ struct AppletChecks {
         let registry = AppletRegistry([home, spotify, codex, music, sample])
         let presentation = NotchPresentation(registry: registry, settings: settings)
 
-        precondition(registry.applets.map(\.title) == ["Hem", "Spotify", "Codex", "Musik", "Sample"])
+        precondition(registry.applets.map(\.title) == ["Home", "Spotify", "Codex", "Music", "Sample"])
         precondition(registry.applet(for: HomeApp.spotify) === spotify)
         precondition(registry.applet(for: HomeApp.codex) === codex)
         precondition(registry.shortcutNumber(for: .spotify) == 2)

@@ -9,7 +9,7 @@ struct NotesAppletChecks {
         let url = directory.appending(path: "notes.json")
         let store = NotesStore(fileURL: url)
         let applet = NotesApplet(store: store)
-        precondition(applet.id.rawValue == "notes" && applet.title == "Anteckningar")
+        precondition(applet.id.rawValue == "notes" && applet.title == "Notes")
         precondition(!applet.handleArrow(.down, command: false))
         let first = applet.createNote(text: "Selected text")!
         precondition(applet.isEditing && store.selectedNote?.text == "Selected text")

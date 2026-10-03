@@ -34,7 +34,7 @@ struct SpotifyChecks {
             preconditionFailure("Invalid playlist identifiers must be rejected before scripting")
         } catch { }
         let timeout = SpotifyBridge.Response(status: "error", track: nil, code: -1712, message: nil)
-        precondition(timeout.errorDescription.contains("Starta om Spotify"))
+        precondition(timeout.errorDescription.contains("Restart Spotify"))
         let track = MediaTrack(title: "Track", artist: "Artist", artwork: "", duration: 200, position: 61, playing: true)
         precondition(track.elapsed == "1:01")
         precondition(track.remaining == "−2:19")
