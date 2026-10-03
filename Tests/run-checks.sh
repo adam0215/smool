@@ -57,7 +57,7 @@ done < <(find smool -name '*.swift' ! -name 'SmoolApp.swift' | sort)
 bash Tests/run-codex-activity-checks.sh
 bash Tests/run-timer-checks.sh
 
-for name in HostSettings HostRendering NotesApplet AudioAppletRendering ActionApplets Integration; do
+for name in HostSettings HostRendering NotesApplet AudioAppletRendering ActionApplets Integration Termination; do
     "${swiftc[@]}" "${sources[@]}" "Tests/${name}Checks.swift" -o "$checks/$name"
     "$checks/$name" "$checks/renders"
 done

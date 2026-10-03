@@ -46,10 +46,13 @@ extension NotchPresentation {
         return id
     }
 
-    func finishPendingChanges() async {
+    @discardableResult
+    func finishPendingChanges() async -> Bool {
         for applet in registeredApplets.applets { applet.deactivate() }
         if let files = registeredApplets.applet(for: AppletID(rawValue: "files")) as? FilesApplet {
             await files.store.finishPendingChanges()
         }
+        let notes = registeredApplets.applet(for: AppletID(rawValue: "notes")) as? NotesApplet
+        return notes?.store.hasUnsavedChanges != true
     }
 }
