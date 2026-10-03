@@ -48,7 +48,7 @@ struct FilesAppletView: View {
             return .handled
         }
         .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
-            guard !applet.hasPresentedOverlay, press.modifiers == .shift else { return .ignored }
+            guard !applet.hasPresentedOverlay, press.modifiers.intersection([.command, .control, .option, .shift]) == .shift else { return .ignored }
             store.moveSelection(press.key == .upArrow ? -1 : 1, extending: true)
             return .handled
         }
@@ -307,7 +307,7 @@ private struct FilePathEntry: View {
         .focused($focus, equals: .navigation)
         .onAppletFocusRestore { focus = .navigation }
         .onKeyPress(keys: [.return]) { key in
-            guard focus == .navigation, key.modifiers.isEmpty else { return .ignored }
+            guard focus == .navigation, key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
             focus = .path
             return .handled
         }

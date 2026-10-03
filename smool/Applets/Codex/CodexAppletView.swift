@@ -87,7 +87,7 @@ struct CodexAppletView: View {
         .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { key in
             guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker else { return .ignored }
             let offset = key.key == .upArrow ? -1 : 1
-            if key.modifiers == .option {
+            if key.modifiers.intersection([.command, .control, .option, .shift]) == .option {
                 moveActivity(offset)
             } else if unmodified(key) {
                 state.page = cyclingPage(in: CodexPage.allCases, to: state.page, offset: offset)
@@ -176,7 +176,11 @@ struct CodexAppletView: View {
                         .textFieldStyle(.plain)
                         .focused($focus, equals: .search)
                         .onSubmit { if let thread = threadSelection.selectedThread { compose(thread) } }
-                        .onKeyPress(.downArrow) { returnToDeck(); return .handled }
+                        .onKeyPress(.downArrow, phases: .down) { key in
+                            guard unmodified(key) else { return .ignored }
+                            returnToDeck()
+                            return .handled
+                        }
                         .onKeyPress(.escape) { returnToDeck(); return .handled }
                 } else {
                     if state.page == .history && state.groupsByProject {
@@ -387,6 +391,7 @@ struct CodexAppletView: View {
         .onAppletFocusRestore { focus = .recipientList }
         .task { await Task.yield(); focus = .recipientList }
         .onKeyPress(keys: [.upArrow, .downArrow]) { key in
+            guard unmodified(key) else { return .ignored }
             state.moveProject(key.key == .upArrow ? -1 : 1, in: service.projects)
             return .handled
         }
