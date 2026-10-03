@@ -26,7 +26,7 @@ struct MusicAppletView: View {
             }
             if let error = service.error { Text(error).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
         }
-        .modifier(NotchCard(elevated: false))
+        .modifier(AppletPadding())
         .padding(.horizontal, NotchLayout.contentInset)
         .padding(.bottom, NotchLayout.contentInset)
         .focusable(interactions: .edit)

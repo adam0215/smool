@@ -8,11 +8,20 @@ struct CodexUsageView: View {
             if let limit = service.limits.first(where: { $0.isCodexWeek }) {
                 let remaining = max(0, min(100, 100 - limit.usedPercent))
                 ZStack {
-                    Circle().stroke(.white.opacity(0.08), lineWidth: 5)
+                    Circle().fill(.clear)
+                        .modifier(CardGlass(shape: Circle()))
+                        .overlay {
+                            Circle().strokeBorder(
+                                LinearGradient(colors: [.white.opacity(0.5), .white.opacity(0.04), .white.opacity(0.22)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                lineWidth: 0.75
+                            )
+                        }
+                    Circle().stroke(.white.opacity(0.06), lineWidth: 6).padding(6)
                     Circle()
                         .trim(from: 0, to: remaining / 100)
-                        .stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                        .stroke(LinearGradient(colors: [.white, .white.opacity(0.5)], startPoint: .topLeading, endPoint: .bottomTrailing), style: StrokeStyle(lineWidth: 5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
+                        .padding(6)
                     Text("\(Int(remaining))%")
                         .font(.system(size: 32, weight: .medium))
                         .monospacedDigit()

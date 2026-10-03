@@ -111,6 +111,7 @@ struct NotchHomeView: View {
         } label: {
             Image(app.rawValue)
                 .renderingMode(.template)
+                .opacity(0.4)
                 .frame(width: app == .spotify ? 32 : 24, height: app == .spotify ? 32 : 24)
                 .modifier(GlassInk(illumination: lightLevel, isSelected: selected))
                 .frame(width: 64)

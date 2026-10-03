@@ -21,3 +21,6 @@ swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -
 
 "${swiftc[@]}" smool/MediaBridge.swift smool/SpotifyService.swift smool/AlbumArtwork.swift smool/ArtworkGlow.swift Tests/ArtworkGlowChecks.swift -o "$checks/artwork-glow"
 "$checks/artwork-glow" "$checks/renders"
+
+"${swiftc[@]}" smool/ProjectIcon.swift Tests/ProjectIconChecks.swift -o "$checks/project-icons"
+"$checks/project-icons"

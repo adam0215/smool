@@ -14,8 +14,15 @@ struct SpotifyChecks {
         precondition(SpotifyPlaylist.uri(from: "spotify:playlist:');spotify.playpause();//") == nil)
         precondition(SpotifyPlaylist.uri(from: "https://open.spotify.com/track/\(id)") == nil)
         precondition(SpotifyPlaylist.uri(from: "http://open.spotify.com/playlist/\(id)") == nil)
-        precondition(SpotifyPlaylist.newMusicFriday.defaultURI == "spotify:playlist:37i9dQZF1DXcecv7ESbOPu")
-        precondition(SpotifyPlaylist.releaseRadar.defaultURI.isEmpty && SpotifyPlaylist.daylist.defaultURI.isEmpty)
+        let playlistJSON = Data(#"{"title":"Fresh music","thumbnail_url":"https://i.scdn.co/image/test"}"#.utf8)
+        let playlist = try SpotifyPlaylist.decode(playlistJSON, id: String(id))
+        precondition(playlist.title == "Fresh music" && playlist.uri == uri && playlist.artworkURL != nil)
+        let badArtwork = try SpotifyPlaylist.decode(Data(#"{"title":"Fresh music","thumbnail_url":"https://unrelated.example/image"}"#.utf8), id: String(id))
+        precondition(badArtwork.artworkURL == nil, "Playlist artwork uses the same Spotify CDN boundary as track artwork.")
+        do {
+            _ = try SpotifyPlaylist.decode(Data(#"{"title":""}"#.utf8), id: String(id))
+            preconditionFailure("Empty playlist metadata must not become a playable tile.")
+        } catch { }
         precondition(SpotifyPlaylist.uri(from: "https://user:password@open.spotify.com/playlist/\(id)") == nil)
         precondition(SpotifyPlaylist.uri(from: "https://open.spotify.com:8443/playlist/\(id)") == nil)
         let readScript = try SpotifyBridge.script()

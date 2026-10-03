@@ -3,6 +3,9 @@ import Foundation
 @main
 struct CodexProtocolChecks {
     @MainActor static func main() async throws {
+        let projectThread = CodexThread(json: .object(["id": .string("fixture"), "cwd": .string("/tmp/fixture-project")]))!
+        precondition(projectThread.projectPath == "/tmp/fixture-project" && projectThread.projectName == "fixture-project")
+        precondition(CodexThread(json: .object(["id": .string("no-project")]))?.projectName == "Utan projekt")
         let validID = "01a0fe77-3272-7de3-a433-2271eec368ee"
         precondition(CodexDesktopProtocol.threadURL(validID)?.absoluteString == "codex://threads/\(validID)")
         precondition(CodexDesktopProtocol.threadURL("../other?prompt=unexpected") == nil, "Thread links must not accept extra routes or prompt parameters.")

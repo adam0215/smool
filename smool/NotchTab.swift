@@ -36,13 +36,13 @@ enum NotchTab: Int, CaseIterable, Hashable {
     }
 }
 
-/// Long lists stop at their edges; card stacks use cyclingPage instead.
+/// Long lists stop at their edges; pages use cyclingPage instead.
 func adjacentPage<Page: Equatable>(in pages: [Page], to selection: Page, offset: Int) -> Page {
     guard let index = pages.firstIndex(of: selection) else { return selection }
     return pages[min(max(index + offset, 0), pages.count - 1)]
 }
 
-/// Circular navigation for card stacks and small collections.
+/// Circular navigation for pages and small collections.
 func cyclingPage<Page: Equatable>(in pages: [Page], to selection: Page, offset: Int) -> Page {
     guard let index = pages.firstIndex(of: selection) else { return selection }
     return pages[(index + offset % pages.count + pages.count) % pages.count]

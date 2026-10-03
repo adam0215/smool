@@ -33,39 +33,22 @@ struct SpotifyTrack: Decodable, Sendable {
     }
 }
 
-enum SpotifyPlaylist: String, CaseIterable, Identifiable {
-    case releaseRadar, newMusicFriday, daylist
+struct SpotifyPlaylist: Identifiable, Sendable {
+    let id: String
+    let title: String
+    let artworkURL: URL?
+    var uri: String { "spotify:playlist:\(id)" }
 
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .releaseRadar: "Release Radar"
-        case .newMusicFriday: "New Music Friday"
-        case .daylist: "daylist"
+    static func decode(_ data: Data, id: String) throws -> SpotifyPlaylist {
+        struct Embed: Decodable {
+            let title: String
+            let thumbnail_url: String?
         }
-    }
-
-    // Spotify's public Swedish editorial playlist. Personalized playlists have no shared ID.
-    // https://open.spotify.com/playlist/37i9dQZF1DXcecv7ESbOPu
-    var defaultURI: String {
-        self == .newMusicFriday ? "spotify:playlist:37i9dQZF1DXcecv7ESbOPu" : ""
-    }
-
-    var subtitle: String {
-        switch self {
-        case .releaseRadar: "Nytt från artister du följer"
-        case .newMusicFriday: "Veckans nya musik från Sverige"
-        case .daylist: "Musik för just den här stunden"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .releaseRadar: "dot.radiowaves.left.and.right"
-        case .newMusicFriday: "sparkles"
-        case .daylist: "sun.horizon.fill"
-        }
+        guard uri(from: "spotify:playlist:\(id)") != nil else { throw CocoaError(.coderInvalidValue) }
+        let embed = try JSONDecoder().decode(Embed.self, from: data)
+        guard !embed.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CocoaError(.coderInvalidValue) }
+        let artwork = embed.thumbnail_url.flatMap(URL.init(string:)).flatMap { SpotifyTrack.allowsArtworkURL($0) ? $0 : nil }
+        return SpotifyPlaylist(id: id, title: embed.title, artworkURL: artwork)
     }
 
     static func uri(from input: String) -> String? {
@@ -212,13 +195,7 @@ final class SpotifyService {
         NSWorkspace.shared.openApplication(at: url, configuration: .init())
     }
 
-    func search(_ playlist: SpotifyPlaylist) {
-        guard let query = playlist.title.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "spotify:search:\(query)") else { return }
-        if !NSWorkspace.shared.open(url) {
-            actionError = "Kunde inte öppna sökningen. Kontrollera att Spotify är installerat."
-        }
-    }
+
 }
 
 /// Spotify's scripting dictionary exposes playback, but no playlist library.

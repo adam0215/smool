@@ -34,6 +34,6 @@ struct NotchNavigationChecks {
         precondition(cyclingPage(in: pages, to: "Queue", offset: 1) == "Playing")
         precondition(cyclingPage(in: [], to: "Missing", offset: 1) == "Missing")
         precondition(cyclingPage(in: ["Only"], to: "Only", offset: Int.min) == "Only")
-        print("Passed: circular stacks in both directions, bounded lists, and stale selections.")
+        print("Passed: circular pages in both directions, bounded lists, and stale selections.")
     }
 }

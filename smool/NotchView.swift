@@ -6,6 +6,7 @@ final class NotchPresentation {
     var isExpanded = false
     var tab: NotchTab = .home
     var showCalendar = false
+    var showsActions = false
     let calendar = CalendarService()
     let music = MusicService()
     let spotify = SpotifyService()
@@ -17,9 +18,8 @@ final class NotchPresentation {
 
     func contentHeight(for tab: NotchTab, calendar: Bool) -> CGFloat {
         if tab == .home, calendar { return 168 }
-        if tab == .spotify, spotifyState.editingPlaylistLink { return 196 }
         if tab == .codex {
-            if case .composer = codexState.scope { return 224 }
+            if case .composer = codexState.scope { return max(156, codexState.composerHeight + 40) }
             if codexState.page == .usage { return 176 }
         }
         return tab.contentHeight

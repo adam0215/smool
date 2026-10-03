@@ -62,6 +62,7 @@ final class NotchPanelController: NSObject {
     }
 
     func close() {
+        presentation.showsActions = false
         isOpen = false
         transition += 1
         resizeTransition += 1
@@ -134,6 +135,7 @@ final class NotchPanelController: NSObject {
 
     private func selectTab(_ tab: NotchTab) {
         guard presentation.tab != tab else { return }
+        presentation.showsActions = false
         resize(tab: tab, calendar: false)
     }
 
@@ -178,7 +180,12 @@ final class NotchPanelController: NSObject {
                     return nil
                 }
                 if (event.keyCode == 123 || event.keyCode == 124), !(self.panel?.firstResponder is NSTextView) {
-                    self.selectTab(self.presentation.tab.neighbor(event.keyCode == 123 ? -1 : 1))
+                    if self.presentation.tab == .codex, self.presentation.codexState.groupsByProject,
+                       self.presentation.codexState.page == .history, self.presentation.codexState.scope == .deck {
+                        self.presentation.codexState.moveProject(event.keyCode == 123 ? -1 : 1, in: CodexService.shared.threads)
+                    } else {
+                        self.selectTab(self.presentation.tab.neighbor(event.keyCode == 123 ? -1 : 1))
+                    }
                     return nil
                 }
             }
@@ -191,10 +198,11 @@ final class NotchPanelController: NSObject {
             }
             if event.type == .keyDown, event.window === self.panel,
                event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+               !self.presentation.showsActions,
                self.navigateApplet(keyCode: event.keyCode) {
                 return nil
             }
-            if event.type != .keyDown, event.window !== self.panel {
+            if event.type != .keyDown, event.window !== self.panel, !self.presentation.showsActions {
                 self.close()
             }
             return event
@@ -216,12 +224,11 @@ final class NotchPanelController: NSObject {
             return false
         case .spotify:
             let state = presentation.spotifyState
-            guard !state.editingPlaylistLink else { return false }
             withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .smooth(duration: 0.24)) {
                 if vertical {
                     state.page = cyclingPage(in: SpotifyPage.allCases, to: state.page, offset: offset)
                 } else if state.page == .playlists {
-                    state.playlist = cyclingPage(in: SpotifyPlaylist.allCases, to: state.playlist, offset: offset)
+                    state.movePlaylist(offset)
                 } else {
                     state.selectedControl = (state.selectedControl + offset + 2) % 2
                 }

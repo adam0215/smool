@@ -1,22 +1,11 @@
 import SwiftUI
 
-struct NotchCard: ViewModifier {
-    var elevated = true
-
+struct AppletPadding: ViewModifier {
     func body(content: Content) -> some View {
-        let padded = content
+        content
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-        if elevated {
-            padded.modifier(CardGlass(shape: UnevenRoundedRectangle(
-                topLeadingRadius: 16, bottomLeadingRadius: 56,
-                bottomTrailingRadius: 56, topTrailingRadius: 16
-            ), isSelected: true))
-        } else {
-            padded
-        }
     }
 }
 

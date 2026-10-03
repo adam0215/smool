@@ -14,7 +14,7 @@ struct NotchLayoutChecks {
         precondition(physical.simulatingIfAbsent(true) == physical, "Hardware must take precedence over simulation.")
 
         let macBook = NotchLayout(screenFrame: screenFrame, notch: physical)
-        precondition(macBook.expandedSize == CGSize(width: 480, height: 164))
+        precondition(macBook.expandedSize == CGSize(width: 480, height: 192))
         checkPlacement(macBook)
 
         let absent = ScreenNotch(topInset: 0, leftArea: nil, rightArea: nil)
@@ -47,7 +47,7 @@ struct NotchLayoutChecks {
         for original in [macBook, external, wideNotch, compactDisplay] {
             var applet = original
             applet.contentHeight = 300
-            precondition(applet.expandedSize.height == max(44, original.headerSize.height) + 300)
+            precondition(applet.expandedSize.height == original.navigationHeight + 300)
             precondition(applet.expandedSize.width == original.expandedSize.width)
             precondition(applet.windowFrame.maxY == original.windowFrame.maxY,
                          "Switching tabs must keep the panel anchored to the screen edge.")

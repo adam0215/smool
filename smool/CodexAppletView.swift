@@ -13,10 +13,36 @@ enum CodexScope: Equatable {
 
 @MainActor @Observable
 final class CodexAppletState {
+    var groupsByProject = UserDefaults.standard.bool(forKey: "codex.groupsByProject") {
+        didSet { UserDefaults.standard.set(groupsByProject, forKey: "codex.groupsByProject") }
+    }
+    var projectPath: String?
+    var composerHeight: CGFloat = 0
     var page = CodexPage.active
     var scope = CodexScope.deck
     var selection: [CodexPage: String] = [:]
     var searches: [CodexPage: String] = [:]
+
+    func projects(in threads: [CodexThread]) -> [String] {
+        Array(Set(threads.map(\.projectPath))).sorted { lhs, rhs in
+            let order = URL(fileURLWithPath: lhs).lastPathComponent.localizedStandardCompare(URL(fileURLWithPath: rhs).lastPathComponent)
+            return order == .orderedSame ? lhs < rhs : order == .orderedAscending
+        }
+    }
+
+    func selectedProject(in threads: [CodexThread]) -> String? {
+        let paths = projects(in: threads)
+        return projectPath.flatMap { paths.contains($0) ? $0 : nil } ?? paths.first
+    }
+
+    func moveProject(_ offset: Int, in threads: [CodexThread]) {
+        let paths = projects(in: threads)
+        guard let current = selectedProject(in: threads) else { return }
+        groupsByProject = true
+        page = .history
+        scope = .deck
+        projectPath = cyclingPage(in: paths, to: current, offset: offset)
+    }
 }
 
 struct CodexAppletView: View {
@@ -43,6 +69,7 @@ struct CodexAppletView: View {
         let query = query.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         return service.threads.filter { thread in
             (state.page != .active || thread.isActive)
+                && (state.page != .history || !state.groupsByProject || thread.projectPath == state.selectedProject(in: service.threads))
                 && (query.isEmpty || thread.title.localizedStandardContains(query) || thread.preview.localizedStandardContains(query))
         }
     }
@@ -60,15 +87,13 @@ struct CodexAppletView: View {
     }
 
     var body: some View {
-        PageStack(
+        AppletPages(
             pages: CodexPage.allCases,
             selection: $state.page,
             title: { $0.rawValue },
-            showsTitle: state.page != .usage && (state.scope == .deck || state.scope == .search),
-            elevated: state.page != .usage,
             isNavigating: state.scope == .deck,
             editingHint: editingHint,
-            navigationHint: state.page == .usage ? "↑↓ kort   ·   ⌘R uppdatera" : "↑↓ Byt kort\n←→ Välj tråd · ↵ Skriv\n⌘F Sök · ? Stäng hjälpen"
+            navigationHint: state.page == .usage ? "↑↓ Byt sida · ⌘K Åtgärder" : "↑↓ Byt sida\n←→ Välj tråd · ↵ Skriv\n⌘F Sök · ? Stäng hjälpen"
         ) { page in
             if case .composer(let thread) = state.scope {
                 composer(thread)
@@ -101,7 +126,21 @@ struct CodexAppletView: View {
         }
         .background {
             Button("Sök trådar", action: beginSearch).keyboardShortcut("f", modifiers: .command).hidden()
+            Button("Gruppera per projekt") {
+                state.groupsByProject.toggle()
+                state.page = .history
+                state.scope = .deck
+            }
+                .keyboardShortcut("p", modifiers: [.command, .shift]).hidden()
+            Button("Visa arkiverade") {
+                state.page = .history
+                state.scope = .deck
+                Task { await service.setIncludesArchived(!service.includesArchived) }
+            }.keyboardShortcut("a", modifiers: [.command, .shift]).hidden()
             Button("Uppdatera", action: refreshOrConnect).keyboardShortcut("r", modifiers: .command).hidden()
+        }
+        .onChange(of: state.scope) { _, scope in
+            if scope == .search { Task { await Task.yield(); focus = .search } }
         }
         .onAppear { isVisible = true }
         .task {
@@ -116,7 +155,7 @@ struct CodexAppletView: View {
     }
 
     private var threadList: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 if state.scope == .search {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -125,26 +164,24 @@ struct CodexAppletView: View {
                         .focused($focus, equals: .search)
                         .onSubmit { if let thread = selectedThread { compose(thread) } }
                         .onKeyPress(.downArrow) { returnToDeck(); return .handled }
-                        .onExitCommand { returnToDeck() }
+                        .onKeyPress(.escape) { returnToDeck(); return .handled }
                 } else {
+                    Text(state.page == .history && state.groupsByProject
+                         ? (state.selectedProject(in: service.threads).map { $0.isEmpty ? "Utan projekt" : URL(fileURLWithPath: $0).lastPathComponent } ?? "Inga projekt")
+                         : state.page.rawValue)
+                        .foregroundStyle(.secondary).lineLimit(1)
                     if !query.wrappedValue.isEmpty {
                         Text(query.wrappedValue).lineLimit(1).foregroundStyle(.secondary)
                     }
+                    Spacer()
                     Text(selectedThread.map { thread in
                         "\((threads.firstIndex(where: { $0.id == thread.id }) ?? 0) + 1) / \(threads.count)"
                     } ?? "")
                     .monospacedDigit().foregroundStyle(.tertiary)
-                    Spacer()
-                    Button(action: beginSearch) { Image(systemName: "magnifyingglass") }
-                        .help("Sök · ⌘F").accessibilityLabel("Sök trådar")
-                }
-                if state.page == .history {
-                    Button { Task { await service.setIncludesArchived(!service.includesArchived) } } label: {
-                        Image(systemName: service.includesArchived ? "archivebox.fill" : "archivebox")
+                    if service.includesArchived, state.page == .history {
+                        Image(systemName: "archivebox").foregroundStyle(.secondary)
+                            .accessibilityLabel("Inkluderar arkiverade trådar")
                     }
-                    .keyboardShortcut("a", modifiers: [.command, .shift])
-                    .foregroundStyle(service.includesArchived ? .primary : .secondary)
-                    .accessibilityLabel(service.includesArchived ? "Dölj arkiverade trådar" : "Visa arkiverade trådar")
                 }
             }
             .font(.system(size: 10)).buttonStyle(.plain)
@@ -153,10 +190,8 @@ struct CodexAppletView: View {
             if let thread = selectedThread {
                 Button { compose(thread) } label: {
                     HStack(spacing: 14) {
-                        Image(systemName: thread.isActive ? "waveform" : "bubble.left")
-                            .font(.system(size: 28, weight: .light))
-                            .foregroundStyle(thread.isActive ? Color.green.opacity(0.8) : .white.opacity(0.4))
-                            .frame(width: 36)
+                        ProjectIcon(path: thread.projectPath, isActive: thread.isActive)
+                            .frame(width: 42, height: 42)
                         VStack(alignment: .leading, spacing: 5) {
                             Text(thread.title).font(.system(size: 17, weight: .medium)).lineLimit(2)
                             if !thread.preview.isEmpty {
@@ -202,17 +237,41 @@ struct CodexAppletView: View {
         let draft = Binding(get: { service.drafts[thread.id] ?? "" }, set: { service.drafts[thread.id] = $0 })
         let connected = service.threads.contains { $0.id == thread.id && $0.isConnected }
         let connecting = service.isConnectingThreadID == thread.id
-        return VStack(alignment: .leading, spacing: 7) {
-            Text(thread.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
-            TextEditor(text: draft)
-                .font(.system(size: 12))
-                .scrollContentBackground(.hidden)
-                .padding(5)
-                .background(.white.opacity(0.035), in: .rect(cornerRadius: 10))
-                .focused($focus, equals: .composer)
-                .accessibilityLabel("Meddelande till \(thread.title)")
-                .onExitCommand { returnToDeck() }
-                .task { await Task.yield(); focus = .composer }
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                ProjectIcon(path: thread.projectPath, isActive: thread.isActive).frame(width: 20, height: 20)
+                Text(thread.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                Spacer()
+            }
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("Skriv till Codex…", text: draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .lineLimit(1...5)
+                    .focused($focus, equals: .composer)
+                    .accessibilityLabel("Meddelande till \(thread.title)")
+                    .onKeyPress(.escape) { returnToDeck(); return .handled }
+                    .task { await Task.yield(); focus = .composer }
+                Button {
+                    let text = draft.wrappedValue
+                    Task {
+                        if await service.send(text, to: thread), draft.wrappedValue == text {
+                            draft.wrappedValue = ""
+                            if case .composer(let recipient) = state.scope, recipient.id == thread.id { returnToDeck() }
+                        }
+                    }
+                } label: {
+                    if service.isSending { ProgressView().controlSize(.mini).frame(width: 24, height: 24) }
+                    else { Image(systemName: "arrow.up").font(.system(size: 13, weight: .semibold)).frame(width: 24, height: 24) }
+                }
+                .buttonStyle(.plain)
+                .background(.white.opacity(0.09), in: .circle)
+                .accessibilityLabel("Skicka meddelande").help("Skicka · ⌘↵")
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!connected || service.isSending || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(14)
+            .modifier(CardGlass(shape: RoundedRectangle(cornerRadius: 18), isSelected: true))
             if let error = service.error {
                 Text(error).font(.system(size: 9)).foregroundStyle(.orange).lineLimit(1)
             } else if !connected {
@@ -230,23 +289,11 @@ struct CodexAppletView: View {
                     .disabled(service.isConnectingThreadID != nil)
                     .help("Öppna tråden i Codex och anslut den. Utkastet skickas inte.")
                 }
-                Button {
-                    let text = draft.wrappedValue
-                    Task {
-                        if await service.send(text, to: thread), draft.wrappedValue == text {
-                            draft.wrappedValue = ""
-                            if case .composer(let recipient) = state.scope, recipient.id == thread.id { returnToDeck() }
-                        }
-                    }
-                } label: { Image(systemName: "arrow.up").font(.system(size: 14, weight: .semibold)) }
-                .accessibilityLabel("Skicka meddelande")
-                .help("Skicka · ⌘↵")
-                .buttonStyle(NotchControlStyle())
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(!connected || service.isSending || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .font(.system(size: 11))
         }
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { state.composerHeight = $0 }
     }
 
     private func beginSearch() {

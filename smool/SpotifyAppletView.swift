@@ -8,10 +8,15 @@ enum SpotifyPage: CaseIterable {
 @MainActor @Observable
 final class SpotifyAppletState {
     var page = SpotifyPage.player
-    var playlist = SpotifyPlaylist.releaseRadar
+    let catalog = SpotifyPlaylistCatalog()
+    var playlistID: String?
+    var playlist: SpotifyPlaylist? { catalog.playlists.first { $0.id == playlistID } ?? catalog.playlists.first }
+
+    func movePlaylist(_ offset: Int) {
+        guard let playlist else { return }
+        playlistID = cyclingPage(in: catalog.playlists.map(\.id), to: playlist.id, offset: offset)
+    }
     var selectedControl = 0
-    var editingPlaylistLink = false
-    var playlistLinkDraft = ""
 }
 
 struct SpotifyAppletView: View {
@@ -27,33 +32,32 @@ struct SpotifyAppletView: View {
 
     var body: some View {
         @Bindable var state = state
-        PageStack(
+        AppletPages(
             pages: SpotifyPage.allCases,
             selection: $state.page,
             title: { $0.title },
-            showsTitle: false,
-            elevated: state.editingPlaylistLink,
-            isNavigating: !state.editingPlaylistLink,
-            editingHint: "↵ spara länk   ·   esc tillbaka",
             navigationHint: state.page == .player
-                ? "↑↓ Byt kort · ←→ Välj kontroll\nMellanslag Spela/pausa · ↵ Utför\n? Stäng hjälpen"
-                : "↑↓ Byt kort · ←→ Välj spellista\n↵ Spela eller anslut · ⌘L Ändra länk\n? Stäng hjälpen"
+                ? "↑↓ Byt sida · ←→ Välj kontroll\nMellanslag Spela/pausa · ↵ Utför\n? Stäng hjälpen"
+                : "↑↓ Byt sida · ←→ Välj spellista\n↵ Spela · ⌘K Åtgärder\n? Stäng hjälpen"
         ) { page in
             switch page {
             case .player: SpotifyPlayerView(service: service, artwork: artwork, selectedControl: $state.selectedControl)
-            case .playlists: SpotifyPlaylistsView(service: service, selection: $state.playlist, isEditing: $state.editingPlaylistLink, link: $state.playlistLinkDraft)
+            case .playlists: SpotifyPlaylistsView(service: service, state: state)
             }
         }
         .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { key in
-            guard !state.editingPlaylistLink,
-                  key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
+            guard key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
             let offset = key.key == .leftArrow ? -1 : 1
             if state.page == .playlists {
-                state.playlist = cyclingPage(in: SpotifyPlaylist.allCases, to: state.playlist, offset: offset)
+                state.movePlaylist(offset)
             } else {
                 state.selectedControl = (state.selectedControl + offset + 2) % 2
             }
             return .handled
+        }
+        .background {
+            Button("Uppdatera") { Task { await service.retry(); await state.catalog.load(force: true) } }
+                .keyboardShortcut("r", modifiers: .command).hidden()
         }
         .task { await service.observe() }
     }

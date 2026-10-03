@@ -77,7 +77,7 @@ struct CalendarAppletView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .modifier(CardGlass(shape: RoundedRectangle(cornerRadius: 20), isSelected: showsDetails))
         }
-        .modifier(NotchCard(elevated: false))
+        .modifier(AppletPadding())
         .padding(.horizontal, NotchLayout.contentInset)
         .padding(.bottom, NotchLayout.contentInset)
         .focusable(interactions: .edit)

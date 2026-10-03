@@ -10,11 +10,14 @@ struct CodexThread: Identifiable, Equatable {
     var status: String?
     var isConnected = false
     var isArchived = false
+    var projectPath: String
+    var projectName: String { projectPath.isEmpty ? "Utan projekt" : URL(fileURLWithPath: projectPath).lastPathComponent }
     var isActive: Bool { isConnected && status == "active" }
 
     init?(json: CodexJSON) {
         guard let id = json["id"].string else { return nil }
         self.id = id
+        projectPath = json["cwd"].string ?? ""
         preview = json["preview"].string ?? ""
         let name = json["name"].string ?? json["title"].string ?? ""
         title = name.isEmpty ? String(preview.prefix(100)) : name
@@ -311,6 +314,7 @@ final class CodexService {
             guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
             threads[index].status = state["threadRuntimeStatus"]["type"].string
             threads[index].isConnected = true
+            if let cwd = state["cwd"].string { threads[index].projectPath = cwd }
             if let title = state["title"].string, !title.isEmpty { threads[index].title = title }
             revisions[id] = change["revision"].number.map(Int.init)
             owners[id] = message["sourceClientId"].string
