@@ -1,162 +1,156 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
-struct SavedActionEditor: View {
-    var original: SavedAction?
-    var allowsShortcuts: Bool
-    var onSave: (SavedAction) -> Bool
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var kind = ActionKind.website
-    @State private var text = ""
-    @State private var localDestination: ActionDestination?
-    @State private var shortcuts: [AvailableShortcut] = []
-    @State private var shortcutID: UUID?
-    @State private var openPanel: NSOpenPanel?
-    @State private var loading = false
-    @State private var error: String?
-    @FocusState private var nameFocused: Bool
+@MainActor @Observable
+final class ActionEditorRequest: Identifiable {
+    let id = UUID()
+    let action: SavedAction?
+    var name: String
+    var input: String
+    var destination: ActionDestination?
+    var usesShortcut: Bool
 
-    private var kinds: [ActionKind] {
-        allowsShortcuts ? [.application, .folder, .website, .shortcut] : [.application, .folder, .website, .codexThread]
+    init(action: SavedAction? = nil) {
+        self.action = action
+        name = action?.name ?? ""
+        input = action?.destination.detail ?? ""
+        destination = action?.destination
+        usesShortcut = action?.destination.kind == .shortcut
     }
 
+    func savedAction() throws -> SavedAction {
+        let resolved: ActionDestination
+        if let destination, destination.detail == input, (destination.kind == .shortcut) == usesShortcut {
+            resolved = destination
+        } else if usesShortcut {
+            throw ActionFailure(message: "Choose a shortcut first.")
+        } else {
+            resolved = try .inferred(input)
+        }
+        let enteredName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SavedAction(id: action?.id ?? id, name: enteredName.isEmpty ? resolved.suggestedName : enteredName, destination: resolved)
+    }
+}
+
+struct SavedActionEditor: View {
+    @Bindable var draft: ActionEditorRequest
+    var allowsShortcuts: Bool
+    var onSave: (SavedAction) -> Bool
+    var onClose: () -> Void
+    @State private var shortcuts: [AvailableShortcut] = []
+    @State private var loading = false
+    @State private var error: String?
+    @FocusState private var field: Field?
+
+    private enum Field: Hashable { case destination, name }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text(original == nil ? "Add resource" : "Edit resource")
-                .font(.system(size: 14, weight: .semibold))
-
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Name").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                    TextField("Resource name", text: $name)
-                        .focused($nameFocused)
-                        .accessibilityLabel("Name")
-                }
-
-                Picker("Type", selection: $kind) {
-                    ForEach(kinds) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.menu)
-                .controlSize(.regular)
-
-                destinationFields
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(draft.action.map { "Edit \($0.name)" } ?? (allowsShortcuts ? "Save an action" : "Add a resource"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                Spacer()
+                Button("Back", action: onClose).buttonStyle(.plain)
             }
 
+            if draft.usesShortcut {
+                shortcutFields
+            } else {
+                TextField("App name, folder path, website or Codex thread", text: $draft.input)
+                    .focused($field, equals: .destination)
+                    .accessibilityLabel("Resource")
+                    .onSubmit(save)
+                HStack {
+                    Text("Examples: Safari, ~/Documents, example.com")
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    if allowsShortcuts {
+                        Button("Shortcut ⌘J") {
+                            draft.usesShortcut = true
+                            field = nil
+                            Task { await loadShortcuts() }
+                        }.keyboardShortcut("j", modifiers: .command)
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10))
+            }
+
+            TextField("Name (optional)", text: $draft.name)
+                .focused($field, equals: .name)
+                .accessibilityLabel("Optional name")
+                .onSubmit(save)
+
             if let error {
-                Label(error, systemImage: "exclamationmark.circle")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
+                Text(error).font(.system(size: 11)).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Spacer()
-                Button("Save", action: save)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Text("Tab fields · Esc back · draft kept")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button("Save  ⌘↵", action: save)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .keyboardShortcut(.return, modifiers: .command)
             }
-            .controlSize(.regular)
         }
         .font(.system(size: 12))
         .textFieldStyle(EditorTextFieldStyle())
         .padding(20)
-        .frame(width: 380)
+        .modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
+        .task { await Task.yield(); field = .destination }
+        .onKeyPress(.escape) {
+            if field != nil { field = nil }
+            else { onClose() }
+            return .handled
+        }
+    }
+
+    private var shortcutFields: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(shortcutName).lineLimit(1)
+                Spacer()
+                Button("↑") { moveShortcut(-1) }.keyboardShortcut(.upArrow, modifiers: .option)
+                    .accessibilityLabel("Previous shortcut")
+                Button("↓") { moveShortcut(1) }.keyboardShortcut(.downArrow, modifiers: .option)
+                    .accessibilityLabel("Next shortcut")
+            }
+            HStack {
+                Text("⌥↑↓ choose shortcut").foregroundStyle(.secondary)
+                Spacer()
+                Button(loading ? "Loading…" : "Reload ⌘R") { Task { await loadShortcuts() } }
+                    .keyboardShortcut("r", modifiers: .command).disabled(loading)
+                Button("Link or app ⌘J") { draft.usesShortcut = false; field = .destination }
+                    .keyboardShortcut("j", modifiers: .command)
+            }
+            .font(.system(size: 10))
+        }
+        .buttonStyle(.plain)
         .task {
-            if let original {
-                name = original.name
-                kind = original.destination.kind
-                text = original.destination.detail
-                localDestination = original.destination
-                if case .shortcut(let id, let name) = original.destination {
-                    shortcutID = id
-                    shortcuts = [AvailableShortcut(id: id, name: name)]
-                }
+            if case .shortcut(let id, let name) = draft.destination {
+                shortcuts = [AvailableShortcut(id: id, name: name)]
             }
-            nameFocused = true
-        }
-        .onChange(of: kind) { _, _ in
-            cancelLocalPicker()
-            error = nil
-        }
-        .onDisappear(perform: cancelLocalPicker)
-    }
-
-    @ViewBuilder
-    private var destinationFields: some View {
-        switch kind {
-        case .application, .folder:
-            VStack(alignment: .leading, spacing: 8) {
-                Button(action: chooseLocal) {
-                    Label(kind == .application ? "Choose app…" : "Choose folder…", systemImage: kind.symbol)
-                }
-                .disabled(openPanel != nil)
-
-                if let localDestination, localDestination.kind == kind {
-                    Text(localDestination.detail)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
-            }
-        case .website:
-            TextField("https://example.com", text: $text)
-                .accessibilityLabel("Website URL")
-        case .codexThread:
-            TextField("Thread ID or codex://threads/…", text: $text)
-                .accessibilityLabel("Codex thread")
-        case .shortcut:
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("Shortcut", selection: $shortcutID) {
-                    Text("Choose shortcut").tag(nil as UUID?)
-                    ForEach(shortcuts) { Text($0.name).tag(Optional($0.id)) }
-                }
-                .pickerStyle(.menu)
-
-                Button(loading ? "Loading…" : "Load my shortcuts") {
-                    Task { await loadShortcuts() }
-                }
-                .disabled(loading)
-
-                Text("The shortcut only runs when you choose Run in the list.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+            await loadShortcuts()
         }
     }
 
-    private func chooseLocal() {
-        guard openPanel == nil else { return }
-        let selectedKind = kind
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = selectedKind == .application
-        panel.canChooseDirectories = selectedKind == .folder
-        panel.allowsMultipleSelection = false
-        if selectedKind == .application { panel.allowedContentTypes = [.applicationBundle] }
-        panel.prompt = "Choose"
-        openPanel = panel
-
-        panel.begin { [weak panel] response in
-            guard let panel, openPanel === panel else { return }
-            openPanel = nil
-            guard response == .OK, kind == selectedKind, let url = panel.url else { return }
-            do {
-                localDestination = try ActionDestination.local(url, kind: selectedKind)
-                if name.isEmpty { name = url.deletingPathExtension().lastPathComponent }
-                error = nil
-            } catch { self.error = error.localizedDescription }
-        }
+    private var shortcutName: String {
+        if case .shortcut(_, let name) = draft.destination { return name }
+        return loading ? "Loading shortcuts…" : "Choose a shortcut with ⌥↓"
     }
 
-    private func cancelLocalPicker() {
-        let panel = openPanel
-        openPanel = nil
-        panel?.cancel(nil)
+    private func moveShortcut(_ offset: Int) {
+        guard !shortcuts.isEmpty else { return }
+        let selectedID: UUID?
+        if case .shortcut(let id, _) = draft.destination { selectedID = id }
+        else { selectedID = nil }
+        let index = shortcuts.firstIndex { $0.id == selectedID } ?? (offset > 0 ? -1 : 0)
+        let shortcut = shortcuts[(index + offset + shortcuts.count) % shortcuts.count]
+        draft.destination = .shortcut(id: shortcut.id, name: shortcut.name)
+        draft.input = shortcut.name
     }
 
     private func loadShortcuts() async {
@@ -165,34 +159,18 @@ struct SavedActionEditor: View {
         defer { loading = false }
         do {
             shortcuts = try await ShortcutCatalog.load()
-            error = shortcuts.isEmpty ? "No shortcuts found. Create one in the Shortcuts app." : nil
+            error = shortcuts.isEmpty ? "No shortcuts found. Create one in Shortcuts." : nil
         } catch { self.error = error.localizedDescription }
     }
 
     private func save() {
         do {
-            let destination: ActionDestination
-            switch kind {
-            case .website: destination = try .web(text)
-            case .codexThread: destination = try .thread(text)
-            case .application, .folder:
-                guard let localDestination, localDestination.kind == kind else { throw ActionFailure(message: "Choose an app or folder first.") }
-                destination = localDestination
-            case .shortcut:
-                guard let shortcut = shortcuts.first(where: { $0.id == shortcutID }) else { throw ActionFailure(message: "Choose a shortcut first.") }
-                destination = .shortcut(id: shortcut.id, name: shortcut.name)
-            }
-            let action = SavedAction(id: original?.id ?? UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines), destination: destination)
+            let action = try draft.savedAction()
             try validateActions([action], allowShortcuts: allowsShortcuts)
-            if onSave(action) { dismiss() }
+            if onSave(action) { onClose() }
             else { error = "Could not save. Your changes are still here." }
         } catch { self.error = error.localizedDescription }
     }
-}
-
-struct ActionEditorRequest: Identifiable {
-    let id = UUID()
-    var action: SavedAction?
 }
 
 struct ActionFeedback: View {
@@ -202,27 +180,19 @@ struct ActionFeedback: View {
     var body: some View {
         if let error {
             ScrollView { Text(error).foregroundStyle(.red).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                .font(.system(size: 11)).frame(maxHeight: 64)
+                .font(.system(size: 11)).frame(maxHeight: 48)
         } else if let result {
-            Text(result).font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(result).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
         }
     }
 }
 
 struct EditorTextFieldStyle: TextFieldStyle {
-    @Environment(\.colorSchemeContrast) private var contrast
-
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
             .textFieldStyle(.plain)
-            .font(.system(size: 12))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(.primary.opacity(contrast == .increased ? 0.45 : 0.08), lineWidth: 1)
-                    .allowsHitTesting(false)
-            }
+            .font(.system(size: 13))
+            .padding(.vertical, 8)
+            .overlay(alignment: .bottom) { Rectangle().fill(.primary.opacity(0.1)).frame(height: 1) }
     }
 }

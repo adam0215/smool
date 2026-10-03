@@ -13,12 +13,13 @@ struct ActionAppletsChecks {
         let quick = QuickActionsApplet(store: QuickActionStore(url: dataFolder.appendingPathComponent("quick.json"), launcher: launcher))
         let spaces = WorkspacesApplet(store: WorkspaceStore(url: dataFolder.appendingPathComponent("spaces.json"), launcher: launcher))
         precondition(quick.id.rawValue == "quick-actions" && spaces.id.rawValue == "workspaces")
-        precondition(!quick.handleArrow(.down, command: false) && !spaces.handleArrow(.right, command: false))
+        precondition(quick.handleArrow(.down, command: false) && !spaces.handleArrow(.right, command: false))
         try render(quick, name: "quick-empty", folder: folder)
         try render(spaces, name: "workspaces-empty", folder: folder)
         let first = SavedAction(name: "Designsystem", destination: try .web("https://developer.apple.com/design/"))
         let second = SavedAction(name: "Projektets dokumentation", destination: try .web("https://example.com/docs"))
         precondition(quick.store.save(first) && quick.store.save(second))
+        quick.highlightedID = nil
         precondition(quick.handleArrow(.down, command: false) && quick.selectedID == first.id)
         precondition(quick.handleArrow(.down, command: false) && quick.selectedID == second.id)
         quick.editor = ActionEditorRequest(action: first)
@@ -30,7 +31,7 @@ struct ActionAppletsChecks {
         precondition(spaces.store.save(SavedWorkspace(name: "Nästa projekt")))
         precondition(spaces.handleArrow(.right, command: false) && spaces.selected?.name == "Nästa projekt")
         precondition(spaces.handleArrow(.left, command: false) && spaces.selected?.id == workspace.id)
-        spaces.editor = workspace
+        spaces.editor = WorkspaceDraft(workspace)
         precondition(spaces.hasPresentedOverlay && !spaces.handleArrow(.right, command: false))
         spaces.dismissOverlay()
         precondition(!spaces.hasPresentedOverlay)

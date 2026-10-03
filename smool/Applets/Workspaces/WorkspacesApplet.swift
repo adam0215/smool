@@ -6,29 +6,102 @@ final class WorkspacesApplet: Applet {
     let title = "Workspaces"
     let icon = AppletIcon.symbol("square.grid.2x2")
     let tint = Color.teal
-    let contentHeight: CGFloat = 300
+    let contentHeight: CGFloat = 320
     let store: WorkspaceStore
     var selectedID: UUID?
-    var editor: SavedWorkspace?
+    var editor: WorkspaceDraft?
+    var deletingWorkspace: SavedWorkspace?
+    private var drafts: [UUID: WorkspaceDraft] = [:]
+    private var newDraft: WorkspaceDraft?
 
     init(store: WorkspaceStore = WorkspaceStore()) { self.store = store }
 
     var selected: SavedWorkspace? { store.workspaces.first(where: { $0.id == selectedID }) ?? store.workspaces.first }
-    var hasPresentedOverlay: Bool { editor != nil }
+    var hasPresentedOverlay: Bool { editor != nil || deletingWorkspace != nil }
     var status: AppletStatus? {
         if store.isOpening { return AppletStatus(kind: .working, label: "Opening workspace") }
         if store.error != nil { return AppletStatus(kind: .needsAttention, label: "Check workspace") }
         return nil
     }
 
-    func makeView(context: AppletContext, artwork: NSImage?) -> AnyView {
-        AnyView(WorkspacesAppletView(applet: self))
+    var actions: [AppletAction] {
+        guard store.canSave else { return [AppletAction(id: "Reload workspaces", symbol: "arrow.clockwise") { [weak self] in self?.store.reload() }] }
+        if let editor {
+            guard editor.resourceEditor == nil else { return [] }
+            var actions = [
+                AppletAction(id: "Add resource", symbol: "plus", shortcut: "⌘N") { editor.editResource() },
+                AppletAction(id: "Save workspace", symbol: "checkmark", shortcut: "⌘↵") { [weak self] in self?.saveEditor() }
+            ]
+            if let resource = editor.selectedResource {
+                actions += [
+                    AppletAction(id: "Edit \(resource.name)", symbol: "pencil", shortcut: "↵") { editor.editResource(resource) },
+                    AppletAction(id: "Include in workspace", symbol: "checkmark.circle", shortcut: "Space", selected: editor.workspace.selectedResourceIDs.contains(resource.id)) { editor.toggleSelected() },
+                    AppletAction(id: "Remove \(resource.name)", symbol: "minus.circle", shortcut: "⌘⌫") { editor.removeSelected() }
+                ]
+            }
+            return actions
+        }
+        var actions = [AppletAction(id: newDraft == nil ? "New workspace" : "Resume new workspace", symbol: "plus", shortcut: "⌘N") { [weak self] in self?.edit() }]
+        if let selected {
+            actions += [
+                AppletAction(id: "Open \(selected.name)", symbol: "arrow.up.right", shortcut: "↵") { [weak self] in self?.openSelected() },
+                AppletAction(id: "Edit \(selected.name)", symbol: "pencil", shortcut: "⌘E") { [weak self] in self?.edit(selected) },
+                AppletAction(id: "Delete \(selected.name)", symbol: "trash", shortcut: "⌘⌫") { [weak self] in self?.deletingWorkspace = selected }
+            ]
+        }
+        return actions
     }
 
-    func dismissOverlay() { editor = nil }
+    func makeView(context: AppletContext, artwork: NSImage?) -> AnyView {
+        AnyView(WorkspacesAppletView(applet: self, restoreFocus: context.restoreFocus))
+    }
+
+    func edit(_ workspace: SavedWorkspace? = nil) {
+        guard store.canSave else { return }
+        if let workspace {
+            let draft = drafts[workspace.id] ?? WorkspaceDraft(workspace)
+            drafts[workspace.id] = draft
+            editor = draft
+        } else {
+            let draft = newDraft ?? WorkspaceDraft(SavedWorkspace(name: ""))
+            newDraft = draft
+            editor = draft
+        }
+    }
+
+    func saveEditor() {
+        guard let editor else { return }
+        var workspace = editor.workspace
+        if workspace.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            workspace.name = workspace.resources.first.map { "\($0.name) workspace" } ?? "Workspace"
+        }
+        guard store.save(workspace) else { return }
+        selectedID = workspace.id
+        editor.workspace = workspace
+        drafts[workspace.id] = editor
+        if newDraft?.id == workspace.id { newDraft = nil }
+        self.editor = nil
+    }
+
+    func openSelected() {
+        guard let selected else { return }
+        let resources = selected.resources.filter { selected.selectedResourceIDs.contains($0.id) }
+        if resources.isEmpty { edit(selected) }
+        else { Task { await store.open(resources) } }
+    }
+
+    func dismissOverlay() {
+        if editor?.resourceEditor != nil { editor?.resourceEditor = nil }
+        else { editor = nil; deletingWorkspace = nil }
+    }
+
+    // Switching tools suspends the complete draft, including a resource editor.
+    func deactivate() { deletingWorkspace = nil }
 
     func handleArrow(_ arrow: AppletArrow, command: Bool) -> Bool {
-        guard !command, !arrow.isVertical, editor == nil, !store.workspaces.isEmpty else { return false }
+        guard !command, deletingWorkspace == nil else { return false }
+        if let editor { return arrow.isVertical && editor.moveSelection(arrow.offset) }
+        guard !store.workspaces.isEmpty else { return false }
         let index = store.workspaces.firstIndex(where: { $0.id == selected?.id }) ?? 0
         selectedID = store.workspaces[(index + arrow.offset + store.workspaces.count) % store.workspaces.count].id
         return true
@@ -37,118 +110,104 @@ final class WorkspacesApplet: Applet {
 
 private struct WorkspacesAppletView: View {
     @Bindable var applet: WorkspacesApplet
+    var restoreFocus: () -> Void
+    @FocusState private var listFocused: Bool
 
     var body: some View {
+        Group {
+            if let draft = applet.editor {
+                WorkspaceEditor(draft: draft, store: applet.store, onSave: applet.saveEditor, onClose: closeEditor, restoreFocus: restoreFocus)
+            } else if let workspace = applet.deletingWorkspace {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Delete \(workspace.name)?").font(.system(size: 14, weight: .semibold))
+                    Text("Your apps, folders and links stay where they are.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Keep workspace", action: closeEditor).keyboardShortcut(.cancelAction)
+                        Spacer()
+                        Button("Delete", role: .destructive) {
+                            if applet.store.delete(workspace.id) { applet.selectedID = applet.store.workspaces.first?.id }
+                            closeEditor()
+                        }.keyboardShortcut(.defaultAction)
+                    }
+                }.padding(24).modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
+            } else {
+                workspaceList
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .padding(.horizontal, applet.hasPresentedOverlay ? NotchLayout.contentInset : 24)
+        .padding(.top, 8)
+        .padding(.bottom, applet.hasPresentedOverlay ? NotchLayout.contentInset : 16)
+    }
+
+    private var workspaceList: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                if let selected = applet.selected {
-                    Picker("Workspace", selection: Binding(get: { selected.id }, set: { applet.selectedID = $0 })) {
-                        ForEach(applet.store.workspaces) { Text($0.name).tag($0.id) }
-                    }.labelsHidden()
-                        .pickerStyle(.menu)
-                        .font(.system(size: 13, weight: .semibold))
-                        .tint(.primary)
-                    Menu {
-                        Button("Edit workspace") { applet.editor = selected }
-                        Button("Delete workspace", role: .destructive) { _ = applet.store.delete(selected.id) }
-                    } label: { Image(systemName: "ellipsis") }
-                        .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Workspace actions")
-                } else { Text("Your workspaces").font(.system(size: 13, weight: .semibold)) }
+                Text("Open a group of resources together").font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer()
-                Button { applet.editor = SavedWorkspace(name: "") } label: {
-                    Label("New", systemImage: "plus")
-                }
-                    .buttonStyle(NotchControlStyle()).disabled(!applet.store.canSave)
-                    .keyboardShortcut("n", modifiers: .command)
+                Button("New  ⌘N") { applet.edit() }
+                    .buttonStyle(.plain).keyboardShortcut("n", modifiers: .command)
+                    .disabled(!applet.store.canSave)
             }
-            if let selected = applet.selected {
-                if selected.resources.isEmpty {
-                    Text("Add apps, folders, links and Codex threads from Edit workspace.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .multilineTextAlignment(.center)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 4) {
-                            ForEach(selected.resources) { resource in
-                                HStack {
-                                    Toggle(isOn: Binding(get: { selected.selectedResourceIDs.contains(resource.id) }, set: { checked in
-                                        var updated = selected
-                                        if checked { updated.selectedResourceIDs.insert(resource.id) }
-                                        else { updated.selectedResourceIDs.remove(resource.id) }
-                                        applet.store.save(updated)
-                                    })) {
-                                        HStack(spacing: 10) {
-                                            Image(systemName: resource.destination.kind.symbol)
-                                                .foregroundStyle(.secondary)
-                                                .frame(width: 20)
-                                            VStack(alignment: .leading, spacing: 3) {
-                                                Text(resource.name)
-                                                    .font(.system(size: 13, weight: .medium))
-                                                    .lineLimit(1)
-                                                Text(resource.destination.detail)
-                                                    .font(.system(size: 11))
-                                                    .foregroundStyle(.secondary)
-                                                    .lineLimit(1)
-                                                    .truncationMode(.middle)
-                                            }
-                                        }
-                                    }.toggleStyle(.checkbox)
-                                    Spacer()
-                                    Button { Task { await applet.store.open([resource]) } } label: {
-                                        Image(systemName: "arrow.up.right")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .frame(width: 28, height: 28)
-                                            .contentShape(Circle())
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 3) {
+                        ForEach(applet.store.workspaces) { workspace in
+                            Button { applet.selectedID = workspace.id; applet.openSelected() } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "square.grid.2x2").foregroundStyle(.secondary)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(workspace.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                                        Text(workspace.resources.isEmpty ? "Add resources to get started" : workspace.resources.filter { workspace.selectedResourceIDs.contains($0.id) }.map(\.name).joined(separator: ", "))
+                                            .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                                     }
-                                        .buttonStyle(.plain)
-                                        .foregroundStyle(.secondary)
-                                        .disabled(applet.store.isOpening)
-                                        .accessibilityLabel("Open \(resource.name)")
+                                    Spacer()
+                                    if applet.selected?.id == workspace.id {
+                                        Text("↵").font(.system(size: 12)).foregroundStyle(.secondary)
+                                    }
                                 }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                                .background(.white.opacity(selected.selectedResourceIDs.contains(resource.id) ? 0.055 : 0.02), in: .rect(cornerRadius: 14))
+                                .padding(12).contentShape(Rectangle())
+                                .background(.white.opacity(applet.selected?.id == workspace.id ? 0.09 : 0), in: .rect(cornerRadius: 12))
                             }
+                            .buttonStyle(.plain).focusable(false)
+                            .id(workspace.id)
+                            .onHover { if $0 { applet.selectedID = workspace.id } }
                         }
                     }
                 }
-                Button {
-                    let resources = selected.resources.filter { selected.selectedResourceIDs.contains($0.id) }
-                    Task { await applet.store.open(resources) }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.up.right")
-                        Text(applet.store.isOpening ? "Opening…" : "Open workspace")
+                .onChange(of: applet.selectedID) { _, id in if let id { proxy.scrollTo(id) } }
+                .overlay {
+                    if applet.store.workspaces.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "square.grid.2x2").font(.system(size: 24, weight: .light)).foregroundStyle(.tertiary)
+                            Text("Everything for your next project").font(.system(size: 13, weight: .medium))
+                            Text("Apps, folders and links, ready in one step.").font(.system(size: 11)).foregroundStyle(.secondary)
+                            Button("Create workspace  ⌘N") { applet.edit() }.buttonStyle(FloatingControlStyle())
+                                .disabled(!applet.store.canSave)
+                        }.frame(maxWidth: .infinity)
                     }
                 }
-                .buttonStyle(NotchControlStyle(isSelected: true))
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(applet.store.isOpening || selected.resources.allSatisfy { !selected.selectedResourceIDs.contains($0.id) })
-            } else {
-                VStack(spacing: 10) {
-                    Image(systemName: "square.grid.2x2")
-                        .font(.system(size: 24, weight: .light))
-                        .foregroundStyle(.tertiary)
-                        .accessibilityHidden(true)
-                    Text("Everything for your next project")
-                        .font(.system(size: 13, weight: .medium))
-                    Text("Group apps, folders and links, then open them together.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             ActionFeedback(error: applet.store.error, result: applet.store.result)
             if !applet.store.canSave { Button("Reload") { applet.store.reload() } }
+            Text("↑↓ choose · ↵ open · ⌘E edit · ⌘K actions · Esc back")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-        .sheet(item: $applet.editor) { workspace in
-            WorkspaceEditor(workspace: workspace, store: applet.store) { applet.selectedID = $0 }
+        .focusable(interactions: .edit).focused($listFocused).focusEffectDisabled()
+        .task { await Task.yield(); listFocused = true }
+        .onKeyPress(.return) { applet.openSelected(); return .handled }
+        .onKeyPress(keys: ["e", .delete], phases: .down) { key in
+            guard key.modifiers.contains(.command), let selected = applet.selected else { return .ignored }
+            if key.key == "e" { applet.edit(selected) }
+            else { applet.deletingWorkspace = selected }
+            return .handled
         }
+    }
+
+    private func closeEditor() {
+        applet.dismissOverlay()
+        restoreFocus()
+        listFocused = true
     }
 }
