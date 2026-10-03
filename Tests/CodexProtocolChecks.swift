@@ -136,6 +136,13 @@ struct CodexProtocolChecks {
         precondition(service.threads.first?.isConnected == false, "Missing revisions invalidate live status.")
         service.receive(event(snapshot, version: 12))
         precondition(service.liveError != nil, "Unknown protocol versions must be visible.")
+
+        service.receive(event(snapshot))
+        service.stop()
+        precondition(service.threads.first?.isConnected == false, "Closing must still disconnect the live service.")
+        precondition(service.displayedThreads.first?.isActive == true, "Reopening should retain the last visible active thread.")
+        service.stop()
+        precondition(service.displayedThreads.first?.isActive == true, "Repeated cleanup must not overwrite the display snapshot.")
         print("Codex protocol checks passed")
     }
 }

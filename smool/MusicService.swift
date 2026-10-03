@@ -41,9 +41,6 @@ final class MusicService {
             }
         } catch is CancellationError { return }
         catch {
-            media = nil
-            artworkURL = nil
-            artworkTrack = nil
             self.error = "Kunde inte läsa datorns uppspelning."
         }
         isLoading = false

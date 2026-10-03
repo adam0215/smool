@@ -28,8 +28,9 @@ struct NotchContentView: View {
         }
     }
 
-    private var cover: NSImage? {
-        loadedArtworkSource == artworkSource ? artwork?.image : nil
+    private var displayedArtwork: AlbumArtwork? {
+        if loadedArtworkSource == artworkSource, let artwork { return artwork }
+        return AlbumArtworkCache.shared.cached(artworkSource)
     }
 
     private var isPlaying: Bool {
@@ -59,11 +60,11 @@ struct NotchContentView: View {
                         }
                     }
                 case .spotify:
-                    SpotifyAppletView(service: presentation.spotify, state: presentation.spotifyState, artwork: cover)
+                    SpotifyAppletView(service: presentation.spotify, state: presentation.spotifyState, artwork: displayedArtwork?.image)
                 case .codex:
                     CodexAppletView(state: presentation.codexState, restoreFocus: restoreFocus)
                 case .music:
-                    MusicAppletView(service: presentation.music, artwork: cover)
+                    MusicAppletView(service: presentation.music, artwork: displayedArtwork?.image)
                 }
             }
             .id(presentation.tab)
@@ -73,17 +74,18 @@ struct NotchContentView: View {
             if presentation.tab != .home {
                 AppletGlow(
                     tab: presentation.tab,
-                    artwork: artwork,
-                    artworkSource: loadedArtworkSource,
+                    artwork: displayedArtwork ?? artwork,
+                    artworkSource: displayedArtwork == nil ? loadedArtworkSource : artworkSource,
                     darkHeight: max(presentation.layout.navigationHeight + 8, presentation.layout.expandedSize.height - 144),
                     isExpanded: presentation.isExpanded,
-                    isPlaying: isPlaying
+                    isPlaying: isPlaying,
+                    audio: presentation.audio
                 )
             }
         }
         .task(id: artworkSource) {
             let source = artworkSource
-            let loaded = if let source { await AlbumArtwork.load(source) } else { nil as AlbumArtwork? }
+            let loaded = if let source { await AlbumArtworkCache.shared.load(source) } else { nil as AlbumArtwork? }
             guard !Task.isCancelled else { return }
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.9)) {
                 artwork = loaded
@@ -100,9 +102,9 @@ private struct AppletGlow: View {
     let darkHeight: CGFloat
     let isExpanded: Bool
     let isPlaying: Bool
+    let audio: SystemAudioLevel
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var audio = SystemAudioLevel()
 
     private var usesAudioGlow: Bool { isPlaying && !reduceMotion && (tab == .music || tab == .spotify) }
     private var capturesAudio: Bool { isExpanded && usesAudioGlow }

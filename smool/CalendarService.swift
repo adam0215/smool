@@ -5,6 +5,7 @@ import Observation
 @MainActor @Observable
 final class CalendarService {
     private let store = EKEventStore()
+    private var loadedDay: Date?
     private(set) var events: [EKEvent] = []
     private(set) var isLoading = false
     private(set) var isRequestingAccess = false
@@ -14,7 +15,7 @@ final class CalendarService {
 
     func load(requestAccess: Bool = false) async {
         guard !isRequestingAccess else { return }
-        isLoading = true
+        isLoading = loadedDay != day
         defer { isLoading = false; isRequestingAccess = false }
         do {
             let status = EKEventStore.authorizationStatus(for: .event)
@@ -38,6 +39,7 @@ final class CalendarService {
             guard let end = Calendar.current.date(byAdding: .day, value: 1, to: day) else { return }
             events = store.events(matching: store.predicateForEvents(withStart: day, end: end, calendars: nil))
                 .sorted { $0.startDate < $1.startDate }
+            loadedDay = day
             message = nil
         } catch is CancellationError {
             return

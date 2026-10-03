@@ -20,7 +20,7 @@ struct CodexAppletView: View {
         Binding(get: { state.searches[state.page] ?? "" }, set: { state.searches[state.page] = $0 })
     }
 
-    private var threadSelection: CodexThreadSelection { state.threadSelection(in: service.threads, projects: service.projects) }
+    private var threadSelection: CodexThreadSelection { state.threadSelection(in: service.displayedThreads, projects: service.projects) }
 
     private var editingHint: String {
         switch state.scope {

@@ -119,7 +119,10 @@ final class SpotifyService {
         // A restarted Spotify gets a fresh connection even if its old process timed out.
         if connectedProcess != process {
             connectedProcess = process
-            state = .loading
+            switch state {
+            case .ready: break
+            default: state = .loading
+            }
             actionError = nil
         }
         // A denied permission needs an explicit retry, not another request on every poll.
@@ -155,7 +158,10 @@ final class SpotifyService {
     }
 
     func retry() async {
-        state = .loading
+        switch state {
+        case .ready: break
+        default: state = .loading
+        }
         await refresh(retry: true)
     }
 

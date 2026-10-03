@@ -10,6 +10,7 @@ final class NotchPresentation {
     let calendar = CalendarService()
     let music = MusicService()
     let spotify = SpotifyService()
+    let audio = SystemAudioLevel()
     let spotifyState = SpotifyAppletState()
     let codexState = CodexAppletState()
     var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900))

@@ -49,6 +49,49 @@ struct AlbumArtwork {
     }
 }
 
+/// Decoded covers survive view removal. Concurrent tiles share the same request.
+@MainActor
+final class AlbumArtworkCache {
+    static let shared = AlbumArtworkCache()
+
+    private let capacity: Int
+    private let loader: (AlbumArtwork.Source) async -> AlbumArtwork?
+    private var entries: [AlbumArtwork.Source: AlbumArtwork] = [:]
+    private var recent: [AlbumArtwork.Source] = []
+    private var loading: [AlbumArtwork.Source: Task<AlbumArtwork?, Never>] = [:]
+
+    init(capacity: Int = 24, loader: @escaping (AlbumArtwork.Source) async -> AlbumArtwork? = AlbumArtwork.load) {
+        self.capacity = max(1, capacity)
+        self.loader = loader
+    }
+
+    func cached(_ source: AlbumArtwork.Source?) -> AlbumArtwork? {
+        guard let source, let artwork = entries[source] else { return nil }
+        recent.removeAll { $0 == source }
+        recent.append(source)
+        return artwork
+    }
+
+    func load(_ source: AlbumArtwork.Source) async -> AlbumArtwork? {
+        if let artwork = cached(source) { return artwork }
+        if let task = loading[source] { return await task.value }
+
+        // Finish a requested cover even if its first view closes before it arrives.
+        let task = Task { await loader(source) }
+        loading[source] = task
+        let artwork = await task.value
+        loading[source] = nil
+        if let artwork {
+            entries[source] = artwork
+            recent.append(source)
+            while recent.count > capacity {
+                entries[recent.removeFirst()] = nil
+            }
+        }
+        return artwork
+    }
+}
+
 /// Artwork never uses stored credentials or follows redirects outside Spotify's CDNs.
 private final class SpotifyArtworkRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(

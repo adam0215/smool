@@ -46,10 +46,16 @@ private struct PlaylistCover: View {
     let playlist: SpotifyPlaylist
     let selected: Bool
     @State private var image: NSImage?
+    @State private var loadedURL: URL?
+
+    private var cover: NSImage? {
+        if loadedURL == playlist.artworkURL, let image { return image }
+        return AlbumArtworkCache.shared.cached(playlist.artworkURL.map(AlbumArtwork.Source.spotify))?.image
+    }
 
     var body: some View {
         VStack(spacing: 7) {
-            SpotifyArtwork(image: image)
+            SpotifyArtwork(image: cover)
                 .frame(width: 64, height: 64)
                 .clipShape(.rect(cornerRadius: 9))
             Text(playlist.title).font(.system(size: 10, weight: .medium)).lineLimit(2, reservesSpace: true)
@@ -59,7 +65,11 @@ private struct PlaylistCover: View {
         .background(.white.opacity(selected ? 0.09 : 0.025), in: .rect(cornerRadius: 14))
         .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(selected ? 0.4 : 0.05), lineWidth: 0.75) }
         .task(id: playlist.artworkURL) {
-            if let url = playlist.artworkURL { image = await AlbumArtwork.load(.spotify(url))?.image }
+            let url = playlist.artworkURL
+            let loaded = if let url { await AlbumArtworkCache.shared.load(.spotify(url)) } else { nil as AlbumArtwork? }
+            guard !Task.isCancelled else { return }
+            image = loaded?.image
+            loadedURL = url
         }
     }
 }

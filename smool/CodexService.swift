@@ -63,6 +63,9 @@ struct CodexLimit: Identifiable {
 final class CodexService {
     static let shared = CodexService()
     private(set) var threads: [CodexThread] = []
+    // A display snapshot never supplies connection state for commands.
+    private var cachedThreads: [CodexThread]?
+    var displayedThreads: [CodexThread] { cachedThreads ?? threads }
     private(set) var projects: [CodexProject] = []
     private(set) var projectError: String?
     private(set) var limits: [CodexLimit] = []
@@ -104,6 +107,7 @@ final class CodexService {
     }
 
     func stop() {
+        if cachedThreads == nil { cachedThreads = threads }
         session = UUID()
         for id in followed { desktop.follow(id, following: false) }
         desktop.disconnect()
@@ -121,7 +125,11 @@ final class CodexService {
         let session = self.session
         refreshing = true
         isLoading = threads.isEmpty
-        defer { refreshing = false; isLoading = false }
+        defer {
+            refreshing = false
+            isLoading = false
+            if self.session == session, !Task.isCancelled { cachedThreads = nil }
+        }
         do {
             let projects = try await CodexProjects.read(from: CodexClient.codexHome.appendingPathComponent(".codex-global-state.json"))
             guard self.session == session, !Task.isCancelled else { return }
@@ -192,7 +200,7 @@ final class CodexService {
             limits = CodexLimit.parse(response)
             error = nil
         } catch is CancellationError { }
-        catch { if self.session == session { self.error = error.localizedDescription; limits = [] } }
+        catch { if self.session == session { self.error = error.localizedDescription } }
     }
 
     func setIncludesArchived(_ include: Bool) async {

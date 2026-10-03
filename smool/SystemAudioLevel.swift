@@ -11,8 +11,6 @@ final class SystemAudioLevel {
         let id = UUID()
         observationID = id
         guard enabled, !Task.isCancelled else { return }
-        spectrum = AudioSpectrum()
-
         let tap = AudioLevelTap()
         do {
             try await tap.start()

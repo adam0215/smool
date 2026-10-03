@@ -5,11 +5,23 @@ struct ProjectIcon: View {
     let path: String
     var isActive = false
     @State private var image: NSImage?
+    @State private var loadedPath: String?
+
+    private static let thumbnails: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+
+    private var thumbnail: NSImage? {
+        if loadedPath == path, let image { return image }
+        return Self.thumbnails.object(forKey: path as NSString)
+    }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Group {
-                if let image { Image(nsImage: image).resizable().scaledToFit() }
+                if let thumbnail { Image(nsImage: thumbnail).resizable().scaledToFit() }
                 else { Image(systemName: path.isEmpty ? "bubble.left" : "folder").resizable().scaledToFit().padding(6).foregroundStyle(.secondary) }
             }
             .clipShape(.rect(cornerRadius: 8))
@@ -20,9 +32,12 @@ struct ProjectIcon: View {
         }
         .accessibilityHidden(true)
         .task(id: path) {
-            image = nil
+            if Self.thumbnails.object(forKey: path as NSString) != nil { return }
             guard let thumbnail = await ProjectIconFiles.shared.thumbnail(path), !Task.isCancelled else { return }
-            image = NSImage(cgImage: thumbnail, size: .zero)
+            let decoded = NSImage(cgImage: thumbnail, size: .zero)
+            Self.thumbnails.setObject(decoded, forKey: path as NSString)
+            image = decoded
+            loadedPath = path
         }
     }
 }

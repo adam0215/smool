@@ -90,6 +90,21 @@ struct SpotifyChecks {
         })
         await stale.refresh()
         guard case .loading = stale.state else { preconditionFailure("A stale response must not mark a new Spotify process failed") }
+
+        let cachedProcess = SpotifyTestProcess()
+        let cachedService = SpotifyService(state: .ready(track), processIdentifier: { cachedProcess.id }, request: { _ in
+            await MainActor.run {
+                guard case .ready = cachedProcess.observedService?.state else {
+                    preconditionFailure("Reconnecting and retrying must keep the cached track visible while waiting.")
+                }
+            }
+            return ready
+        })
+        cachedProcess.observedService = cachedService
+        await cachedService.refresh()
+        await cachedService.retry()
+        cachedProcess.id = 2
+        await cachedService.refresh()
         print("Spotify validation, scripting, artwork, and process-recovery checks passed")
     }
 }
@@ -97,6 +112,7 @@ struct SpotifyChecks {
 @MainActor
 private final class SpotifyTestProcess {
     var id: pid_t? = 1
+    weak var observedService: SpotifyService?
 }
 
 private actor SpotifyTestReplies {
