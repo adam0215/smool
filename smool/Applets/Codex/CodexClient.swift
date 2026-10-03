@@ -41,8 +41,9 @@ final class CodexClient {
         }
         let generation = UUID()
         self.generation = generation
-        let transport = CodexTransport(endpoint: endpoint) { [weak self] value in
+        let transport = CodexTransport(endpoint: endpoint) { [weak self] value, delivered in
             Task { @MainActor in
+                defer { delivered() }
                 guard let self, self.generation == generation else { return }
                 self.receive(value)
             }

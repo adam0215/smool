@@ -7,7 +7,8 @@ final class CodexTransport: @unchecked Sendable {
     enum Endpoint: Sendable { case desktop(String), appServer(String) }
     private let queue = DispatchQueue(label: "smool.codex.transport", qos: .utility)
     private let endpoint: Endpoint
-    private let receive: @Sendable (CodexJSON) -> Void
+    private let receive: @Sendable (CodexJSON, @escaping @Sendable () -> Void) -> Void
+    private let deliverySlots = DispatchSemaphore(value: 1)
     private let disconnected: @Sendable () -> Void
     private var reader: FileHandle?
     private var writer: FileHandle?
@@ -15,7 +16,7 @@ final class CodexTransport: @unchecked Sendable {
     private var buffer = Data()
     private var closed = false
 
-    init(endpoint: Endpoint, receive: @escaping @Sendable (CodexJSON) -> Void, disconnected: @escaping @Sendable () -> Void) {
+    init(endpoint: Endpoint, receive: @escaping @Sendable (CodexJSON, @escaping @Sendable () -> Void) -> Void, disconnected: @escaping @Sendable () -> Void) {
         self.endpoint = endpoint
         self.receive = receive
         self.disconnected = disconnected
@@ -137,30 +138,10 @@ final class CodexTransport: @unchecked Sendable {
                 buffer.removeSubrange(...newline)
             }
             guard let value = try? JSONDecoder().decode(CodexJSON.self, from: payload) else { closeOnQueue(); return }
-            receive(metadataMessage(value))
+            // Bound queued actor work without dropping patches or changing their order.
+            deliverySlots.wait()
+            receive(value) { [deliverySlots] in deliverySlots.signal() }
         }
-    }
-
-    /// Discard conversation content before crossing onto the UI actor; only status is displayed.
-    private func metadataMessage(_ message: CodexJSON) -> CodexJSON {
-        guard case .desktop = endpoint, message["method"].string == "thread-stream-state-changed" else { return message }
-        var envelope = message.object
-        var params = message["params"].object
-        var change = params["change"]?.object ?? [:]
-        change["acceptedTextChanges"] = nil
-        if change["type"]?.string == "snapshot", let state = change["conversationState"] {
-            let keys = ["id", "title", "updatedAt", "cwd", "threadRuntimeStatus"]
-            change["conversationState"] = .object(Dictionary(uniqueKeysWithValues: keys.map { ($0, state[$0]) }))
-        } else if change["type"]?.string == "patches" {
-            let patches = change["patches"]?.array ?? []
-            change["patches"] = .array(patches.filter {
-                let path = $0["path"].array.compactMap(\.string)
-                return path.isEmpty || path.first == "threadRuntimeStatus" || path.first == "title"
-            })
-        }
-        params["change"] = .object(change)
-        envelope["params"] = .object(params)
-        return .object(envelope)
     }
 
     private func closeOnQueue() {
