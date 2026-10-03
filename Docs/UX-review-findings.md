@@ -1,10 +1,18 @@
 # UI review findings
 
+Latest refinement review: Timer commit `d28cc1e` limits its orange glow to the selected running timer, excluding creation, paused and expired states. Source review found no issue. The Codex latest-message/history/current-tool refinement has completed source review. Earlier final verification below applies to the preceding UI revision.
+
+## Current refinement findings
+
+11. **Resolved in source: retained activity displayed stale tools as live.** The live gate, Active/History title shimmer and unavailable-state lookup now use the matching authoritative entry in `service.threads`. Cached display objects no longer supply connection state. The view retains the latest message, hides current tools/working summaries when unavailable, and shows the issue alongside retained content. Source review confirms the disconnect, revision-gap and close/reopen cache cases are addressed.
+
+12. **Resolved in source: Command-R did not retry an Active fallback failure.** The refresh path now force-loads `previewThread`, covering both History and the bounded Active fallback. A cached transient error can be retried without waiting for thread metadata to change.
+
 Reviewed changes since `926630a`, including the working tree, against `AGENTS.md` and `Docs/UX-integration.md`. This reviewer performed source review only, with no app launches, CUA, or builds. Live results below were reported by the parent task. Files were reread after concurrent implementation changes.
 
 ## Unresolved findings
 
-No unresolved source findings after reviewing elevation commits `836cf76` and `c5ee606`. The parent has confirmed the previously failing focus and arrow workflows live. The parent completed final live elevation checks and the remaining regression suite; see the verification record below.
+The preceding overhaul findings were resolved after elevation commits `836cf76` and `c5ee606`; the parent's final verification is recorded below. The subsequent refinement findings 11 and 12 are also resolved in source. The parent verified History/latest-message, Command-N, Up/Down and the oversized Active fallback live.
 
 ## Focus follow-up resolved in source
 
@@ -62,3 +70,8 @@ The parent confirmed tab groups, the applet menu, navigation wrapping, Codex com
 - Live keyboard checks covered timer editing and Escape/Return, device selection, note creation through contextual Actions, workspace creation with two inferred websites and inclusion selection, saved-action draft reentry, inline file preview/path editing, settings access, four-tab paging and wrapping.
 - Final live elevation checks confirmed background-level workspace/resource forms with an independently elevated Save control, embedded Files preview without surrounding glass, and inline Codex project/recipient pickers. Escape restored the Codex deck/composer correctly. No test message was sent.
 - The real Codex asset was verified in the closed status, tab bar and Home. Production Home uses English date copy. Its existing glass cards remain intact.
+
+
+## Codex refinement verification
+
+The parent verified the real installed Codex history API with a bounded read of the current large thread. History displayed its latest message rather than the opening prompt. Live checks confirmed the simplified history view, Command-N composer, Escape and page navigation. The oversized Active thread displayed the latest message with a quiet live-activity limitation. No message was sent. Timer creation was unlit, starting lit the orange gradient, and pausing removed it, verified in an isolated app with disposable timers. Timer and applet regression checks passed; the Codex owner ran activity, preview/cache/cancellation, navigation and transport checks. The running-tools fixture was visually inspected with latest message and public summary; the completed-tool fixture omitted the tool. Reduce Motion disables the shimmer timeline in source.
