@@ -21,7 +21,7 @@ struct CodexThread: Identifiable, Equatable {
         preview = json["preview"].string ?? ""
         let name = json["name"].string ?? json["title"].string ?? ""
         title = name.isEmpty ? String(preview.prefix(100)) : name
-        if title.isEmpty { title = "Namnlös tråd" }
+        if title.isEmpty { title = "Untitled thread" }
         let timestamp = json["updatedAt"].number ?? 0
         updatedAt = Date(timeIntervalSince1970: timestamp > 100_000_000_000 ? timestamp / 1_000 : timestamp)
     }
@@ -47,10 +47,10 @@ struct CodexLimit: Identifiable {
                 guard let used = data["usedPercent"].number else { return nil }
                 let minutes = data["windowDurationMins"].number.map(Int.init)
                 let period: String
-                if let minutes, minutes >= 1_440 { period = "\(minutes / 1_440) dagar" }
-                else if let minutes, minutes >= 60 { period = "\(minutes / 60) timmar" }
-                else if let minutes { period = "\(minutes) minuter" }
-                else { period = window == "primary" ? "Aktuell period" : "Längre period" }
+                if let minutes, minutes >= 1_440 { period = "\(minutes / 1_440) days" }
+                else if let minutes, minutes >= 60 { period = "\(minutes / 60) hours" }
+                else if let minutes { period = "\(minutes) minutes" }
+                else { period = window == "primary" ? "Current period" : "Longer period" }
                 let name = snapshot["limitName"].string ?? key
                 return CodexLimit(id: "\(key).\(window)", title: "\(name) · \(period)", usedPercent: min(100, max(0, used)),
                                   resetAt: data["resetsAt"].number.map(Date.init(timeIntervalSince1970:)), durationMinutes: minutes)
@@ -89,8 +89,11 @@ final class CodexService {
     @ObservationIgnored private var streamAccess: [String] = []
     @ObservationIgnored private var dirtyStreams: Set<String> = []
     @ObservationIgnored private var publicationTask: Task<Void, Never>?
+    @ObservationIgnored private var projectionTask: Task<[String: CodexActivityPresentation], Never>?
+    @ObservationIgnored private var streamTokens: [String: UUID] = [:]
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
     @ObservationIgnored private var retryDelay: Duration = .seconds(1)
+    @ObservationIgnored private let projectActivity: @Sendable (CodexActivityStream) -> CodexActivityPresentation
 
     @ObservationIgnored private var projectCatalog = CodexProjects(json: .null)
     @ObservationIgnored private let catalog = CodexClient(desktop: false)
@@ -100,14 +103,19 @@ final class CodexService {
     @ObservationIgnored private var session = UUID()
     @ObservationIgnored private var refreshing = false
 
-    init() {
+    init(projectActivity: @escaping @Sendable (CodexActivityStream) -> CodexActivityPresentation = { $0.presentation }) {
+        self.projectActivity = projectActivity
         desktop.onMessage = { [weak self] in self?.receive($0) }
         desktop.onDisconnect = { [weak self] in self?.lostLiveConnection() }
     }
 
     func setVisible(_ visible: Bool) {
         isVisible = visible
-        if visible { publishActivities() }
+        if visible { schedulePublication(after: .zero) }
+        else {
+            publicationTask?.cancel()
+            projectionTask?.cancel()
+        }
         updateLifecycle()
     }
 
@@ -160,6 +168,7 @@ final class CodexService {
         while streamAccess.count > 4 {
             let removed = streamAccess.removeFirst()
             streams[removed] = nil
+            streamTokens[removed] = nil
             activities[removed] = nil
             activityErrors[removed] = nil
             unavailableActivityIDs.remove(removed)
@@ -174,7 +183,7 @@ final class CodexService {
         lifecycleTask?.cancel()
         lifecycleTask = nil
         publicationTask?.cancel()
-        publicationTask = nil
+        projectionTask?.cancel()
         for id in Array(streams.keys) { streams[id]?.disconnect() }
         for id in Array(statusStreams.keys) { statusStreams[id]?.disconnect() }
         if cachedThreads == nil { cachedThreads = threads }
@@ -210,7 +219,7 @@ final class CodexService {
             projectError = nil
         } catch {
             guard self.session == session, !Task.isCancelled else { return }
-            projectError = "Kunde inte läsa projekten från Codex."
+            projectError = "Could not read projects from Codex."
         }
         do {
             let reconnecting = !desktop.isConnected
@@ -303,7 +312,7 @@ final class CodexService {
             try Task.checkCancellation()
             guard let url = CodexDesktopProtocol.threadURL(thread.id),
                   let application = NSWorkspace.shared.urlForApplication(toOpen: url) else {
-                throw CodexConnectionError(message: "Installera eller öppna Codex för att ansluta tråden.")
+                throw CodexConnectionError(message: "Install or open Codex to connect this thread.")
             }
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
@@ -319,7 +328,7 @@ final class CodexService {
                 }
                 try await Task.sleep(for: .milliseconds(500))
             } while ContinuousClock.now < deadline
-            throw CodexConnectionError(message: "Codex hann inte ansluta tråden. Ditt utkast är kvar; försök ansluta igen.")
+            throw CodexConnectionError(message: "Codex could not connect the thread in time. Your draft is saved; try connecting again.")
         } catch is CancellationError {
             return false
         } catch {
@@ -333,7 +342,7 @@ final class CodexService {
             "hostId": .string("local"), "conversationId": .string(threadID)
         ]), timeout: timeout)
         guard let owner = response["handledByClientId"].string else {
-            throw CodexConnectionError(message: "Tråden har ännu inte anslutits i Codex.")
+            throw CodexConnectionError(message: "This thread has not connected in Codex yet.")
         }
         return owner
     }
@@ -355,12 +364,12 @@ final class CodexService {
             }
             try await Task.sleep(for: .milliseconds(50))
         } while ContinuousClock.now < deadline
-        throw CodexConnectionError(message: "Tråden är öppen i Codex, men dess status kunde inte bekräftas. Försök ansluta igen.")
+        throw CodexConnectionError(message: "The thread is open in Codex, but its status could not be confirmed. Try connecting again.")
     }
 
     func send(_ text: String, to thread: CodexThread) async -> Bool {
         guard !isSending, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        guard text.utf8.count <= 65_536 else { error = "Meddelandet är för långt. Skriv högst 64 kB text."; return false }
+        guard text.utf8.count <= 65_536 else { error = "This message is too long. Keep it under 64 KB."; return false }
         isSending = true
         var submitted = false
         defer { isSending = false }
@@ -378,9 +387,9 @@ final class CodexService {
         } catch {
             // A timeout is ambiguous. Never retry a turn automatically: it may already have started.
             if submitted {
-                self.error = "Kunde inte bekräfta skickandet. Kontrollera tråden i Codex innan du försöker igen. \(error.localizedDescription)"
+                self.error = "Delivery could not be confirmed. Check the thread in Codex before trying again. \(error.localizedDescription)"
             } else if error.localizedDescription == "no-client-found" {
-                self.error = "Öppna tråden i Codex en gång för att ansluta den."
+                self.error = "Open the thread in Codex once to connect it."
             } else { self.error = error.localizedDescription }
             return false
         }
@@ -414,7 +423,7 @@ final class CodexService {
         }
         guard method == "thread-stream-state-changed" else { return }
         guard message["version"].number == Double(CodexDesktopProtocol.snapshotVersion) else {
-            liveError = "Codex har ändrat sitt lokala gränssnitt. Live-status är inte tillgänglig med den här versionen."
+            liveError = "The local Codex interface has changed. Live status is unavailable with this version."
             invalidate(id)
             return
         }
@@ -454,6 +463,7 @@ final class CodexService {
                 unavailableActivityIDs.insert(id)
                 dirtyStreams.remove(id)
                 streams[id] = CodexActivityStream()
+                streamTokens[id] = UUID()
             case .resync(let reason):
                 activityErrors[id] = reason
                 resubscribe(id)
@@ -475,7 +485,7 @@ final class CodexService {
             threads[index] = thread
             updateProjects()
         }
-        let attention = CodexAttention.from(state: streams[id]?.state ?? state)
+        let attention = CodexAttention.from(state: state)
         if attentionByThread[id] != attention { attentionByThread[id] = attention }
         owners[id] = source
         if hadStatus, (!isVisible || selectedThreadID != id), !unreadThreadIDs.contains(id) {
@@ -483,23 +493,51 @@ final class CodexService {
         }
     }
 
-    private func schedulePublication() {
+    private func schedulePublication(after delay: Duration = .milliseconds(100)) {
         guard isVisible, publicationTask == nil else { return }
         publicationTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            if self?.isVisible == true { self?.publishActivities() }
-            self?.publicationTask = nil
+            guard let self else { return }
+            defer {
+                self.publicationTask = nil
+                if !self.dirtyStreams.isEmpty { self.schedulePublication() }
+            }
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard self.isVisible, !Task.isCancelled else { return }
+            await self.publishActivities()
         }
     }
 
-    func publishActivities() {
-        for id in dirtyStreams {
-            guard let stream = streams[id] else { continue }
-            let presentation = stream.presentation
-            if activities[id] != presentation { activities[id] = presentation }
-            if attentionByThread[id] != presentation.attention { attentionByThread[id] = presentation.attention }
-        }
+    /// Snapshot on the UI actor, format on a worker, then publish only to the same stream lifetime.
+    func publishActivities() async {
+        guard projectionTask == nil, !dirtyStreams.isEmpty else { return }
+        let snapshots = streams.filter { dirtyStreams.contains($0.key) }
         dirtyStreams.removeAll()
+        let tokens = streamTokens
+        let session = session
+        guard !snapshots.isEmpty else { return }
+        let projectActivity = projectActivity
+        let worker = Task.detached(priority: .utility) {
+            var result: [String: CodexActivityPresentation] = [:]
+            for (id, stream) in snapshots {
+                guard !Task.isCancelled else { break }
+                result[id] = projectActivity(stream)
+            }
+            return result
+        }
+        projectionTask = worker
+        let presentations = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: { worker.cancel() }
+        projectionTask = nil
+        guard !Task.isCancelled, !worker.isCancelled, self.session == session else {
+            dirtyStreams.formUnion(snapshots.keys.filter { streams[$0] != nil })
+            return
+        }
+        for (id, presentation) in presentations {
+            guard streams[id] != nil, streamTokens[id] == tokens[id],
+                  streams[id]?.owner == snapshots[id]?.owner else { continue }
+            if activities[id] != presentation { activities[id] = presentation }
+        }
     }
 
     private func resubscribe(_ id: String) {
@@ -509,6 +547,7 @@ final class CodexService {
     }
 
     private func invalidate(_ id: String) {
+        if streams[id] != nil { streamTokens[id] = UUID() }
         owners[id] = nil
         streams[id]?.disconnect()
         statusStreams[id]?.disconnect()
@@ -521,12 +560,13 @@ final class CodexService {
     private func lostLiveConnection() {
         followed.removeAll()
         unavailableActivityIDs.removeAll()
+        for id in streams.keys { streamTokens[id] = UUID() }
         for id in Array(streams.keys) { streams[id]?.disconnect() }
         for id in Array(statusStreams.keys) { statusStreams[id]?.disconnect() }
         owners.removeAll()
         var disconnected = threads
         for index in disconnected.indices { disconnected[index].isConnected = false; disconnected[index].status = nil }
         if disconnected != threads { threads = disconnected }
-        liveError = "Anslutningen till Codex bröts. Återansluter…"
+        liveError = "Disconnected from Codex. Reconnecting…"
     }
 }

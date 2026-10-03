@@ -35,7 +35,7 @@ final class CodexClient {
             endpoint = .desktop(Self.codexHome.appendingPathComponent("ipc/ipc.sock").path)
         } else {
             guard let executable = Self.executable else {
-                throw CodexConnectionError(message: "Installera Codex för att visa trådar och användning.")
+                throw CodexConnectionError(message: "Install Codex to view threads and usage.")
             }
             endpoint = .appServer(executable)
         }
@@ -64,7 +64,7 @@ final class CodexClient {
             if desktop {
                 let response = try await request("initialize", params: .object(["clientType": .string("smool")]))
                 guard let id = response["result"]["clientId"].string else {
-                    throw CodexConnectionError(message: "Codex använder ett okänt anslutningsformat.")
+                    throw CodexConnectionError(message: "Codex uses an unsupported connection format.")
                 }
                 try Task.checkCancellation()
                 guard self.generation == generation else { throw CancellationError() }
@@ -86,7 +86,7 @@ final class CodexClient {
     }
 
     func request(_ method: String, params: CodexJSON, owner: String? = nil, timeout: Duration = .seconds(12)) async throws -> CodexJSON {
-        guard (isConnected || method == "initialize"), let transport else { throw CodexConnectionError(message: "Anslutningen till Codex är stängd.") }
+        guard (isConnected || method == "initialize"), let transport else { throw CodexConnectionError(message: "The connection to Codex is closed.") }
         try Task.checkCancellation()
         let id = UUID().uuidString
         let milliseconds = Int(timeout.components.seconds * 1_000 + timeout.components.attoseconds / 1_000_000_000_000_000)
@@ -100,7 +100,7 @@ final class CodexClient {
                 timeouts[id] = Task { [weak self] in
                     try? await Task.sleep(for: timeout)
                     guard !Task.isCancelled else { return }
-                    self?.finish(id, result: .failure(CodexConnectionError(message: "Codex svarade inte. Försök ansluta igen.")))
+                    self?.finish(id, result: .failure(CodexConnectionError(message: "Codex did not respond. Try connecting again.")))
                 }
                 do { try transport.send(message) }
                 catch { finish(id, result: .failure(error)) }
@@ -127,7 +127,7 @@ final class CodexClient {
         transport = nil
         clientID = "initializing-client"
         for id in Array(pending.keys) {
-            finish(id, result: .failure(CodexConnectionError(message: "Anslutningen till Codex bröts.")))
+            finish(id, result: .failure(CodexConnectionError(message: "Disconnected from Codex.")))
         }
     }
 
@@ -135,7 +135,7 @@ final class CodexClient {
         let id = desktop ? message["requestId"].string : message["id"].string
         if let id, pending[id] != nil, !desktop || message["type"].string == "response" {
             if desktop, message["resultType"].string == "error" {
-                finish(id, result: .failure(CodexConnectionError(message: message["error"].string ?? "Codex kunde inte utföra åtgärden.")))
+                finish(id, result: .failure(CodexConnectionError(message: message["error"].string ?? "Codex could not complete the action.")))
             } else if let error = message["error"]["message"].string {
                 finish(id, result: .failure(CodexConnectionError(message: error)))
             } else {

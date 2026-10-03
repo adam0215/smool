@@ -3,7 +3,7 @@ import Observation
 
 @main
 struct CodexServiceActivityChecks {
-    @MainActor static func main() {
+    @MainActor static func main() async {
         // No lifecycle is started. Following a disconnected desktop is a no-op,
         // and every stream event below is supplied by these local fixtures.
         let service = CodexService()
@@ -12,7 +12,7 @@ struct CodexServiceActivityChecks {
         service.receive(event("status-only", snapshot("status-only", revision: 1)))
         precondition(service.activities.isEmpty, "Activity publication must be coalesced.")
         precondition(service.attentionByThread["status-only"] == .working)
-        service.publishActivities()
+        await service.publishActivities()
         precondition(service.activities["selected"]?.items.last?.text == "Pågår")
         precondition(service.activities["status-only"] == nil, "Status subscriptions must not retain full timelines.")
 
@@ -64,7 +64,7 @@ struct CodexServiceActivityChecks {
         service.receive(event("selected", patches(base: 1, revision: 2, [
             patch("replace", [.string("turns"), .number(0), .string("items"), .number(1), .string("text")], .string("Nytt svar"))
         ])))
-        service.publishActivities()
+        await service.publishActivities()
         precondition(service.activities["selected"]?.items.last?.text == "Nytt svar")
 
         service.receive(event("selected", patches(base: 8, revision: 9, [])))
@@ -75,11 +75,11 @@ struct CodexServiceActivityChecks {
         ])))
         precondition(service.threads.first { $0.id == "selected" }?.isConnected == false, "A patch cannot reconnect without a snapshot.")
         service.receive(event("selected", snapshot("selected", revision: 10, active: false, text: "Slutsvar")))
-        service.publishActivities()
+        await service.publishActivities()
         precondition(service.activities["selected"]?.items.last?.text == "Slutsvar")
         precondition(service.attentionByThread["selected"] == .idle)
         service.receive(event("selected", snapshot("selected", revision: 9, text: "Äldre svar")))
-        service.publishActivities()
+        await service.publishActivities()
         precondition(service.activities["selected"]?.items.last?.text == "Slutsvar", "An older snapshot cannot undo a completed answer.")
 
         let state = CodexAppletState()
@@ -90,22 +90,22 @@ struct CodexServiceActivityChecks {
                      "Completion must not remove the selected result while it is being read.")
 
         service.receive(event("selected", snapshot("selected", revision: 1, text: "Ny ägare"), owner: "owner-b"))
-        service.publishActivities()
+        await service.publishActivities()
         precondition(service.activities["selected"]?.items.last?.text == "Ny ägare")
         service.receive(event("selected", snapshot("selected", revision: 50, text: "Pensionerad ägare")))
-        service.publishActivities()
+        await service.publishActivities()
         precondition(service.activities["selected"]?.items.last?.text == "Ny ägare", "A retired owner cannot overwrite the new owner's snapshot.")
 
         for id in ["second", "third", "fourth"] {
             service.selectThread(id)
             service.receive(event(id, snapshot(id, revision: 1)))
         }
-        service.publishActivities()
+        await service.publishActivities()
         precondition(service.activities.count == 4)
         service.selectThread("selected")
         service.selectThread("fifth")
         service.receive(event("fifth", snapshot("fifth", revision: 1)))
-        service.publishActivities()
+        await service.publishActivities()
         precondition(Set(service.activities.keys) == ["selected", "third", "fourth", "fifth"],
                      "Keep at most four full streams, evicting the least recently selected.")
         precondition(service.attentionByThread["second"] == .working, "Eviction of a timeline must retain inexpensive status.")
@@ -119,13 +119,81 @@ struct CodexServiceActivityChecks {
         precondition(service.activities["fifth"]?.items.last?.text == "Pågår", "Closing keeps the last presentation without projecting hidden content.")
         precondition(service.threads.allSatisfy { !$0.isConnected })
         precondition(service.activities.count == 4 && service.drafts.count == 2, "Closing preserves presentations and drafts.")
-        service.publishActivities()
+        await service.publishActivities()
         precondition(service.activities["fifth"]?.items.last?.text == "Sista uppdateringen", "Reopening can publish the update retained before disconnection.")
         precondition(service.activities["fifth"]?.revision == 2, "Disconnecting must not reset the retained content's revision.")
         service.stop()
         precondition(service.activities["fifth"]?.items.last?.text == "Sista uppdateringen")
 
+        await checkProjectionIsolation()
+        checkCancelledHandoff()
         print("Codex service activity checks passed")
+    }
+
+    @MainActor private static func checkProjectionIsolation() async {
+        let started = AsyncStream<Void>.makeStream()
+        let release = DispatchSemaphore(value: 0)
+        let service = CodexService { stream in
+            precondition(!Thread.isMainThread, "Transcript formatting must run away from the UI thread.")
+            started.continuation.yield(())
+            release.wait()
+            return stream.presentation
+        }
+        var starts = started.stream.makeAsyncIterator()
+        service.selectThread("isolated")
+        service.receive(event("isolated", snapshot("isolated", revision: 1)))
+        let first = Task { await service.publishActivities() }
+        await starts.next()
+        // This actor remains responsive while the deliberately blocked projector runs.
+        service.receive(event("isolated", snapshot("isolated", revision: 2, active: false, text: "Klart")))
+        await service.publishActivities()
+        precondition(service.activities.isEmpty, "Concurrent publication must not create a second worker.")
+        release.signal()
+        await first.value
+        precondition(service.attentionByThread["isolated"] == .idle, "An older projection cannot revert newer attention.")
+        precondition(service.activities["isolated"]?.revision == 1)
+
+        let second = Task { await service.publishActivities() }
+        await starts.next()
+        service.stop()
+        release.signal()
+        await second.value
+        precondition(service.activities["isolated"]?.revision == 1, "Closing invalidates an in-flight projection.")
+
+        let reopened = Task { await service.publishActivities() }
+        await starts.next()
+        release.signal()
+        await reopened.value
+        precondition(service.activities["isolated"]?.revision == 2, "Cancelled projection work remains dirty for reopening.")
+        precondition(service.activities["isolated"]?.items.last?.text == "Klart")
+        service.receive(event("isolated", snapshot("isolated", revision: 3, text: "Old owner")))
+        let staleOwner = Task { await service.publishActivities() }
+        await starts.next()
+        service.receive(event("isolated", snapshot("isolated", revision: 1, text: "New owner"), owner: "owner-b"))
+        release.signal()
+        await staleOwner.value
+        precondition(service.activities["isolated"]?.items.last?.text == "Klart", "A replaced owner cannot publish stale content.")
+        let newOwner = Task { await service.publishActivities() }
+        await starts.next()
+        release.signal()
+        await newOwner.value
+        precondition(service.activities["isolated"]?.items.last?.text == "New owner")
+        started.continuation.finish()
+    }
+
+    @MainActor private static func checkCancelledHandoff() {
+        let state = CodexAppletState()
+        state.pendingText = "Text från anteckningen"
+        state.showsRecipientPicker = true
+        precondition(state.pendingText == "Text från anteckningen")
+        state.showsRecipientPicker = false
+        precondition(state.pendingText == nil, "Dismissing the picker ends the text handoff.")
+        state.showsRecipientPicker = true
+        precondition(state.pendingText == nil, "A later recipient switch must not revive cancelled text.")
+        state.pendingText = "Ny överföring"
+        let chosenText = state.pendingText
+        state.showsRecipientPicker = false
+        precondition(chosenText == "Ny överföring" && state.pendingText == nil)
     }
 
     private static func event(_ id: String, _ change: CodexJSON, owner: String = "owner-a") -> CodexJSON {

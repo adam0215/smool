@@ -1,9 +1,9 @@
 import SwiftUI
 
 enum CodexPage: String, CaseIterable {
-    case active = "Aktiva trådar"
-    case history = "Tidigare trådar"
-    case usage = "Användning"
+    case active = "Active threads"
+    case history = "Previous threads"
+    case usage = "Usage"
 }
 
 enum CodexScope: Equatable {
@@ -19,7 +19,11 @@ final class CodexAppletState {
     var projectID: String?
     var showsProjects = false
     var isExpanded = false
-    var showsRecipientPicker = false
+    var showsRecipientPicker = false {
+        didSet {
+            if !showsRecipientPicker { pendingText = nil }
+        }
+    }
     var pendingText: String?
     var retainedActiveThreadIDs: Set<String> = []
     var readingPositions: [String: CodexReadingPosition] = [:]

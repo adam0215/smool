@@ -112,7 +112,7 @@ enum CodexDesktopProtocol {
             turnID = response["result"]["result"]["turn"]["id"].string
         }
         guard response["resultType"].string == "success", response["handledByClientId"].string == owner, turnID != nil else {
-            throw CodexConnectionError(message: "Codex bekräftade inte meddelandet.")
+            throw CodexConnectionError(message: "Codex did not confirm the message.")
         }
     }
 
