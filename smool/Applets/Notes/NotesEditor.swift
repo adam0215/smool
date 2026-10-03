@@ -8,28 +8,28 @@ struct NotesEditor: View {
     let onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             FloatingComposer(
                 text: $text,
-                recipient: "Anteckning",
-                placeholder: "Skriv en tanke…",
+                recipient: "Note",
+                placeholder: "Write a thought…",
+                isEditable: !isReadOnly,
                 onClose: onClose
             )
-            .disabled(isReadOnly)
 
             HStack {
                 Text(saveStatus)
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer()
                 if let onSendToCodex {
-                    Button(action: onSendToCodex) { Label("Till Codex", systemImage: "arrow.up.right") }
+                    Button(action: onSendToCodex) { Label("To Codex", systemImage: "arrow.up.right") }
                         .font(.system(size: 11, weight: .medium))
-                        .buttonStyle(.plain)
+                        .buttonStyle(NotchControlStyle())
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .help("Öppna som utkast i Codex")
+                        .help("Open as a draft in Codex")
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 16)
             Spacer(minLength: 0)
         }
     }

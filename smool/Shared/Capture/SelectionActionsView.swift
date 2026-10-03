@@ -4,56 +4,97 @@ struct SelectionActionsView: View {
     let selection: SelectedText?
     let error: SelectionCaptureError?
     var canSaveNote = true
+    var saveNoteUnavailableReason: String? = nil
     var canComposeInCodex = true
     let saveNote: (String) -> Void
     let composeInCodex: (String) -> Void
     let dismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(selection.map { "Markerat i \($0.applicationName)" } ?? "Markerad text")
-                    .font(.headline)
-                Spacer()
-                Button(action: dismiss) { Image(systemName: "xmark") }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Stäng")
-                    .keyboardShortcut(.escape, modifiers: [])
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Selected text")
+                        .font(.system(size: 12, weight: .semibold))
+                    if let selection {
+                        Text(selection.applicationName)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                Button(action: dismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Close")
+                .help("Close · esc")
+                .keyboardShortcut(.escape, modifiers: [])
             }
 
             if let selection {
                 ScrollView {
                     Text(selection.text)
                         .font(.system(size: 12))
+                        .lineSpacing(3)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
                 }
                 .frame(maxHeight: 120)
+                .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
 
-                HStack {
-                    Button("Spara anteckning") { saveNote(selection.text) }
-                        .keyboardShortcut("s", modifiers: .command)
-                        .disabled(!canSaveNote)
-                    Button("Till Codex…") { composeInCodex(selection.text) }
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .disabled(!canComposeInCodex)
+                HStack(spacing: 4) {
+                    Button { saveNote(selection.text) } label: {
+                        Label("Save note", systemImage: "note.text.badge.plus")
+                    }
+                    .keyboardShortcut("s", modifiers: .command)
+                    .disabled(!canSaveNote)
+                    .help(saveNoteUnavailableReason ?? "Save note · ⌘S")
+
+                    Spacer(minLength: 0)
+
+                    Button { composeInCodex(selection.text) } label: {
+                        Label("To Codex…", systemImage: "arrow.up.right")
+                    }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(!canComposeInCodex)
                 }
                 .buttonStyle(NotchControlStyle())
+
                 if !canSaveNote || !canComposeInCodex {
-                    Text("Aktivera Anteckningar och Codex i inställningarna för båda åtgärderna.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        if !canSaveNote {
+                            Text(saveNoteUnavailableReason ?? "Enable Notes in Settings to save selected text.")
+                        }
+                        if !canComposeInCodex {
+                            Text("Enable Codex in Settings to create a draft.")
+                        }
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                Text(error?.localizedDescription ?? "Hämtar markeringen…")
+                Text(error?.localizedDescription ?? "Reading the selection…")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if case .permission = error {
-                    Button("Tillåt åtkomst…", action: SelectedTextCapture.requestPermission)
+                    Button("Allow access…", action: SelectedTextCapture.requestPermission)
                         .buttonStyle(NotchControlStyle())
                 }
             }
         }
-        .padding(22)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
