@@ -19,6 +19,7 @@ struct ShortcutLabel: View {
     }
 }
 
+/// Controls embedded in applet content. Floating actions use FloatingControlStyle.
 struct NotchControlStyle: ButtonStyle {
     var isSelected = false
 
@@ -28,9 +29,9 @@ struct NotchControlStyle: ButtonStyle {
             .foregroundStyle(.primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(.white.opacity(isSelected ? 0.12 : 0.045), in: Capsule())
+            .background(.white.opacity(isSelected ? 0.12 : 0), in: Capsule())
             .overlay {
-                Capsule().strokeBorder(.white.opacity(isSelected ? 0.32 : 0.08), lineWidth: 0.5)
+                Capsule().strokeBorder(.white.opacity(isSelected ? 0.32 : 0), lineWidth: 0.5)
             }
             .contentShape(Capsule())
             .opacity(configuration.isPressed ? 0.65 : 1)

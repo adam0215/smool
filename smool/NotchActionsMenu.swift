@@ -13,7 +13,11 @@ struct NotchActionsMenu: View {
         .accessibilityLabel("Åtgärder")
         .help("Åtgärder · ⌘K")
         .popover(isPresented: $presentation.showsActions, arrowEdge: .bottom) {
-            ActionList(actions: presentation.activeApplet.actions) { presentation.showsActions = false }
+            ActionList(actions: presentation.activeApplet.actions + [
+                AppletAction(id: "Inställningar…", symbol: "gearshape", shortcut: "⌘,") {
+                    presentation.openSettings()
+                }
+            ]) { presentation.showsActions = false }
                 .preferredColorScheme(.dark)
         }
     }

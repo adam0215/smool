@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor
 final class NotchPanelController: NSObject {
     private(set) var demoNotchEnabled = false
-    private let presentation = NotchPresentation()
+    let presentation = NotchPresentation()
     private var panel: NotchPanel?
     private var localMonitor: Any?
     private var outsideMonitor: Any?
@@ -27,6 +27,13 @@ final class NotchPanelController: NSObject {
     func setDemoNotchEnabled(_ enabled: Bool) {
         demoNotchEnabled = enabled
         resetPresentation()
+    }
+
+    func settingsDidChange() {
+        presentation.reconcileSettings()
+        let demo = presentation.settings.demoNotchEnabled
+        if demo != demoNotchEnabled { setDemoNotchEnabled(demo) }
+        else if isOpen { resizeContent() }
     }
 
     private var targetScreen: NSScreen? {
@@ -132,7 +139,7 @@ final class NotchPanelController: NSObject {
         return panel
     }
 
-    private func selectApplet(_ id: AppletID) {
+    func selectApplet(_ id: AppletID) {
         guard presentation.selection != id, let applet = presentation.registry.applet(for: id) else { return }
         resizeContent(height: applet.contentHeight) { self.presentation.select(id) }
     }
@@ -168,6 +175,10 @@ final class NotchPanelController: NSObject {
             guard let self else { return event }
             if event.type == .keyDown, event.window === self.panel,
                event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command {
+                if event.charactersIgnoringModifiers == "," {
+                    self.presentation.openSettings()
+                    return nil
+                }
                 if let number = Int(event.charactersIgnoringModifiers ?? ""), let applet = self.presentation.registry.applet(number: number) {
                     self.selectApplet(applet.id)
                     return nil
@@ -190,6 +201,7 @@ final class NotchPanelController: NSObject {
             if event.type == .keyDown, event.window === self.panel,
                event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
                !self.presentation.showsActions, !self.presentation.activeApplet.hasPresentedOverlay,
+               !(self.panel?.firstResponder is NSTextView),
                self.navigateApplet(keyCode: event.keyCode) {
                 return nil
             }

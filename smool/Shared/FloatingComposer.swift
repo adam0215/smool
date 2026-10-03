@@ -58,13 +58,13 @@ struct FloatingComposer: View {
     var isSending = false
     var canSend = true
     var onChooseRecipient: (() -> Void)?
-    var onSend: () -> Void
+    var onSend: (() -> Void)? = nil
     var onClose: () -> Void
 
     @FocusState private var isFocused: Bool
 
     private var sendIsEnabled: Bool {
-        canSend && !isSending && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        onSend != nil && canSend && !isSending && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -110,27 +110,29 @@ struct FloatingComposer: View {
                     .accessibilityLabel("Meddelande till \(recipient)")
                     .padding(.vertical, 5)
 
-                Button {
-                    guard sendIsEnabled else { return }
-                    onSend()
-                } label: {
-                    Group {
-                        if isSending {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 13, weight: .semibold))
+                if let onSend {
+                    Button {
+                        guard sendIsEnabled else { return }
+                        onSend()
+                    } label: {
+                        Group {
+                            if isSending {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 13, weight: .semibold))
+                            }
                         }
+                        .frame(width: 28, height: 28)
+                        .background(.primary.opacity(sendIsEnabled ? 0.12 : 0.04), in: Circle())
+                        .contentShape(Circle())
                     }
-                    .frame(width: 28, height: 28)
-                    .background(.primary.opacity(sendIsEnabled ? 0.12 : 0.04), in: Circle())
-                    .contentShape(Circle())
+                    .buttonStyle(.plain)
+                    .disabled(!sendIsEnabled)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .accessibilityLabel(isSending ? "Skickar meddelande" : "Skicka meddelande")
+                    .help("Skicka · ⌘↵")
                 }
-                .buttonStyle(.plain)
-                .disabled(!sendIsEnabled)
-                .keyboardShortcut(.return, modifiers: .command)
-                .accessibilityLabel(isSending ? "Skickar meddelande" : "Skicka meddelande")
-                .help("Skicka · ⌘↵")
             }
             .padding(.vertical, 10)
             .padding(.leading, 18)

@@ -6,10 +6,33 @@ struct NotchTabBar: View {
 
     var body: some View {
         NotchHeader(layout: presentation.layout, sideInset: 20) {
-            ScrollView(.horizontal) {
-                tabs
+            HStack(spacing: 3) {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal) { tabs }
+                        .scrollIndicators(.hidden)
+                        .onChange(of: presentation.selection, initial: true) { _, selection in
+                            proxy.scrollTo(selection, anchor: .center)
+                        }
+                        .onChange(of: presentation.registry.applets.map(\.id)) { _, _ in
+                            proxy.scrollTo(presentation.selection, anchor: .center)
+                        }
+                }
+                Menu {
+                    ForEach(presentation.registry.applets, id: \.id) { applet in
+                        Button { select(applet.id) } label: {
+                            Label(applet.title + (presentation.registry.shortcutNumber(for: applet.id).map { "  ⌘\($0)" } ?? ""),
+                                  systemImage: presentation.selection == applet.id ? "checkmark" : "circle")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Alla applets · ⌃Tab byter applet")
+                .accessibilityLabel("Alla applets")
             }
-            .scrollIndicators(.hidden)
             .frame(maxHeight: .infinity)
         } center: {
             EmptyView()
@@ -17,7 +40,7 @@ struct NotchTabBar: View {
             HStack(spacing: 10) {
                 if !presentation.activeApplet.pages.isEmpty { pageIndicators }
                 TimelineView(.everyMinute) { _ in
-                    if let battery = BatteryStatus.current() {
+                    if presentation.settings.showBattery, let battery = BatteryStatus.current() {
                         HStack(spacing: 3) {
                             Text("\(battery.percentage)%").font(.system(size: 9)).monospacedDigit()
                             Image(systemName: battery.symbolName).font(.system(size: 10))
@@ -42,9 +65,9 @@ struct NotchTabBar: View {
                         applet.icon.view
                             .foregroundStyle(.white.opacity(presentation.selection == applet.id ? 1 : 0.65))
                             .frame(width: 26, height: 26)
-                            .glassEffect(.clear.tint(applet.tint.opacity(presentation.selection == applet.id ? 0.12 : 0.015)), in: .circle)
-                            .overlay { Circle().strokeBorder(.white.opacity(presentation.selection == applet.id ? 0.18 : 0), lineWidth: 0.5) }
+                            .modifier(CardGlass(shape: Circle(), isSelected: presentation.selection == applet.id))
                     }
+                    .id(applet.id)
                     .buttonStyle(.plain).focusable(false)
                     .accessibilityLabel(applet.title)
                     .accessibilityAddTraits(presentation.selection == applet.id ? .isSelected : [])
