@@ -165,7 +165,7 @@ struct FloatingComposer: View {
         .focused($focus, equals: .navigation)
         .focusEffectDisabled()
         .onAppletFocusRestore { focus = .navigation }
-        .onKeyPress(.return) { key in
+        .onKeyPress(.return, phases: .down) { key in
             guard focus == .navigation, key.modifiers.isEmpty, isEditable else { return .ignored }
             focus = .message
             return .handled

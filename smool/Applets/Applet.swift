@@ -104,6 +104,7 @@ protocol Applet: AnyObject {
 
     func makeView(context: AppletContext, artwork: NSImage?) -> AnyView
     func handleArrow(_ arrow: AppletArrow, command: Bool) -> Bool
+    func handleEditingArrow(_ arrow: AppletArrow) -> Bool
     func deactivate()
     func dismissOverlay()
     func activateStatus()
@@ -118,6 +119,7 @@ extension Applet {
     var status: AppletStatus? { nil }
 
     func handleArrow(_ arrow: AppletArrow, command: Bool) -> Bool { false }
+    func handleEditingArrow(_ arrow: AppletArrow) -> Bool { false }
     func deactivate() { dismissOverlay() }
     func dismissOverlay() {}
     func activateStatus() {}

@@ -338,6 +338,14 @@ final class NotchPanelController: NSObject {
             }
             if event.type == .keyDown, event.window === self.panel,
                event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+               !self.presentation.showsSettings, self.presentation.capturedSelection == nil,
+               self.panel?.firstResponder is NSTextView,
+               let arrow = AppletArrow(rawValue: event.keyCode),
+               self.presentation.displayedApplet.handleEditingArrow(arrow) {
+                return nil
+            }
+            if event.type == .keyDown, event.window === self.panel,
+               event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
                !self.presentation.displayedApplet.hasPresentedOverlay,
                !(self.panel?.firstResponder is NSTextView),
                self.navigateApplet(keyCode: event.keyCode) {

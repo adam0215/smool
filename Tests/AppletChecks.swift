@@ -65,14 +65,14 @@ struct AppletChecks {
         codex.state.page = .active
         codex.state.scope = .composer(thread)
         codex.service.drafts[thread.id] = "Keep this draft"
-        precondition(presentation.contentHeight == 300)
+        precondition(presentation.contentHeight == 256)
         precondition(!codex.handleArrow(.up, command: false), "Composer retains native arrow keys")
         codex.state.showsProjects = true
         precondition(codex.hasPresentedOverlay)
         presentation.select(music.id)
         precondition(!codex.state.showsProjects && presentation.contentHeight == 144)
         presentation.select(codex.id)
-        precondition(codex.state.scope == .deck && presentation.contentHeight == 300)
+        precondition(codex.state.scope == .deck && presentation.contentHeight == 256)
         precondition(codex.service.drafts[thread.id] == "Keep this draft")
         codex.pages[0].select()
         precondition(codex.state.scope == .deck)
