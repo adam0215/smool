@@ -6,6 +6,8 @@ checks=".build/Checks"
 mkdir -p "$checks/ModuleCache" "$checks/renders"
 
 swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -parse-as-library)
+"${swiftc[@]}" smool/AudioEnvelope.swift Tests/AudioEnvelopeChecks.swift -o "$checks/audio-envelope"
+"$checks/audio-envelope"
 "${swiftc[@]}" smool/NotchTab.swift Tests/NotchNavigationChecks.swift -o "$checks/navigation"
 "$checks/navigation"
 "${swiftc[@]}" smool/ScreenNotch.swift smool/NotchLayout.swift Tests/NotchLayoutChecks.swift -o "$checks/layout"

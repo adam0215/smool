@@ -59,22 +59,13 @@ struct NotchContentView: View {
         }
         .background {
             if presentation.tab != .home {
-                let darkHeight = max(presentation.layout.navigationHeight + 8, presentation.layout.expandedSize.height - 144)
-                ZStack {
-                    HomeGlow(
-                        spotify: presentation.tab == .spotify ? 1 : 0,
-                        codex: presentation.tab == .codex ? 1 : 0,
-                        darkHeight: darkHeight
-                    )
-                    .opacity(artwork == nil ? 1 : 0)
-
-                    if let artwork {
-                        ArtworkGlow(colors: artwork.colors, darkHeight: darkHeight)
-                            .id(loadedArtworkSource)
-                            .transition(.opacity)
-                    }
-                }
-                .opacity(0.65)
+                AppletGlow(
+                    tab: presentation.tab,
+                    artwork: artwork,
+                    artworkSource: loadedArtworkSource,
+                    darkHeight: max(presentation.layout.navigationHeight + 8, presentation.layout.expandedSize.height - 144),
+                    isExpanded: presentation.isExpanded
+                )
             }
         }
         .task(id: artworkSource) {
@@ -86,5 +77,42 @@ struct NotchContentView: View {
                 loadedArtworkSource = source
             }
         }
+    }
+}
+
+private struct AppletGlow: View {
+    let tab: NotchTab
+    let artwork: AlbumArtwork?
+    let artworkSource: AlbumArtwork.Source?
+    let darkHeight: CGFloat
+    let isExpanded: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var audio = SystemAudioLevel()
+
+    private var reactsToAudio: Bool {
+        isExpanded && !reduceMotion && (tab == .music || tab == .spotify)
+    }
+
+    var body: some View {
+        let envelope = reactsToAudio ? audio.envelope : AudioEnvelope()
+        ZStack {
+            HomeGlow(
+                spotify: tab == .spotify ? 1 : 0,
+                codex: tab == .codex ? 1 : 0,
+                darkHeight: darkHeight,
+                level: envelope.level,
+                phase: envelope.phase
+            )
+            .opacity(artwork == nil ? 1 : 0)
+
+            if let artwork {
+                ArtworkGlow(colors: artwork.colors, darkHeight: darkHeight, level: envelope.level, phase: envelope.phase)
+                    .id(artworkSource)
+                    .transition(.opacity)
+            }
+        }
+        .opacity(0.65)
+        .task(id: reactsToAudio) { await audio.observe(enabled: reactsToAudio) }
     }
 }

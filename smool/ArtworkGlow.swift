@@ -3,6 +3,8 @@ import SwiftUI
 struct ArtworkGlow: View {
     let colors: NSImage
     let darkHeight: CGFloat
+    var level = 0.0
+    var phase = 0.0
 
     var body: some View {
         GeometryReader { geometry in
@@ -13,6 +15,9 @@ struct ArtworkGlow: View {
                 .interpolation(.high)
                 .scaledToFill()
                 .frame(width: geometry.size.width, height: height)
+                .scaleEffect(1 + level * 0.08)
+                .offset(x: sin(phase) * level * 12, y: cos(phase * 0.7) * level * 4)
+                .saturation(1 + level * 0.08)
                 .blur(radius: 32)
                 .mask {
                     LinearGradient(
