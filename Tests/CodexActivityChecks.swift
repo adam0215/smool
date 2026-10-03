@@ -131,7 +131,110 @@ struct CodexActivityChecks {
         precondition(stream.apply(json(#"{"type":"patches","baseRevision":30,"revision":31,"patches":[{"op":"replace","path":["turns",0,"items",404,"text"],"value":"Sista meddelandet"}]}"#), owner: "owner-c") == .applied)
         precondition(stream.presentation.items.last?.text == "Sista meddelandet")
         checkStatusProjection()
+        checkProjectionBudget()
+        checkLinkBounds()
         print("Codex activity checks passed")
+    }
+
+    static func checkProjectionBudget() {
+        func state(_ entries: [CodexJSON]) -> CodexJSON {
+            .object(["turns": .array([.object([
+                "turnId": .string("budget"), "status": .string("completed"), "items": .array(entries)
+            ])])])
+        }
+
+        // Real MCP result/argument shapes from the review reproduction. Earlier results
+        // should not incur JSON serialization once the latest presentation window is full.
+        let entries: [CodexJSON] = (0..<3_000).map { index in
+            .object([
+                "id": .string("m\(index)"), "type": .string("mcpToolCall"), "tool": .string("read"),
+                "arguments": .object(["path": .string("/tmp/file\(index)"), "data": .string(String(repeating: "x", count: 500))]),
+                "result": .object(["content": .array([.object(["type": .string("text"), "text": .string(String(repeating: "y", count: 500))])])])
+            ])
+        }
+        let longState = state(entries)
+        let recentState = state(Array(entries.suffix(400)))
+        let long = CodexActivityPresentation(state: longState, revision: 1)
+        let recent = CodexActivityPresentation(state: recentState, revision: 1)
+        precondition(long.items == recent.items, "Old history must not change recent item order, IDs or content.")
+        precondition(long.items.count < 400, "This fixture should reach the byte budget before the item count.")
+        precondition(long.items.reduce(0) { $0 + $1.presentationBytes } <= 512 * 1_024)
+        precondition(long.omittedItemCount == 3_000 - long.items.count)
+
+        // Compare in-process medians with generous headroom, instead of a machine-specific
+        // frame deadline. Full-history formatting scales by 7.5x for this fixture.
+        func projectionTime(_ state: CodexJSON) -> Duration {
+            (0..<5).map { _ in
+                ContinuousClock().measure {
+                    precondition(CodexActivityPresentation(state: state, revision: 1).items.count == long.items.count)
+                }
+            }.sorted()[2]
+        }
+        let recentTime = projectionTime(recentState)
+        let longTime = projectionTime(longState)
+        precondition(longTime < recentTime * 3 + .milliseconds(5), "Projection work must stop at the display budget.")
+        print("Codex projection median: 3000 items \(longTime), recent 400 items \(recentTime)")
+
+        let hidden: [CodexJSON] = [
+            .object(["type": .string("futureItem")]),
+            .object(["type": .string("reasoning"), "summary": .array([])]),
+            .object(["type": .string("reasoning"), "summary": .array([.string("")])]),
+            .object(["type": .string("reasoning"), "summary": .array([.string("Earlier public summary")])])
+        ]
+        let withHidden = CodexActivityPresentation(state: state(hidden + entries), revision: 1)
+        precondition(withHidden.items == long.items)
+        precondition(withHidden.omittedItemCount == long.omittedItemCount + 1, "Unknown entries and empty reasoning summaries are not omitted visible items.")
+
+        let linkedOutput = (0..<32).map { index in
+            "[\(String(repeating: "t", count: 200))](https://example.test/\(index)/\(String(repeating: "p", count: 450)))"
+        }.joined(separator: "\n")
+        let linkedEntries: [CodexJSON] = (0..<100).map { index in
+            .object([
+                "id": .string("linked-\(index)"), "type": .string("mcpToolCall"), "tool": .string("read"),
+                "result": .object(["content": .array([.object(["type": .string("text"), "text": .string(linkedOutput)])])])
+            ])
+        }
+        let linked = CodexActivityPresentation(state: state(linkedEntries), revision: 1)
+        let bytes = linked.items.reduce(0) { $0 + $1.presentationBytes }
+        precondition(bytes <= 512 * 1_024)
+        precondition(linked.items.allSatisfy { $0.links.count == 32 })
+        precondition(bytes + linked.items.last!.presentationBytes > 512 * 1_024, "The next equally sized item must exceed the complete budget, including link targets/titles.")
+        precondition(linked.omittedItemCount == 100 - linked.items.count)
+    }
+
+    static func checkLinkBounds() {
+        func project(_ output: String, arguments: CodexJSON = .null) -> CodexActivityItem {
+            let state: CodexJSON = .object(["turns": .array([.object(["items": .array([.object([
+                "type": .string("mcpToolCall"), "tool": .string("read"), "arguments": arguments,
+                "result": .object(["content": .array([.object(["type": .string("text"), "text": .string(output)])])])
+            ])])])])])
+            return CodexActivityPresentation(state: state, revision: 1).items[0]
+        }
+
+        let links = (0..<10_000).map { "[result\($0)](https://example.test/result/\($0))" }.joined(separator: "\n")
+        let item = project(links)
+        precondition(item.links.count == 32)
+        precondition(item.links.last?.url.absoluteString == "https://example.test/result/31")
+        precondition(item.text.utf8.count < 33_000 && item.details.utf8.count < 33_000)
+        precondition(project(String(repeating: "x", count: 33_000) + "\n[Hidden](https://example.test/hidden)").links.isEmpty,
+                     "Links outside clipped output must never be published.")
+
+        let tailURL = String(repeating: " ", count: 32_750) + "https://example.test/complete-path"
+        precondition(project(tailURL).links.isEmpty, "Clipping a bare URL must not fabricate a shorter target.")
+        let longTarget = "https://example.test/" + String(repeating: "p", count: 2_050)
+        precondition(project("[Too long](\(longTarget))").links.isEmpty)
+        let encodedTarget = "https://example.test/" + String(repeating: "å", count: 500)
+        precondition(project("[Encoded too long](\(encodedTarget))").links.isEmpty, "Bound the URL after percent encoding too.")
+
+        let title = String(repeating: "🧭", count: 100)
+        let titled = project("[\(title)](https://example.test/report)")
+        precondition(titled.links.first?.title == String(repeating: "🧭", count: 64))
+        precondition(titled.links.allSatisfy { $0.title.utf8.count <= 256 && $0.url.absoluteString.utf8.count <= 2_048 })
+        let unicode = project(String(repeating: "x", count: 32_767) + "🧭")
+        precondition(!unicode.text.contains("�"), "Byte clipping must preserve complete Unicode scalars.")
+
+        let arguments: CodexJSON = .object(["prompt": .string("[Not a result](https://example.test/argument)"), "path": .string("/tmp/input.swift")])
+        precondition(project("No artifacts", arguments: arguments).links.isEmpty, "Tool arguments must not masquerade as produced artifacts.")
     }
 
     static func checkStatusProjection() {

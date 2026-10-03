@@ -27,11 +27,11 @@ enum CodexAttention: Equatable, Sendable {
 
     var label: String {
         switch self {
-        case .idle: "Klar"
-        case .working: "Arbetar"
-        case .waitingForUser: "Väntar på dig"
-        case .approval: "Behöver godkännande"
-        case .failed: "Ett fel uppstod"
+        case .idle: "Done"
+        case .working: "Working"
+        case .waitingForUser: "Waiting for you"
+        case .approval: "Needs approval"
+        case .failed: "An error occurred"
         }
     }
 
@@ -56,9 +56,9 @@ enum CodexAttention: Equatable, Sendable {
         if flags.contains("waitingOnUserInput") { return .waitingForUser }
         let latest = CodexActivityPresentation.turns(in: state).last?.value
         if latest?["status"].string == "failed" {
-            return .failed(latest?["error"]["message"].string ?? "Codex kunde inte slutföra arbetet.")
+            return .failed(latest?["error"]["message"].string ?? "Codex could not finish the task.")
         }
-        if runtime["type"].string == "systemError" { return .failed("Codex rapporterade ett systemfel.") }
+        if runtime["type"].string == "systemError" { return .failed("Codex reported a system error.") }
         if runtime["type"].string == "active" || latest?["status"].string == "inProgress" { return .working }
         return .idle
     }
@@ -81,6 +81,11 @@ struct CodexActivityItem: Identifiable, Equatable, Sendable {
     let links: [CodexActivityLink]
     let isRunning: Bool
     let isError: Bool
+
+    var presentationBytes: Int {
+        id.utf8.count + title.utf8.count + text.utf8.count + details.utf8.count
+            + links.reduce(0) { $0 + $1.title.utf8.count + $1.url.absoluteString.utf8.count }
+    }
 }
 
 struct CodexActivityPresentation: Equatable, Sendable {
@@ -113,110 +118,151 @@ struct CodexActivityPresentation: Equatable, Sendable {
     init(state: CodexJSON, revision: Int) {
         self.revision = revision
         attention = .from(state: state)
-        var projected: [CodexActivityItem] = []
-        for turn in Self.turns(in: state) {
+        var kept: [CodexActivityItem] = []
+        var bytes = 0
+        var omitted = 0
+        var full = false
+
+        func retain(_ item: @autoclosure () -> CodexActivityItem) {
+            guard !full else { omitted += 1; return }
+            let next = item()
+            let size = next.presentationBytes
+            guard bytes + size <= 512 * 1_024 else {
+                full = true
+                omitted += 1
+                return
+            }
+            kept.append(next)
+            bytes += size
+            full = kept.count == 400
+        }
+
+        // Visit newest items first. Once full, only count older visible entries, without
+        // formatting tool arguments, joining output or extracting links from that history.
+        for turn in Self.turns(in: state).reversed() {
             let entries = turn.value["items"].array
             let active = turn.value["status"].string == "inProgress"
-            let input = Self.contentText(turn.value["params"]["input"])
-            if !input.isEmpty, !entries.contains(where: { $0["type"].string == "userMessage" }) {
-                projected.append(Self.item(id: "\(turn.key)/prompt", kind: .user, title: "Du", text: input))
+            if turn.value["status"].string == "failed", let message = turn.value["error"]["message"].string,
+               !entries.contains(where: { $0["type"].string == "error" }) {
+                retain(Self.item(id: "\(turn.key)/error", kind: .info, title: "Error", text: message, failed: true))
             }
-            for (index, entry) in entries.enumerated() {
+            for (index, entry) in entries.enumerated().reversed() {
+                guard let type = EntryType(rawValue: entry["type"].string ?? "") else { continue }
+                if type == .reasoning, !Self.hasJoinedText(entry["summary"].array.compactMap(\.string)) { continue }
+                if full { omitted += 1; continue }
                 let id = "\(turn.key)/\(entry["id"].string ?? "item:\(index)")"
                 let running = active && entry["status"].string == "inProgress"
                 let failed = entry["status"].string == "failed" || entry["status"].string == "declined"
-                switch entry["type"].string {
-                case "userMessage":
-                    projected.append(Self.item(id: id, kind: .user, title: "Du", text: Self.contentText(entry["content"])))
-                case "steeringUserMessage":
-                    projected.append(Self.item(id: id, kind: .user, title: "Du", text: Self.contentText(entry["input"])))
-                case "agentMessage", "plan":
+                switch type {
+                case .userMessage:
+                    retain(Self.item(id: id, kind: .user, title: "You", text: Self.contentText(entry["content"])))
+                case .steeringUserMessage:
+                    retain(Self.item(id: id, kind: .user, title: "You", text: Self.contentText(entry["input"])))
+                case .agentMessage, .plan:
                     let completedAt = entry["id"].string.flatMap { turn.value["agentMessageCompletedAtMsById"][$0].number }
-                    projected.append(Self.item(id: id, kind: .assistant, title: entry["type"].string == "plan" ? "Plan" : "Codex",
-                                               text: entry["text"].string ?? "", running: active && index == entries.count - 1 && completedAt == nil))
-                case "commandExecution":
-                    let command = entry["command"].string ?? "Kommando"
-                    let exitCode = entry["exitCode"].number.flatMap(Int.init(exactly:)).map { "Avslutningskod: \($0)" }
+                    retain(Self.item(id: id, kind: .assistant, title: entry["type"].string == "plan" ? "Plan" : "Codex",
+                                     text: entry["text"].string ?? "", running: active && index == entries.count - 1 && completedAt == nil))
+                case .commandExecution:
+                    let command = entry["command"].string ?? "Command"
+                    let exitCode = entry["exitCode"].number.flatMap(Int.init(exactly:)).map { "Exit code: \($0)" }
                     let output = [entry["aggregatedOutput"].string, exitCode].compactMap { $0 }.joined(separator: "\n")
-                    projected.append(Self.item(id: id, kind: .tool, title: "Terminal", text: command, details: output,
-                                               running: running, failed: failed || (entry["exitCode"].number ?? 0) != 0))
-                case "mcpToolCall", "dynamicToolCall":
+                    retain(Self.item(id: id, kind: .tool, title: "Terminal", text: command, details: output,
+                                     running: running, failed: failed || (entry["exitCode"].number ?? 0) != 0))
+                case .mcpToolCall, .dynamicToolCall:
                     let name = [entry["server"].string ?? entry["namespace"].string, entry["tool"].string].compactMap { $0 }.joined(separator: ".")
                     let result = entry["type"].string == "mcpToolCall" ? entry["result"]["content"] : entry["contentItems"]
                     let textOutput = Self.contentText(result)
                     let output = textOutput.isEmpty ? Self.jsonText(entry["result"]["structuredContent"]) ?? "" : textOutput
                     let error = entry["error"]["message"].string
                     let details = [Self.jsonText(entry["arguments"]), output, error].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
-                    projected.append(Self.item(id: id, kind: .tool, title: name.isEmpty ? "Verktyg" : name, text: output,
-                                               details: details, running: running, failed: failed || error != nil || Self.isFalse(entry["success"]), linkSource: output))
-                case "collabAgentToolCall":
-                    projected.append(Self.item(id: id, kind: .tool, title: entry["tool"].string ?? "Agent", text: entry["prompt"].string ?? "",
-                                               details: Self.jsonText(entry["agentsStates"]) ?? "", running: running, failed: failed))
-                case "userInputResponse":
+                    retain(Self.item(id: id, kind: .tool, title: name.isEmpty ? "Tool" : name, text: output,
+                                     details: details, running: running, failed: failed || error != nil || Self.isFalse(entry["success"]), linkSource: output))
+                case .collabAgentToolCall:
+                    retain(Self.item(id: id, kind: .tool, title: entry["tool"].string ?? "Agent", text: entry["prompt"].string ?? "",
+                                     details: Self.jsonText(entry["agentsStates"]) ?? "", running: running, failed: failed))
+                case .userInputResponse:
                     let questions = entry["questions"].array.compactMap { $0["question"].string }.joined(separator: "\n")
-                    projected.append(Self.item(id: id, kind: .info, title: "Fråga till dig", text: questions, details: Self.jsonText(entry["answers"]) ?? ""))
-                case "permissionRequest":
-                    projected.append(Self.item(id: id, kind: .info, title: "Behörighet", text: entry["reason"].string ?? "Codex begär behörighet.",
-                                               details: Self.jsonText(entry["permissions"]) ?? ""))
-                case "fileChange":
+                    retain(Self.item(id: id, kind: .info, title: "Question for you", text: questions, details: Self.jsonText(entry["answers"]) ?? ""))
+                case .permissionRequest:
+                    retain(Self.item(id: id, kind: .info, title: "Permission", text: entry["reason"].string ?? "Codex is requesting permission.",
+                                     details: Self.jsonText(entry["permissions"]) ?? ""))
+                case .fileChange:
                     let changes = entry["changes"].array
                     let paths = changes.compactMap { $0["path"].string }.joined(separator: "\n")
                     let diffs = changes.compactMap { $0["diff"].string }.joined(separator: "\n\n")
-                    projected.append(Self.item(id: id, kind: .tool, title: "Filändringar", text: paths, details: diffs, running: running, failed: failed))
-                case "webSearch":
-                    projected.append(Self.item(id: id, kind: .tool, title: "Sökning", text: entry["query"].string ?? entry["action"]["query"].string ?? "",
-                                               details: Self.jsonText(entry["action"]) ?? "", running: running))
-                case "error":
-                    projected.append(Self.item(id: id, kind: .info, title: "Fel", text: entry["message"].string ?? "Ett fel uppstod.",
-                                               details: entry["additionalDetails"].string ?? "", failed: true))
-                case "contextCompaction":
-                    projected.append(Self.item(id: id, kind: .info, title: "Sammanfattar kontext", text: "", running: active && !Self.isTrue(entry["completed"])))
-                case "reasoning":
+                    retain(Self.item(id: id, kind: .tool, title: "File changes", text: paths, details: diffs, running: running, failed: failed))
+                case .webSearch:
+                    retain(Self.item(id: id, kind: .tool, title: "Search", text: entry["query"].string ?? entry["action"]["query"].string ?? "",
+                                     details: Self.jsonText(entry["action"]) ?? "", running: running))
+                case .error:
+                    retain(Self.item(id: id, kind: .info, title: "Error", text: entry["message"].string ?? "An error occurred.",
+                                     details: entry["additionalDetails"].string ?? "", failed: true))
+                case .contextCompaction:
+                    retain(Self.item(id: id, kind: .info, title: "Summarizing context", text: "", running: active && !Self.isTrue(entry["completed"])))
+                case .reasoning:
                     // Only the public summary is rendered. The internal content field is not part of this view.
                     let summary = entry["summary"].array.compactMap(\.string).joined(separator: "\n")
-                    if !summary.isEmpty { projected.append(Self.item(id: id, kind: .info, title: "Arbetsnotering", text: summary)) }
-                default: break
+                    retain(Self.item(id: id, kind: .info, title: "Working note", text: summary))
                 }
             }
-            if turn.value["status"].string == "failed", let message = turn.value["error"]["message"].string,
-               !entries.contains(where: { $0["type"].string == "error" }) {
-                projected.append(Self.item(id: "\(turn.key)/error", kind: .info, title: "Fel", text: message, failed: true))
+            let input = turn.value["params"]["input"]
+            if !entries.contains(where: { $0["type"].string == "userMessage" }), Self.hasContentText(input) {
+                retain(Self.item(id: "\(turn.key)/prompt", kind: .user, title: "You", text: Self.contentText(input)))
             }
         }
-        // Only the presentation is windowed. The reducer must retain raw array indices for future patches.
-        var bytes = 0
-        var kept: [CodexActivityItem] = []
-        for item in projected.reversed() {
-            let size = item.text.utf8.count + item.details.utf8.count + item.title.utf8.count
-            guard kept.count < 400, bytes + size <= 512 * 1_024 else { break }
-            kept.append(item)
-            bytes += size
-        }
+        // The reducer keeps raw array indices intact for subsequent patches.
         items = kept.reversed()
-        omittedItemCount = projected.count - kept.count
+        omittedItemCount = omitted
+    }
+
+    private enum EntryType: String {
+        case userMessage, steeringUserMessage, agentMessage, plan, commandExecution
+        case mcpToolCall, dynamicToolCall, collabAgentToolCall, userInputResponse
+        case permissionRequest, fileChange, webSearch, error, contextCompaction, reasoning
+    }
+
+    private static func hasJoinedText(_ parts: [String]) -> Bool {
+        parts.count > 1 || parts.first?.isEmpty == false
+    }
+
+    private static func hasContentText(_ value: CodexJSON) -> Bool {
+        hasJoinedText(value.array.compactMap(contentPart))
     }
 
     private static func item(id: String, kind: CodexActivityItem.Kind, title: String, text: String,
                              details: String = "", running: Bool = false, failed: Bool = false, linkSource: String? = nil) -> CodexActivityItem {
         let text = clipped(text)
         let details = clipped(details)
-        return CodexActivityItem(id: id, kind: kind, title: String(title.prefix(256)), text: text, details: details,
+        return CodexActivityItem(id: id, kind: kind, title: prefix(title, bytes: 256), text: text, details: details,
                                  links: links(in: linkSource ?? text + "\n" + details), isRunning: running, isError: failed)
     }
 
+    private static func prefix(_ text: String, bytes: Int) -> String {
+        guard text.utf8.count > bytes else { return text }
+        var prefix = text.utf8.prefix(bytes)
+        // A byte boundary may split a Unicode scalar. Never publish a broken character.
+        while !prefix.isEmpty {
+            if let result = String(bytes: prefix, encoding: .utf8) { return result }
+            prefix = prefix.dropLast()
+        }
+        return ""
+    }
+
     private static func clipped(_ text: String) -> String {
-        text.count > 32_768 ? String(text.prefix(32_768)) + "\n… Resten finns i Codex." : text
+        text.utf8.count > 32_768 ? prefix(text, bytes: 32_768) + "\n… Read the rest in Codex." : text
+    }
+
+    private static func contentPart(_ part: CodexJSON) -> String? {
+        switch part["type"].string {
+        case "text", "inputText": part["text"].string
+        case "image", "inputImage", "localImage": "[Image]"
+        case "resource_link": part["uri"].string
+        default: nil
+        }
     }
 
     private static func contentText(_ value: CodexJSON) -> String {
-        value.array.compactMap { part in
-            switch part["type"].string {
-            case "text", "inputText": return part["text"].string
-            case "image", "inputImage", "localImage": return "[Bild]"
-            case "resource_link": return part["uri"].string
-            default: return nil
-            }
-        }.joined(separator: "\n")
+        value.array.compactMap(contentPart).joined(separator: "\n")
     }
 
     private static func isTrue(_ value: CodexJSON) -> Bool {
@@ -240,19 +286,30 @@ struct CodexActivityPresentation: Equatable, Sendable {
     private static func links(in text: String) -> [CodexActivityLink] {
         // Links are extracted from actual message/output text. Never infer a file URL from a tool argument.
         guard let regex = linkPattern else { return [] }
+        let wasClipped = text.utf8.count > 32_768
+        let text = prefix(text, bytes: 32_768)
         let source = text as NSString
         var seen: Set<String> = []
-        return regex.matches(in: text, range: NSRange(location: 0, length: source.length)).compactMap { match in
+        var links: [CodexActivityLink] = []
+        regex.enumerateMatches(in: text, range: NSRange(location: 0, length: source.length)) { match, _, stop in
+            guard let match else { return }
+            // The clipping boundary can bisect a bare URL. Do not expose a changed target.
+            if wasClipped, NSMaxRange(match.range) == source.length { return }
             let markdown = match.range(at: 2).location != NSNotFound
             let target = source.substring(with: markdown ? match.range(at: 2) : match.range)
+            // Reject oversized targets instead of turning a truncated path into a different link.
+            guard target.utf8.count <= 2_048 else { return }
             let title = markdown ? source.substring(with: match.range(at: 1)) : target
             let url: URL?
             if target.hasPrefix("/") { url = URL(fileURLWithPath: target) }
             else { url = URL(string: target) }
-            guard let url, ["http", "https", "codex", "file"].contains(url.scheme?.lowercased() ?? ""),
-                  seen.insert(url.absoluteString).inserted else { return nil }
-            return CodexActivityLink(title: title, url: url)
+            guard let url, url.absoluteString.utf8.count <= 2_048,
+                  ["http", "https", "codex", "file"].contains(url.scheme?.lowercased() ?? ""),
+                  seen.insert(url.absoluteString).inserted else { return }
+            links.append(CodexActivityLink(title: prefix(title, bytes: 256), url: url))
+            if links.count == 32 { stop.pointee = true }
         }
+        return links
     }
 }
 
@@ -260,11 +317,11 @@ enum CodexStreamResult: Equatable {
     case applied, ignored, resync(String), unavailable(String)
 }
 
-struct CodexActivityStream {
+struct CodexActivityStream: Sendable {
     private(set) var state: CodexJSON?
     private(set) var owner: String?
     private(set) var revision: Int?
-    private var displayRevision = 0
+    private(set) var displayRevision = 0
     private var retiredOwners: [String] = []
     let maximumBytes: Int
 
@@ -282,16 +339,16 @@ struct CodexActivityStream {
 
     mutating func apply(_ change: CodexJSON, owner incomingOwner: String) -> CodexStreamResult {
         guard !incomingOwner.isEmpty, let nextRevision = Self.integer(change["revision"]) else {
-            return .resync("Codex skickade en ogiltig revision.")
+            return .resync("Codex sent an invalid revision.")
         }
         if retiredOwners.contains(incomingOwner) { return .ignored }
         switch change["type"].string {
         case "snapshot":
             if owner == incomingOwner, let revision, nextRevision <= revision { return .ignored }
             let snapshot = change["conversationState"]
-            guard case .object = snapshot else { return .resync("Codex skickade en ogiltig snapshot.") }
+            guard case .object = snapshot else { return .resync("Codex sent an invalid snapshot.") }
             guard Self.fits(snapshot, budget: maximumBytes) else {
-                return .unavailable("Tråden är för stor för livevyn. Läs hela tråden i Codex.")
+                return .unavailable("This thread is too large for the live view. Read the full thread in Codex.")
             }
             if let owner, owner != incomingOwner {
                 retiredOwners.append(owner)
@@ -300,22 +357,22 @@ struct CodexActivityStream {
             state = snapshot
         case "patches":
             guard owner == incomingOwner, let revision, var updated = state else {
-                return .resync("Väntar på en aktuell snapshot från Codex.")
+                return .resync("Waiting for a current snapshot from Codex.")
             }
             if nextRevision <= revision { return .ignored }
             guard Self.integer(change["baseRevision"]) == revision else {
-                return .resync("Aktivitet saknas mellan två uppdateringar. Hämtar om tråden.")
+                return .resync("Activity is missing between updates. Reloading the thread.")
             }
             guard case .array(let patches) = change["patches"], patches.count <= 10_000 else {
-                return .resync("Codex skickade en ogiltig uppdatering.")
+                return .resync("Codex sent an invalid update.")
             }
             do {
                 for patch in patches { updated = try Self.applying(patch, to: updated) }
-            } catch { return .resync("Codex uppdatering kunde inte tillämpas. Hämtar om tråden.") }
-            guard case .object = updated else { return .resync("Codex skickade en ogiltig snapshot.") }
-            guard Self.fits(updated, budget: maximumBytes) else { return .unavailable("Tråden är för stor för livevyn. Läs hela tråden i Codex.") }
+            } catch { return .resync("The Codex update could not be applied. Reloading the thread.") }
+            guard case .object = updated else { return .resync("Codex sent an invalid snapshot.") }
+            guard Self.fits(updated, budget: maximumBytes) else { return .unavailable("This thread is too large for the live view. Read the full thread in Codex.") }
             state = updated
-        default: return .resync("Codex skickade en okänd typ av uppdatering.")
+        default: return .resync("Codex sent an unknown update type.")
         }
         owner = incomingOwner
         revision = nextRevision
