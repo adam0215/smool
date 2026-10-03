@@ -16,6 +16,15 @@ struct TimerAppletChecks {
         applet.durationInput = "0:30"
         applet.adjustDuration(by: -60)
         precondition(applet.durationInput == "0:30")
+        applet.durationInput = "59:30"
+        applet.adjustDuration(by: 60)
+        precondition(applet.durationInput == "60:30")
+        precondition(TimerDuration.parse(applet.durationInput) == 3630)
+        applet.adjustDuration(by: 60)
+        precondition(applet.durationInput == "61:30")
+        applet.startTimer()
+        precondition(applet.inputError == nil && applet.selectedTimer?.remaining(at: now) == 3690)
+        store.remove(applet.selectedTimer!.id)
         applet.durationInput = "10080"
         applet.adjustDuration(by: 60)
         precondition(applet.durationInput == "10080")

@@ -50,8 +50,10 @@ final class TimersApplet: Applet {
     func adjustDuration(by seconds: TimeInterval) {
         let current = TimerDuration.parse(durationInput) ?? 25 * 60
         let duration = min(TimerDuration.maximum, max(30, current + seconds))
-        durationInput = duration.truncatingRemainder(dividingBy: 60) == 0
-            ? String(Int(duration / 60)) : TimerDuration.display(duration)
+        let totalSeconds = Int(duration)
+        durationInput = totalSeconds % 60 == 0
+            ? String(totalSeconds / 60)
+            : String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
         inputError = nil
     }
 
