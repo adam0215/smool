@@ -11,7 +11,7 @@ enum NotchTab: Int, CaseIterable, Hashable {
         }
     }
 
-    var contentHeight: CGFloat { self == .home ? 120 : 300 }
+    var contentHeight: CGFloat { self == .home ? 120 : 320 }
 
     var tint: Color {
         switch self {
@@ -27,8 +27,14 @@ enum NotchTab: Int, CaseIterable, Hashable {
     }
 }
 
-/// A bounded selection keeps repeated arrow presses at the edge of a stack.
+/// Long lists stop at their edges; card stacks use cyclingPage instead.
 func adjacentPage<Page: Equatable>(in pages: [Page], to selection: Page, offset: Int) -> Page {
     guard let index = pages.firstIndex(of: selection) else { return selection }
     return pages[min(max(index + offset, 0), pages.count - 1)]
+}
+
+/// Circular navigation for card stacks and small collections.
+func cyclingPage<Page: Equatable>(in pages: [Page], to selection: Page, offset: Int) -> Page {
+    guard let index = pages.firstIndex(of: selection) else { return selection }
+    return pages[(index + offset % pages.count + pages.count) % pages.count]
 }

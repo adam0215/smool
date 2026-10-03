@@ -9,12 +9,14 @@ enum SpotifyPage: CaseIterable {
 final class SpotifyAppletState {
     var page = SpotifyPage.player
     var playlist = SpotifyPlaylist.releaseRadar
+    var selectedControl = 0
+    var editingPlaylistLink = false
+    var playlistLinkDraft = ""
 }
 
 struct SpotifyAppletView: View {
     let service: SpotifyService
     let state: SpotifyAppletState
-    @State private var editingPlaylistLink = false
 
     init(service: SpotifyService = SpotifyService(), state: SpotifyAppletState = SpotifyAppletState()) {
         self.service = service
@@ -27,17 +29,27 @@ struct SpotifyAppletView: View {
             pages: SpotifyPage.allCases,
             selection: $state.page,
             title: { $0.title },
-            isNavigating: !editingPlaylistLink,
-            autoFocus: false,
+            isNavigating: !state.editingPlaylistLink,
             editingHint: "↵ spara länk   ·   esc tillbaka",
             navigationHint: state.page == .player
                 ? "↑↓ kort   ·   ←→ kontroll   ·   mellanslag spela/pausa"
                 : "↑↓ kort   ·   ←→ spellista   ·   ↵ spela"
         ) { page in
             switch page {
-            case .player: SpotifyPlayerView(service: service)
-            case .playlists: SpotifyPlaylistsView(service: service, selection: $state.playlist, isEditing: $editingPlaylistLink)
+            case .player: SpotifyPlayerView(service: service, selectedControl: $state.selectedControl)
+            case .playlists: SpotifyPlaylistsView(service: service, selection: $state.playlist, isEditing: $state.editingPlaylistLink, link: $state.playlistLinkDraft)
             }
+        }
+        .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { key in
+            guard !state.editingPlaylistLink,
+                  key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
+            let offset = key.key == .leftArrow ? -1 : 1
+            if state.page == .playlists {
+                state.playlist = cyclingPage(in: SpotifyPlaylist.allCases, to: state.playlist, offset: offset)
+            } else {
+                state.selectedControl = (state.selectedControl + offset + 2) % 2
+            }
+            return .handled
         }
         .task { await service.observe() }
     }
@@ -45,8 +57,7 @@ struct SpotifyAppletView: View {
 
 private struct SpotifyPlayerView: View {
     let service: SpotifyService
-    @FocusState private var playerFocused: Bool
-    @State private var selectedControl = 0
+    @Binding var selectedControl: Int
 
     var body: some View {
         Group {
@@ -74,26 +85,15 @@ private struct SpotifyPlayerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .focusable(interactions: .edit)
-        .focused($playerFocused)
-        .focusEffectDisabled()
-        .task { await Task.yield(); playerFocused = true }
-        .onKeyPress(keys: [.leftArrow, .rightArrow]) { key in
-            guard case .ready = service.state else { return .ignored }
-            selectedControl = key.key == .leftArrow ? 0 : 1
-            return .handled
-        }
-        .onKeyPress(keys: [.return, .space]) { key in
-            switch service.state {
-            case .ready:
-                Task { await service.perform(key.key == .space || selectedControl == 0 ? .togglePlayback : .nextTrack) }
-            case .notRunning, .idle:
-                service.openSpotify()
-            case .failed, .permissionDenied:
-                Task { await service.retry() }
-            case .loading: return .ignored
+        .background {
+            if case .ready = service.state {
+                Button("Vald kontroll") {
+                    Task { await service.perform(selectedControl == 0 ? .togglePlayback : .nextTrack) }
+                }
+                .keyboardShortcut(.return, modifiers: [])
+                .disabled(service.isPerformingAction)
+                .hidden()
             }
-            return .handled
         }
     }
 
@@ -151,10 +151,16 @@ private struct SpotifyPlayerView: View {
             selectedControl = index
             Task { await action() }
         } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 40, height: 28)
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(index == 0 ? "␣" : "⌘N")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(height: 22)
         }
+        .keyboardShortcut(index == 0 ? .space : "n", modifiers: index == 0 ? [] : .command)
         .buttonStyle(NotchControlStyle(isSelected: selectedControl == index))
         .focusable(false)
         .disabled(service.isPerformingAction)
@@ -170,7 +176,8 @@ private struct SpotifyPlayerView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(action, action: perform)
+            Button(action: perform) { ShortcutLabel(action, keys: "↵") }
+                .keyboardShortcut(.return, modifiers: [])
                 .buttonStyle(NotchControlStyle())
                 .controlSize(.small)
                 .focusable(false)

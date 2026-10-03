@@ -4,12 +4,11 @@ struct SpotifyPlaylistsView: View {
     let service: SpotifyService
     @Binding var selection: SpotifyPlaylist
     @Binding var isEditing: Bool
-    @State private var link = ""
+    @Binding var link: String
     @State private var linkError: String?
     @AppStorage("spotify.playlist.releaseRadar") private var releaseRadar = ""
     @AppStorage("spotify.playlist.newMusicFriday") private var newMusicFriday = SpotifyPlaylist.newMusicFriday.defaultURI
     @AppStorage("spotify.playlist.daylist") private var daylist = ""
-    @FocusState private var browsing: Bool
     @FocusState private var editingLink: Bool
 
     private var savedURI: String {
@@ -34,7 +33,7 @@ struct SpotifyPlaylistsView: View {
                             VStack(spacing: 10) {
                                 Image(systemName: playlist.symbol)
                                     .font(.system(size: 24, weight: .light))
-                                    .modifier(GlassInk(illumination: 1, isSelected: selection == playlist))
+                                    .foregroundStyle(selection == playlist ? .primary : .secondary)
                                 Text(playlist.title)
                                     .font(.system(size: 10, weight: .medium))
                                     .foregroundStyle(.primary.opacity(selection == playlist ? 0.95 : 0.7))
@@ -43,7 +42,11 @@ struct SpotifyPlaylistsView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 84)
-                            .modifier(CardGlass(shape: RoundedRectangle(cornerRadius: 16), isSelected: selection == playlist))
+                            .background(.white.opacity(selection == playlist ? 0.085 : 0.025), in: .rect(cornerRadius: 16))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 16)
+                                    .strokeBorder(.white.opacity(selection == playlist ? 0.3 : 0.06), lineWidth: 0.5)
+                            }
                             .contentShape(.rect(cornerRadius: 16))
                         }
                         .buttonStyle(.plain)
@@ -61,39 +64,24 @@ struct SpotifyPlaylistsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if !savedURI.isEmpty {
-                        Button { beginEditing() } label: { Image(systemName: "ellipsis") }
+                        Button { beginEditing() } label: { ShortcutLabel("Ändra", keys: "⌘L") }
+                            .keyboardShortcut("l", modifiers: .command)
                             .buttonStyle(NotchControlStyle())
-                            .focusable()
+                            .focusable(false)
                             .accessibilityLabel("Ändra spellistelänk")
                     }
-                    Button(savedURI.isEmpty ? "Anslut" : "Spela") { activate() }
+                    Button(action: activate) {
+                        ShortcutLabel(savedURI.isEmpty ? "Anslut" : "Spela", keys: "↵")
+                    }
+                        .keyboardShortcut(.return, modifiers: [])
                         .buttonStyle(NotchControlStyle())
-                        .focusable()
+                        .focusable(false)
                         .disabled(service.isPerformingAction)
                 }
                 if let error = service.actionError {
                     Text(error).font(.system(size: 9)).foregroundStyle(.orange).lineLimit(2)
                 }
             }
-        }
-        .focusable(!isEditing, interactions: .edit)
-        .focused($browsing)
-        .focusEffectDisabled()
-        .task { await Task.yield(); browsing = !isEditing }
-        .onKeyPress(keys: [.leftArrow, .rightArrow]) { key in
-            guard browsing, !isEditing else { return .ignored }
-            selection = adjacentPage(in: SpotifyPlaylist.allCases, to: selection, offset: key.key == .leftArrow ? -1 : 1)
-            return .handled
-        }
-        .onKeyPress(keys: [.return, .space]) { _ in
-            guard browsing, !isEditing else { return .ignored }
-            activate()
-            return .handled
-        }
-        .onKeyPress(.escape) {
-            guard isEditing else { return .ignored }
-            finishEditing()
-            return .handled
         }
     }
 
@@ -116,13 +104,16 @@ struct SpotifyPlaylistsView: View {
                 .task { await Task.yield(); editingLink = true }
                 .accessibilityLabel("Spotify-länk till \(selection.title)")
             HStack(spacing: 8) {
-                Button("Sök i Spotify ↗") { service.search(selection) }
-                    .buttonStyle(NotchControlStyle()).focusable()
+                Button { service.search(selection) } label: { ShortcutLabel("Sök i Spotify", keys: "⌘O") }
+                    .keyboardShortcut("o", modifiers: .command)
+                    .buttonStyle(NotchControlStyle()).focusable(false)
                 Spacer()
-                Button("Tillbaka") { finishEditing() }
-                    .buttonStyle(NotchControlStyle()).focusable()
-                Button("Spara", action: saveLink)
-                    .buttonStyle(NotchControlStyle()).focusable()
+                Button { finishEditing() } label: { ShortcutLabel("Tillbaka", keys: "esc") }
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .buttonStyle(NotchControlStyle()).focusable(false)
+                Button(action: saveLink) { ShortcutLabel("Spara", keys: "↵") }
+                    .keyboardShortcut(.return, modifiers: [])
+                    .buttonStyle(NotchControlStyle()).focusable(false)
                     .disabled(link.isEmpty)
             }
             if let linkError {
@@ -139,14 +130,12 @@ struct SpotifyPlaylistsView: View {
     private func beginEditing() {
         link = savedURI
         linkError = nil
-        browsing = false
         isEditing = true
     }
 
     private func finishEditing() {
         editingLink = false
         isEditing = false
-        browsing = true
     }
 
     private func saveLink() {

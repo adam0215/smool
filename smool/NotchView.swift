@@ -47,12 +47,10 @@ struct NotchView: View {
     var body: some View {
         shape
             .fill(.black)
-            .animation(horizontalAnimation) { content in
-                content.frame(width: size.width)
-            }
-            .animation(verticalAnimation) { content in
-                content.frame(height: size.height, alignment: .top)
-            }
+            .frame(width: size.width)
+            .animation(horizontalAnimation, value: presentation.isExpanded)
+            .frame(height: size.height, alignment: .top)
+            .animation(verticalAnimation, value: presentation.isExpanded)
             .overlay(alignment: .top) {
                 if presentation.isExpanded {
                     NotchContentView(presentation: presentation, selectTab: selectTab, restoreFocus: restoreFocus)

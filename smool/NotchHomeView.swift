@@ -116,7 +116,7 @@ struct NotchHomeView: View {
         .focused($focusedCard, equals: card)
         .focusEffectDisabled()
         .onHover { updateHover($0, card: card) }
-        .onKeyPress(keys: [.return, .space]) { _ in
+        .onKeyPress(keys: [.return, .space], phases: .down) { _ in
             openTab(app == .spotify ? .spotify : .codex)
             return .handled
         }

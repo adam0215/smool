@@ -26,6 +26,14 @@ struct NotchNavigationChecks {
         precondition(adjacentPage(in: [], to: "Removed", offset: -1) == "Removed")
         precondition(adjacentPage(in: ["Only"], to: "Only", offset: 1) == "Only")
 
-        print("Passed: tab cycling, bounded page navigation, and empty or stale page selections.")
+        for offset in -100...100 {
+            let result = cyclingPage(in: pages, to: "Playing", offset: offset)
+            precondition(cyclingPage(in: pages, to: result, offset: -offset) == "Playing")
+        }
+        precondition(cyclingPage(in: pages, to: "Playing", offset: -1) == "Queue")
+        precondition(cyclingPage(in: pages, to: "Queue", offset: 1) == "Playing")
+        precondition(cyclingPage(in: [], to: "Missing", offset: 1) == "Missing")
+        precondition(cyclingPage(in: ["Only"], to: "Only", offset: Int.min) == "Only")
+        print("Passed: circular stacks in both directions, bounded lists, and stale selections.")
     }
 }

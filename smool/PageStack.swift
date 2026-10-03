@@ -6,17 +6,21 @@ struct PageStack<Page: Hashable, Content: View>: View {
     @Binding var selection: Page
     let title: (Page) -> String
     var isNavigating = true
-    var autoFocus = true
     var editingHint = "⌘↵ skicka   ·   esc tillbaka"
     var navigationHint: String? = nil
     @ViewBuilder let content: (Page) -> Content
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var stackFocused: Bool
-    @State private var movement = 1
 
     private var index: Int { pages.firstIndex(of: selection) ?? 0 }
-    private var neighbors: [Page] { pages.filter { $0 != selection }.prefix(2).map { $0 } }
+    private var neighbors: [Page] {
+        guard pages.count > 1 else { return [] }
+        return (1...min(2, pages.count - 1)).reversed().map {
+            cyclingPage(in: pages, to: selection, offset: $0)
+        }
+    }
+
     private var cardShape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
             topLeadingRadius: 16,
@@ -30,71 +34,72 @@ struct PageStack<Page: Hashable, Content: View>: View {
     var body: some View {
         ZStack(alignment: .top) {
             ForEach(Array(neighbors.enumerated()), id: \.element) { depth, page in
-                Button { select(page) } label: {
-                    Text(title(page))
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 16, alignment: .top)
-                        .padding(.top, 3)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .modifier(CardGlass(shape: cardShape))
+                GlassEffectContainer(spacing: 0) {
+                    Button { select(page) } label: {
+                        Text(title(page))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 22)
+                            .padding(.bottom, 14)
+                            .background(.black, in: .rect(cornerRadius: 16))
+                            .modifier(CardGlass(shape: RoundedRectangle(cornerRadius: 16)))
+                    }
+                    .buttonStyle(.plain)
+                    .focusable(false)
+                    .disabled(!isNavigating)
+                    .accessibilityLabel("Visa \(title(page))")
                 }
-                .buttonStyle(.plain)
-                .focusable(false)
-                .disabled(!isNavigating)
-                .padding(.horizontal, CGFloat(neighbors.count - depth) * 8)
-                .padding(.top, CGFloat(depth) * 16)
-                .padding(.bottom, 8)
-                .accessibilityLabel("Visa \(title(page))")
+                .padding(.horizontal, CGFloat(neighbors.count - depth) * 12)
+                .padding(.top, CGFloat(depth) * 24)
             }
 
-            VStack(spacing: 10) {
-                HStack(spacing: 8) {
-                    Text(title(selection))
-                        .font(.system(size: 11, weight: .medium))
-                        .modifier(GlassInk(illumination: 1, isSelected: true))
-                    Spacer()
-                    Text("\(index + 1) / \(pages.count)")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+            GlassEffectContainer(spacing: 0) {
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Text(title(selection))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Text("\(index + 1) / \(pages.count)")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        pageButton("chevron.up", offset: -1)
+                        pageButton("chevron.down", offset: 1)
+                    }
+
+                    content(selection)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .id(selection)
+                        .transition(.identity)
+                        .clipped()
+
+                    Text(isNavigating ? navigationHint ?? "↑↓ kort   ·   ↵ öppna   ·   ⌘0–2 flik" : editingHint)
+                        .font(.system(size: 9))
                         .foregroundStyle(.secondary)
-                    pageButton("chevron.up", offset: -1)
-                    pageButton("chevron.down", offset: 1)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.top, 2)
                 }
-
-                content(selection)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .id(selection)
-                    .transition(reduceMotion ? .opacity : .asymmetric(
-                        insertion: .offset(y: CGFloat(movement) * 14).combined(with: .opacity),
-                        removal: .offset(y: CGFloat(movement) * -14).combined(with: .opacity)
-                    ))
-                    .clipped()
-
-                Text(isNavigating ? navigationHint ?? "↑↓ kort   ·   ↵ öppna   ·   ⌘0–2 flik" : editingHint)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .padding(.top, 2)
+                .padding(16)
+                .modifier(CardGlass(shape: cardShape, isSelected: true))
+                .shadow(color: .black.opacity(0.5), radius: 8, y: -3)
             }
-            .padding(16)
-            .modifier(CardGlass(shape: cardShape, isSelected: isNavigating))
-            .padding(.top, CGFloat(neighbors.count) * 16)
+            .padding(.top, CGFloat(neighbors.count) * 24)
         }
         .padding(.horizontal, NotchLayout.contentInset)
         .padding(.top, 0)
         .padding(.bottom, NotchLayout.contentInset)
-        .focusable(isNavigating, interactions: .edit)
+        .focusable(interactions: .edit)
         .focused($stackFocused)
         .focusEffectDisabled()
-        .onAppear { if autoFocus { stackFocused = true } }
+        .onAppear { stackFocused = isNavigating }
         .onChange(of: isNavigating) { _, navigating in
-            if autoFocus { stackFocused = navigating }
+            stackFocused = navigating
         }
-        .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+        .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
             guard isNavigating, press.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
-            select(adjacentPage(in: pages, to: selection, offset: press.key == .upArrow ? -1 : 1))
+            move(press.key == .upArrow ? -1 : 1)
             return .handled
         }
         .accessibilityElement(children: .contain)
@@ -102,7 +107,7 @@ struct PageStack<Page: Hashable, Content: View>: View {
     }
 
     private func pageButton(_ symbol: String, offset: Int) -> some View {
-        Button { select(adjacentPage(in: pages, to: selection, offset: offset)) } label: {
+        Button { move(offset) } label: {
             Image(systemName: symbol)
                 .font(.system(size: 9, weight: .semibold))
                 .frame(width: 22, height: 20)
@@ -110,13 +115,16 @@ struct PageStack<Page: Hashable, Content: View>: View {
         }
         .buttonStyle(.plain)
         .focusable(false)
-        .disabled(!isNavigating || adjacentPage(in: pages, to: selection, offset: offset) == selection)
+        .disabled(!isNavigating || pages.count < 2)
         .accessibilityLabel(offset < 0 ? "Föregående kort" : "Nästa kort")
         .help(offset < 0 ? "Föregående kort · ↑" : "Nästa kort · ↓")
     }
 
+    private func move(_ offset: Int) {
+        select(cyclingPage(in: pages, to: selection, offset: offset))
+    }
+
     private func select(_ page: Page) {
-        movement = (pages.firstIndex(of: page) ?? index) >= index ? 1 : -1
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { selection = page }
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.24)) { selection = page }
     }
 }

@@ -9,6 +9,7 @@ final class NotchPanelController: NSObject {
     private var outsideMonitor: Any?
     private var isOpen = false
     private var transition = 0
+    private var resizeTransition = 0
 
     override init() {
         super.init()
@@ -37,6 +38,7 @@ final class NotchPanelController: NSObject {
 
         isOpen = true
         transition += 1
+        resizeTransition += 1
         let currentTransition = transition
         presentation.layout = NotchLayout(screen: screen, demoNotch: demoNotchEnabled)
         presentation.layout.contentHeight = presentation.tab.contentHeight
@@ -62,6 +64,7 @@ final class NotchPanelController: NSObject {
     func close() {
         isOpen = false
         transition += 1
+        resizeTransition += 1
         let currentTransition = transition
         removeEventMonitors()
 
@@ -80,6 +83,7 @@ final class NotchPanelController: NSObject {
     func stop() {
         isOpen = false
         transition += 1
+        resizeTransition += 1
         removeEventMonitors()
         panel?.orderOut(nil)
         NotificationCenter.default.removeObserver(self)
@@ -123,9 +127,28 @@ final class NotchPanelController: NSObject {
     }
 
     private func selectTab(_ tab: NotchTab) {
-        presentation.tab = tab
-        presentation.layout.contentHeight = tab.contentHeight
-        panel?.setFrame(presentation.layout.windowFrame, display: true)
+        guard presentation.tab != tab else { return }
+        resizeTransition += 1
+        let resize = resizeTransition
+        var targetLayout = presentation.layout
+        targetLayout.contentHeight = tab.contentHeight
+        let targetFrame = targetLayout.windowFrame
+
+        // Grow the transparent host before animating, then trim it afterward.
+        // Keeping both frames top-aligned prevents either direction from clipping.
+        if let panel {
+            panel.setFrame(panel.frame.union(targetFrame), display: true)
+        }
+        withAnimation(
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .smooth(duration: 0.36),
+            completionCriteria: .removed
+        ) {
+            presentation.tab = tab
+            presentation.layout = targetLayout
+        } completion: { [weak self] in
+            guard let self, self.isOpen, self.resizeTransition == resize else { return }
+            self.panel?.setFrame(targetFrame, display: true)
+        }
     }
 
     private func installEventMonitors() {
@@ -139,10 +162,22 @@ final class NotchPanelController: NSObject {
                     self.selectTab(tab)
                     return nil
                 }
-                if event.keyCode == 123 || event.keyCode == 124 {
+                if (event.keyCode == 123 || event.keyCode == 124), !(self.panel?.firstResponder is NSTextView) {
                     self.selectTab(self.presentation.tab.neighbor(event.keyCode == 123 ? -1 : 1))
                     return nil
                 }
+            }
+            if event.type == .keyDown, event.window === self.panel, event.keyCode == 48 {
+                let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+                if modifiers == .control || modifiers == [.control, .shift] {
+                    self.selectTab(self.presentation.tab.neighbor(modifiers.contains(.shift) ? -1 : 1))
+                    return nil
+                }
+            }
+            if event.type == .keyDown, event.window === self.panel,
+               event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+               self.navigateApplet(keyCode: event.keyCode) {
+                return nil
             }
             if event.type != .keyDown, event.window !== self.panel {
                 self.close()
@@ -152,6 +187,38 @@ final class NotchPanelController: NSObject {
 
         outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             self?.close()
+        }
+    }
+
+    // Route deck arrows before SwiftUI transfers focus during a page transition.
+    // Editing scopes keep their native arrow keys.
+    private func navigateApplet(keyCode: UInt16) -> Bool {
+        guard [123, 124, 125, 126].contains(keyCode) else { return false }
+        let vertical = keyCode == 125 || keyCode == 126
+        let offset = keyCode == 123 || keyCode == 126 ? -1 : 1
+        switch presentation.tab {
+        case .home:
+            return false
+        case .spotify:
+            let state = presentation.spotifyState
+            guard !state.editingPlaylistLink else { return false }
+            withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .smooth(duration: 0.24)) {
+                if vertical {
+                    state.page = cyclingPage(in: SpotifyPage.allCases, to: state.page, offset: offset)
+                } else if state.page == .playlists {
+                    state.playlist = cyclingPage(in: SpotifyPlaylist.allCases, to: state.playlist, offset: offset)
+                } else {
+                    state.selectedControl = (state.selectedControl + offset + 2) % 2
+                }
+            }
+            return true
+        case .codex:
+            let state = presentation.codexState
+            guard vertical, state.scope == .deck else { return false }
+            withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .smooth(duration: 0.24)) {
+                state.page = cyclingPage(in: CodexPage.allCases, to: state.page, offset: offset)
+            }
+            return true
         }
     }
 
@@ -169,6 +236,7 @@ final class NotchPanelController: NSObject {
     private func resetPresentation() {
         isOpen = false
         transition += 1
+        resizeTransition += 1
         presentation.isExpanded = false
         panel?.orderOut(nil)
         removeEventMonitors()

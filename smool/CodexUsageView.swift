@@ -36,16 +36,18 @@ struct CodexUsageView: View {
             }
             Spacer(minLength: 0)
             HStack {
-                Button("Uppdatera") { Task { await service.refresh() } }
+                Button { Task { await service.refresh() } } label: {
+                    ShortcutLabel("Uppdatera", keys: "⌘R")
+                }
                     .buttonStyle(NotchControlStyle())
                     .disabled(service.isLoading)
                 Spacer()
                 if pageCount > 1 {
-                    Button { index = max(0, index - 1) } label: { Image(systemName: "chevron.left") }
+                    Button { index = max(0, index - 1) } label: { Text("←") }
                         .disabled(index == 0)
                         .accessibilityLabel("Föregående användningsgränser")
                     Text("\(index + 1) / \(pageCount)").foregroundStyle(.secondary)
-                    Button { index = min(pageCount - 1, index + 1) } label: { Image(systemName: "chevron.right") }
+                    Button { index = min(pageCount - 1, index + 1) } label: { Text("→") }
                         .disabled(index == pageCount - 1)
                         .accessibilityLabel("Nästa användningsgränser")
                 }

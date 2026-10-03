@@ -23,6 +23,8 @@ final class CodexAppletState {
 struct CodexAppletView: View {
     @State private var service: CodexService
     @State private var state: CodexAppletState
+    @State private var connectionTask: Task<Void, Never>?
+    @State private var isVisible = false
     private let restoreFocus: () -> Void
 
     private enum Focus: Hashable { case threads, search, composer }
@@ -86,7 +88,7 @@ struct CodexAppletView: View {
             state.usageIndex = min(max(state.usageIndex + (key.key == .leftArrow ? -1 : 1), 0), max(0, (service.limits.count - 1) / 2))
             return .handled
         }
-        .onKeyPress(keys: [.return, .tab]) { key in
+        .onKeyPress(keys: [.return, .tab], phases: .down) { key in
             guard state.page != .usage, unmodified(key) else { return .ignored }
             if state.scope == .deck {
                 enterThreads()
@@ -111,13 +113,18 @@ struct CodexAppletView: View {
         }
         .background {
             Button("Sök trådar", action: beginSearch).keyboardShortcut("f", modifiers: .command).hidden()
-            Button("Uppdatera") { Task { await service.refresh() } }.keyboardShortcut("r", modifiers: .command).hidden()
+            Button("Uppdatera", action: refreshOrConnect).keyboardShortcut("r", modifiers: .command).hidden()
         }
+        .onAppear { isVisible = true }
         .task {
             restoreLocalFocus()
             await service.start()
         }
-        .onDisappear { service.stop() }
+        .onDisappear {
+            isVisible = false
+            connectionTask?.cancel()
+            service.stop()
+        }
     }
 
     private var threadList: some View {
@@ -138,7 +145,7 @@ struct CodexAppletView: View {
                         .onExitCommand { enterThreads() }
                 } else {
                     Button(action: beginSearch) {
-                        Label(query.wrappedValue.isEmpty ? "Sök trådar" : query.wrappedValue, systemImage: "magnifyingglass")
+                        ShortcutLabel(query.wrappedValue.isEmpty ? "Sök trådar" : query.wrappedValue, keys: "⌘F")
                             .lineLimit(1)
                     }
                     .buttonStyle(.plain)
@@ -150,8 +157,12 @@ struct CodexAppletView: View {
                     Button {
                         Task { await service.setIncludesArchived(!service.includesArchived) }
                     } label: {
-                        Image(systemName: service.includesArchived ? "archivebox.fill" : "archivebox")
+                        HStack(spacing: 4) {
+                            Image(systemName: service.includesArchived ? "archivebox.fill" : "archivebox")
+                            Text("⇧⌘A").font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+                        }
                     }
+                    .keyboardShortcut("a", modifiers: [.command, .shift])
                     .buttonStyle(.plain)
                     .foregroundStyle(service.includesArchived ? .primary : .secondary)
                     .accessibilityLabel(service.includesArchived ? "Dölj arkiverade trådar" : "Visa arkiverade trådar")
@@ -202,12 +213,8 @@ struct CodexAppletView: View {
                         .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 2)
-                if service.isConnectingThreadID == thread.id {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: selected ? "return" : thread.isArchived ? "archivebox" : "chevron.right")
-                        .font(.system(size: 8)).foregroundStyle(.secondary)
-                }
+                Text(selected ? "↵" : "")
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 8)
             .frame(height: 39)
@@ -217,7 +224,6 @@ struct CodexAppletView: View {
         }
         .buttonStyle(.plain)
         .focusable(false)
-        .disabled(service.isConnectingThreadID != nil)
         .accessibilityLabel("\(thread.title), \(thread.isActive ? "arbetar" : thread.isArchived ? "arkiverad" : "tidigare tråd")")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -230,7 +236,9 @@ struct CodexAppletView: View {
             if let error = service.liveError, state.page == .active {
                 Text(error).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
             }
-            Button("Uppdatera") { Task { await service.refresh() } }
+            Button { Task { await service.refresh() } } label: {
+                ShortcutLabel("Uppdatera", keys: "⌘R")
+            }
                 .buttonStyle(NotchControlStyle())
         }
         .frame(maxWidth: .infinity, minHeight: 123)
@@ -248,6 +256,8 @@ struct CodexAppletView: View {
 
     private func composer(_ thread: CodexThread) -> some View {
         let draft = Binding(get: { service.drafts[thread.id] ?? "" }, set: { service.drafts[thread.id] = $0 })
+        let connected = service.threads.contains { $0.id == thread.id && $0.isConnected }
+        let connecting = service.isConnectingThreadID == thread.id
         return VStack(alignment: .leading, spacing: 7) {
             Text(thread.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
             TextEditor(text: draft)
@@ -261,11 +271,23 @@ struct CodexAppletView: View {
                 .task { await Task.yield(); focus = .composer }
             if let error = service.error {
                 Text(error).font(.system(size: 9)).foregroundStyle(.orange).lineLimit(1)
+            } else if !connected {
+                Text(connecting ? "Ansluter tråden… Du kan skriva under tiden." : "Anslut tråden i Codex för att skicka.")
+                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
             }
             HStack {
-                Button("Tillbaka", action: enterThreads).buttonStyle(.plain)
+                Button(action: enterThreads) { ShortcutLabel("Tillbaka", keys: "esc") }
+                    .buttonStyle(.plain)
                 Spacer()
-                Button(service.isSending ? "Skickar…" : "Skicka") {
+                if !connected {
+                    Button(action: refreshOrConnect) {
+                        ShortcutLabel(connecting ? "Ansluter…" : "Anslut", keys: "⌘R")
+                    }
+                    .buttonStyle(NotchControlStyle())
+                    .disabled(service.isConnectingThreadID != nil)
+                    .help("Öppna tråden i Codex och anslut den. Utkastet skickas inte.")
+                }
+                Button {
                     let text = draft.wrappedValue
                     Task {
                         if await service.send(text, to: thread), draft.wrappedValue == text {
@@ -273,22 +295,24 @@ struct CodexAppletView: View {
                             if case .composer(let recipient) = state.scope, recipient.id == thread.id { enterThreads() }
                         }
                     }
-                }
+                } label: { ShortcutLabel(service.isSending ? "Skickar…" : "Skicka", keys: "⌘↵") }
                 .buttonStyle(NotchControlStyle())
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(service.isSending || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!connected || service.isSending || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .font(.system(size: 11))
         }
     }
 
     private func beginSearch() {
+        connectionTask?.cancel()
         if state.page == .usage { state.page = .history }
         state.scope = .search
         Task { await Task.yield(); focus = .search }
     }
 
     private func enterThreads() {
+        connectionTask?.cancel()
         state.scope = .threads
         if let thread = selectedThread { state.selection[state.page] = thread.id }
         Task { await Task.yield(); focus = .threads }
@@ -301,12 +325,23 @@ struct CodexAppletView: View {
     }
 
     private func compose(_ thread: CodexThread) {
-        guard service.isConnectingThreadID == nil else { return }
+        connectionTask?.cancel()
         state.selection[state.page] = thread.id
-        Task {
-            guard await service.ensureConnected(to: thread) else { return }
-            state.scope = .composer(thread)
-            restoreFocus()
+        state.scope = .composer(thread)
+    }
+
+    private func refreshOrConnect() {
+        if case .composer(let thread) = state.scope {
+            guard service.isConnectingThreadID == nil else { return }
+            connectionTask = Task {
+                let connected = await service.ensureConnected(to: thread)
+                guard connected, !Task.isCancelled, isVisible,
+                      case .composer(let recipient) = state.scope, recipient.id == thread.id else { return }
+                restoreFocus()
+                focus = .composer
+            }
+        } else {
+            Task { await service.refresh() }
         }
     }
 
