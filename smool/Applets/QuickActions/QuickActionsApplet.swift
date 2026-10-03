@@ -220,7 +220,7 @@ private struct QuickActionsAppletView: View {
             listFocused = true
         }
         .onKeyPress(keys: [.return], phases: .down) { key in
-            guard key.modifiers.isEmpty else { return .ignored }
+            guard key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
             applet.activateSelected()
             return .handled
         }

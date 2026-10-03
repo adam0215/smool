@@ -107,9 +107,10 @@ struct SavedActionEditor: View {
             field = draft.usesShortcut ? .navigation : .destination
         }
         .onKeyPress(keys: [.return, .tab], phases: .down) { key in
+            let modifiers = key.modifiers.intersection([.command, .control, .option, .shift])
             guard field == .navigation,
-                  key.modifiers.isEmpty || (key.key == .tab && key.modifiers == .shift) else { return .ignored }
-            field = draft.usesShortcut || key.modifiers == .shift ? .name : .destination
+                  modifiers.isEmpty || (key.key == .tab && modifiers == .shift) else { return .ignored }
+            field = draft.usesShortcut || modifiers == .shift ? .name : .destination
             return .handled
         }
         .onKeyPress(.escape) {

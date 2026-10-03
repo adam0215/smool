@@ -135,16 +135,16 @@ struct WorkspaceEditor: View {
                 listFocused = true
             }
             .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { key in
-                guard key.modifiers.isEmpty else { return .ignored }
+                guard key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
                 return draft.moveSelection(key.key == .upArrow ? -1 : 1) ? .handled : .ignored
             }
             .onKeyPress(keys: [.space], phases: .down) { key in
-                guard key.modifiers.isEmpty else { return .ignored }
+                guard key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
                 draft.toggleSelected()
                 return .handled
             }
             .onKeyPress(keys: [.return], phases: .down) { key in
-                guard key.modifiers.isEmpty else { return .ignored }
+                guard key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
                 guard let resource = draft.selectedResource else { draft.editResource(); return .handled }
                 draft.editResource(resource)
                 return .handled
