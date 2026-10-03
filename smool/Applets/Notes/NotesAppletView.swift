@@ -2,114 +2,134 @@ import SwiftUI
 
 struct NotesAppletView: View {
     @Bindable var applet: NotesApplet
-    let onSendToCodex: ((String) -> Void)?
     let restoreFocus: () -> Void
     @FocusState private var listIsFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                if applet.isEditing {
-                    Button {
-                        applet.store.flush()
-                        applet.isEditing = false
-                        restoreFocus()
-                    } label: { Label("All notes", systemImage: "chevron.left") }
-                    .keyboardShortcut(.escape, modifiers: [])
-                } else {
-                    Text("Notes")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.primary)
-                }
-
-                Spacer()
-
-                Button { applet.createNote() } label: {
-                    Image(systemName: "square.and.pencil")
-                        .frame(width: 28, height: 28)
-                        .contentShape(Circle())
-                }
-                    .keyboardShortcut("n", modifiers: .command)
-                    .accessibilityLabel("New note")
-                    .help("New note · ⌘N")
-                    .disabled(applet.store.isReadOnly)
-
-                if let note = applet.store.selectedNote {
-                    Button { applet.pendingDeletion = note } label: {
-                        Image(systemName: "trash")
-                            .frame(width: 28, height: 28)
-                            .contentShape(Circle())
-                    }
-                        .accessibilityLabel("Delete note")
-                        .disabled(applet.store.isReadOnly)
-                }
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, applet.isEditing ? 16 : 0)
-
-            if let error = applet.store.errorMessage {
-                HStack(alignment: .top) {
-                    Text(error).lineLimit(3).font(.system(size: 11))
-                    Spacer(minLength: 2)
-                    Button("Try again") { applet.store.reload() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(.orange)
-                .padding(.horizontal, applet.isEditing ? 16 : 0)
-            }
-
-            if applet.isEditing, let note = applet.store.selectedNote {
-                NotesEditor(
-                    text: Binding(get: { applet.store.selectedNote?.text ?? "" }, set: { applet.store.update(note.id, text: $0) }),
-                    isReadOnly: applet.store.isReadOnly,
-                    saveStatus: applet.store.errorMessage != nil ? "Could not save" : (applet.store.hasUnsavedChanges ? "Saving…" : "Saved"),
-                    onSendToCodex: onSendToCodex.map { callback in { applet.store.flush(); callback(applet.store.selectedNote?.text ?? "") } },
-                    onClose: { applet.store.flush(); applet.isEditing = false; restoreFocus() }
-                )
-                .id(note.id)
-            } else if applet.store.notes.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "note.text")
-                        .font(.system(size: 24, weight: .light))
-                        .foregroundStyle(.tertiary)
-                        .accessibilityHidden(true)
-                    Text(applet.store.isReadOnly ? "Notes are unavailable" : "A thought to keep?")
-                        .font(.system(size: 13, weight: .medium))
-                    Button("New note") { applet.createNote() }
-                        .buttonStyle(NotchControlStyle(isSelected: true))
-                        .disabled(applet.store.isReadOnly)
-                    Text("Saved automatically on this Mac")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let note = applet.pendingDeletion {
+                deletionConfirmation(note)
             } else {
-                noteList
+                header
+
+                if let error = applet.store.errorMessage {
+                    HStack(alignment: .top) {
+                        Text(error).lineLimit(3).font(.system(size: 11))
+                        Spacer(minLength: 2)
+                        Button("Try again") { applet.store.reload() }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, applet.isEditing ? 24 : 0)
+                }
+
+                if applet.isEditing, let note = applet.store.selectedNote {
+                    NotesEditor(
+                        text: Binding(get: { applet.store.selectedNote?.text ?? "" }, set: { applet.store.update(note.id, text: $0) }),
+                        isReadOnly: applet.store.isReadOnly,
+                        saveStatus: applet.store.errorMessage != nil ? "Could not save" : (applet.store.hasUnsavedChanges ? "Saving…" : "Saved"),
+                        onClose: closeEditor
+                    )
+                    .id(note.id)
+                } else if applet.store.notes.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "note.text")
+                            .font(.system(size: 24, weight: .light))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
+                        Text(applet.store.isReadOnly ? "Notes are unavailable" : "A thought to keep?")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("Saved automatically on this Mac")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    noteList
+                    Text("↑↓ Select · ↵ Edit · ⌘K Actions")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
-        .padding(.horizontal, applet.isEditing ? NotchLayout.contentInset : 24)
-        .padding(.top, 8)
-        .padding(.bottom, applet.isEditing ? NotchLayout.contentInset : 16)
+        .padding(.horizontal, applet.isEditing && applet.pendingDeletion == nil ? NotchLayout.contentInset : 32)
+        .padding(.top, 12)
+        .padding(.bottom, applet.isEditing && applet.pendingDeletion == nil ? NotchLayout.contentInset : 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .alert("Delete this note?", isPresented: Binding(get: { applet.pendingDeletion != nil }, set: { if !$0 { applet.pendingDeletion = nil } })) {
-            Button("Cancel", role: .cancel) { applet.pendingDeletion = nil }
-            Button("Delete", role: .destructive) {
-                if let note = applet.pendingDeletion { applet.store.delete(note.id) }
-                applet.pendingDeletion = nil
-                if applet.store.notes.isEmpty { applet.isEditing = false }
-            }
-        } message: {
-            Text("\(applet.pendingDeletion?.title ?? "This note") will be permanently deleted.")
+        .background {
+            Button("Delete note") { applet.requestDeletion() }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .disabled(applet.store.isReadOnly || applet.store.selectedNote == nil || applet.pendingDeletion != nil)
+                .hidden()
         }
         .onKeyPress(.return) {
-            guard !applet.isEditing, applet.store.selectedNote != nil else { return .ignored }
+            guard !applet.isEditing, applet.pendingDeletion == nil, applet.store.selectedNote != nil else { return .ignored }
             applet.isEditing = true
             return .handled
         }
         .onDisappear { applet.store.flush() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in applet.store.flush() }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            if applet.isEditing {
+                Button(action: closeEditor) { Label("All notes", systemImage: "chevron.left") }
+                    .accessibilityLabel("All notes, Escape")
+            } else {
+                Text("Notes")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+            }
+
+            Spacer()
+
+            Button { applet.createNote() } label: {
+                Text("New note  ⌘N")
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .disabled(applet.store.isReadOnly)
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, applet.isEditing ? 24 : 0)
+    }
+
+    private func deletionConfirmation(_ note: QuickNote) -> some View {
+        VStack(spacing: 12) {
+            Text("Delete this note?")
+                .font(.system(size: 15, weight: .semibold))
+            Text(note.title)
+                .font(.system(size: 13))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+            Text("This cannot be undone.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 24) {
+                Button("Keep note  esc") { applet.dismissOverlay() }
+                    .keyboardShortcut(.escape, modifiers: [])
+                Button("Delete  ⌘⌫", role: .destructive) {
+                    applet.confirmDeletion()
+                    restoreFocus()
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 12, weight: .medium))
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func closeEditor() {
+        applet.finishEditing()
+        restoreFocus()
     }
 
     private var noteList: some View {

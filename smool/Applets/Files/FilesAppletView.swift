@@ -8,16 +8,25 @@ struct FilesAppletView: View {
     @FocusState private var isFocused: Bool
 
     private var store: FileShelfStore { applet.store }
+    private var selectionTitle: String {
+        if store.selectedIDs.count > 1 { return "\(store.selectedIDs.count) selected" }
+        if store.files.isEmpty { return "Files" }
+        return store.files.count == 1 ? "1 file" : "\(store.files.count) files"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(store.selectedIDs.count > 1 ? "\(store.selectedIDs.count) selected" : "\(store.files.count) files")
+                Text(selectionTitle)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Add files", systemImage: "plus") { applet.showsImporter = true }
-                    .keyboardShortcut("o", modifiers: .command)
-                    .foregroundStyle(.primary)
+                Button { applet.showsImporter = true } label: {
+                    Text("Add files  ⌘O")
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                }
+                .keyboardShortcut("o", modifiers: .command)
+                .foregroundStyle(.secondary)
             }
             .font(.system(size: 11, weight: .medium))
             .buttonStyle(.plain)
@@ -47,14 +56,23 @@ struct FilesAppletView: View {
                     .help(error)
             }
 
-            Label(isDropTarget ? "Drop to add files" : "Drop files here · Space to preview", systemImage: "arrow.down.to.line")
+            if !store.files.isEmpty {
+                HStack(spacing: 12) {
+                    Text(isDropTarget ? "Drop to add" : "↑↓ Select")
+                    Button("Space Preview") { applet.previewURL = store.selectedFile?.url }
+                        .buttonStyle(.plain)
+                        .disabled(store.selectedFile?.url == nil)
+                    Text("⌘K Actions")
+                }
                 .font(.system(size: 11))
                 .foregroundStyle(isDropTarget ? .primary : .secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 32)
         .padding(.top, 14)
-        .padding(.bottom, 20)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(isDropTarget ? Color.white.opacity(0.05) : .clear, in: .rect(cornerRadius: 24))
         .contentShape(Rectangle())
         .focusable()
@@ -107,13 +125,15 @@ struct FilesAppletView: View {
                 .font(.system(size: 24, weight: .light))
                 .foregroundStyle(.secondary)
             VStack(spacing: 4) {
-                Text(store.isLoading ? "Loading your shelf…" : "Drop files here to keep them handy")
-                    .font(.system(size: 12, weight: .medium))
+                Text(store.isLoading ? "Loading your shelf…" : (isDropTarget ? "Drop to add files" : "Drop files here"))
+                    .font(.system(size: 14, weight: .medium))
                 Text("Your files stay in their original locations.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
         }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -137,16 +157,6 @@ struct FilesAppletView: View {
                 }
             }
             Spacer(minLength: 0)
-            Button { store.remove(id: file.id) } label: {
-                Image(systemName: "minus.circle")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 26)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Remove from shelf. The original file is kept.")
-            .accessibilityLabel("Remove \(file.reference.name) from shelf")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -162,17 +172,7 @@ struct FilesAppletView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityAction(named: "Select") { store.select(file.id) }
         .accessibilityAction(named: "Preview") { applet.previewURL = file.url }
-        .contextMenu {
-            if let url = file.url {
-                Button("Preview", systemImage: "eye") { applet.previewURL = url }
-                Button("Show in Finder", systemImage: "folder") {
-                    NSWorkspace.shared.activateFileViewerSelecting(isSelected ? store.selectedURLs : [url])
-                }
-            }
-            Button("Remove from shelf", systemImage: "minus.circle") {
-                if isSelected { store.removeSelected() } else { store.remove(id: file.id) }
-            }
-        }
+        .accessibilityAction(named: "Remove from shelf") { store.remove(id: file.id) }
         .modifier(ShelfFileDrag(url: file.url))
     }
 }
