@@ -6,10 +6,11 @@ struct NotchContentView: View {
     var restoreFocus: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var capturedNoteID: UUID?
     @State private var artwork: AlbumArtwork?
     @State private var loadedArtworkSource: AlbumArtwork.Source?
 
-    private var background: AppletBackground? { presentation.activeApplet.background }
+    private var background: AppletBackground? { presentation.showsSettings ? nil : presentation.activeApplet.background }
     private var artworkSource: AlbumArtwork.Source? { background?.artworkSource }
 
     private var displayedArtwork: AlbumArtwork? {
@@ -22,12 +23,39 @@ struct NotchContentView: View {
             NotchTabBar(presentation: presentation, select: selectApplet)
 
             ZStack {
-                appletView
-                    .disabled(presentation.capturedSelection != nil)
-                    .opacity(presentation.capturedSelection == nil ? 1 : 0.2)
+                if presentation.showsSettings {
+                    SettingsView(presentation: presentation)
+                } else {
+                    appletView
+                        .disabled(presentation.capturedSelection != nil)
+                        .opacity(presentation.capturedSelection == nil ? 1 : 0.2)
+                }
 
                 if let preview = presentation.capturedSelection {
                     selectionPreview(preview)
+                }
+            }
+            .overlay(alignment: .top) {
+                if let error = presentation.terminationError {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(error).font(.system(size: 12))
+                        HStack {
+                            Button("Try saving again") {
+                                guard let notes = presentation.registeredApplets.applet(for: AppletID(rawValue: "notes")) as? NotesApplet else { return }
+                                notes.store.flush()
+                                if !notes.store.hasUnsavedChanges { presentation.terminationError = nil }
+                            }
+                            .buttonStyle(NotchControlStyle(isSelected: true))
+                            .keyboardShortcut("s", modifiers: .command)
+
+                            Button("Keep editing") { presentation.terminationError = nil }
+                                .buttonStyle(NotchControlStyle())
+                        }
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.black, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(12)
                 }
             }
         }
@@ -43,6 +71,7 @@ struct NotchContentView: View {
                 )
             }
         }
+        .onChange(of: presentation.capturedSelection?.selection) { _, _ in capturedNoteID = nil }
         .task(id: artworkSource) {
             let source = artworkSource
             let loaded = if let source { await AlbumArtworkCache.shared.load(source) } else { nil as AlbumArtwork? }
@@ -70,24 +99,48 @@ struct NotchContentView: View {
         .transition(.opacity)
     }
 
+    private var notes: NotesApplet? {
+        presentation.registeredApplets.applet(for: AppletID(rawValue: "notes")) as? NotesApplet
+    }
+
+    private var notesAreReadOnly: Bool { notes?.store.isReadOnly == true }
+
+    private func saveSelectionAsNote(_ text: String) {
+        guard let notes else { return }
+        if let capturedNoteID, notes.store.notes.contains(where: { $0.id == capturedNoteID }) {
+            notes.store.flush()
+        } else {
+            guard presentation.saveCapturedNote(text) != nil else { return }
+            capturedNoteID = notes.store.selectedID
+        }
+        guard !notes.store.hasUnsavedChanges else { return }
+        presentation.capturedSelection = nil
+        selectApplet(notes.id)
+    }
+
     private func selectionPreview(_ preview: SelectionPreview) -> some View {
-        SelectionActionsView(
-            selection: preview.selection,
-            error: preview.error,
-            canSaveNote: presentation.settings.isEnabled(AppletID(rawValue: "notes")),
-            canComposeInCodex: presentation.settings.isEnabled(AppletID(rawValue: "codex")),
-            saveNote: { text in
-                if let id = presentation.saveCapturedNote(text) {
+        VStack(spacing: 0) {
+            SelectionActionsView(
+                selection: preview.selection,
+                error: preview.error,
+                canSaveNote: presentation.settings.isEnabled(AppletID(rawValue: "notes")) && !notesAreReadOnly,
+                saveNoteUnavailableReason: notesAreReadOnly ? "Notes could not be loaded. Your selection is still here." : nil,
+                canComposeInCodex: presentation.settings.isEnabled(AppletID(rawValue: "codex")),
+                saveNote: saveSelectionAsNote,
+                composeInCodex: { text in
                     presentation.capturedSelection = nil
-                    selectApplet(id)
-                }
-            },
-            composeInCodex: { text in
-                presentation.capturedSelection = nil
-                presentation.composeInCodex?(text)
-            },
-            dismiss: { presentation.capturedSelection = nil; restoreFocus() }
-        )
+                    presentation.composeInCodex?(text)
+                },
+                dismiss: { presentation.capturedSelection = nil; restoreFocus() }
+            )
+            if capturedNoteID != nil, let error = notes?.store.errorMessage {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 16)
+            }
+        }
         .modifier(FloatingGlass())
         .padding(12)
     }

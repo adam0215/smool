@@ -57,15 +57,15 @@ struct NotchHeader<Leading: View, Center: View, Trailing: View>: View {
 }
 
 #if DEBUG
-#Preview("Utan notch") {
+#Preview("Without notch") {
     NotchHeaderPreview(notch: .none)
 }
 
-#Preview("Fysisk notch") {
+#Preview("Physical notch") {
     NotchHeaderPreview(notch: .physical(ScreenNotch.referenceSize))
 }
 
-#Preview("Demonotch") {
+#Preview("Demo notch") {
     NotchHeaderPreview(notch: .simulated(ScreenNotch.referenceSize))
 }
 

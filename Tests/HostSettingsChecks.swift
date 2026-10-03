@@ -21,6 +21,7 @@ private final class FixtureApplet: Applet {
 @main
 struct HostSettingsChecks {
     @MainActor static func main() {
+        _ = NSApplication.shared
         let suite = "smool.host-checks.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -89,6 +90,60 @@ struct HostSettingsChecks {
         let repaired = AppSettings(defaults: defaults)
         precondition(repaired.isEnabled(.home))
         precondition(repaired.frontAppletIDs == Array(ids[2...4]))
+        let swedish = Locale(identifier: "sv_SE")
+        let english = AppSettings.displayLocale(for: swedish)
+        precondition(english.language.languageCode == .english)
+        precondition(english.region == swedish.region && english.hourCycle == swedish.hourCycle)
+        var clockFormat = Date.FormatStyle.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(english)
+        clockFormat.timeZone = TimeZone(secondsFromGMT: 0)!
+        let evening = Date(timeIntervalSince1970: 22 * 3600 + 38 * 60)
+        precondition(evening.formatted(clockFormat) == "22:38", "English labels must preserve the user's 24-hour clock.")
+
+        let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        precondition(!panel.canBecomeKey)
+        panel.allowsKeyboardFocus = true
+        precondition(panel.canBecomeKey)
+        panel.allowsKeyboardFocus = false
+        precondition(!panel.canBecomeKey)
+        let controller = NotchPanelController()
+        controller.restoreFocus()
+        precondition(!controller.isOpen, "A late popover dismissal cannot reopen the panel.")
+        controller.stop()
+
+        presentation.showsSettings = true
+        presentation.changeSettingsSection(.general)
+        precondition(presentation.contentHeight == 360)
+        precondition(presentation.handleSettingsKey(49, modifiers: [], characters: " "))
+        precondition(settings.demoNotchEnabled)
+        precondition(presentation.handleSettingsKey(48, modifiers: .shift, characters: nil))
+        precondition(presentation.settingsRow == 3)
+        precondition(presentation.handleSettingsKey(48, modifiers: [], characters: nil))
+        precondition(presentation.settingsRow == 0)
+        precondition(presentation.handleSettingsKey(124, modifiers: [], characters: nil))
+        precondition(presentation.settingsSection == .applets)
+        presentation.settingsRow = 1
+        let selected = presentation.settingsAppletIDs[1]
+        let wasEnabled = settings.isEnabled(selected)
+        precondition(presentation.handleSettingsKey(36, modifiers: [], characters: nil))
+        precondition(settings.isEnabled(selected) != wasEnabled)
+        settings.setEnabled(true, for: selected)
+        precondition(presentation.handleSettingsKey(125, modifiers: .command, characters: nil))
+        precondition(presentation.settingsAppletIDs[presentation.settingsRow] == selected)
+        precondition(!presentation.handleSettingsKey(1, modifiers: .command, characters: "s"))
+        presentation.select(presentation.selection)
+        precondition(!presentation.showsSettings, "Selecting the current applet returns from settings.")
+
+        defaults.set(["missing-1", "missing-2", "missing-3"], forKey: "frontAppletIDs")
+        let missing = NotchPresentation(registry: AppletRegistry(applets), settings: AppSettings(defaults: defaults))
+        missing.changeSettingsSection(.applets)
+        missing.settingsRow = missing.settingsRowCount - 1
+        missing.activateSettingsRow()
+        precondition(missing.settings.frontAppletIDs.count == 2)
+        precondition(missing.settingsRow < missing.settingsRowCount)
+        missing.settingsRow = missing.settingsAppletIDs.firstIndex(of: ids[2])!
+        missing.toggleSettingsFront()
+        precondition(missing.settings.frontIDs(in: ids).contains(ids[2]))
+
         print("Passed: persistence, normalization, 0–3 front applets, generic ordering, disabling, and 11-app keyboard navigation.")
     }
 }

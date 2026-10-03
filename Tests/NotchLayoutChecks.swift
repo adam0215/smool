@@ -69,6 +69,22 @@ struct NotchLayoutChecks {
             checkHeader(layout, width: 0)
         }
 
+        for layout in [macBook, external, wideNotch] {
+            for count in 0...2 {
+                let frame = layout.collapsedFrame(statusCount: count)
+                precondition(frame.maxY == layout.screenFrame.maxY)
+                if layout.notch.obscuresCenter {
+                    precondition(frame.minX + layout.headerSize.width / 2 == layout.screenFrame.midX,
+                                 "The camera stays fixed with one-sided status symbols.")
+                    precondition(frame.width == layout.headerSize.width + CGFloat(count) * 28,
+                                 "Only visible symbols add width; there is no empty mirrored side.")
+                } else {
+                    precondition(frame.midX == layout.screenFrame.midX)
+                    precondition(count == 0 || frame.width == CGFloat(count) * 28)
+                }
+            }
+        }
+
         print("Passed: notch detection, simulation, mixed displays, edge anchoring, and safe header regions.")
     }
 

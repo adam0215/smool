@@ -7,7 +7,7 @@ final class NotchPanelController: NSObject {
     private var panel: NotchPanel?
     private var localMonitor: Any?
     private var outsideMonitor: Any?
-    private var isOpen = false
+    private(set) var isOpen = false
     private var isClosing = false
     private var transition = 0
     private var resizeTransition = 0
@@ -60,7 +60,15 @@ final class NotchPanelController: NSObject {
         presentation.reconcileSettings()
         presentation.updateBackgroundServices()
         let demo = presentation.settings.demoNotchEnabled
-        if demo != demoNotchEnabled { setDemoNotchEnabled(demo) }
+        if demo != demoNotchEnabled {
+            demoNotchEnabled = demo
+            if isOpen, let screen = panel?.screen ?? targetScreen {
+                presentation.layout = NotchLayout(screen: screen, demoNotch: demo)
+                resizeContent()
+            } else {
+                resetPresentation()
+            }
+        }
         else if isOpen { resizeContent() }
         else { updateCollapsedPanel() }
     }
@@ -82,6 +90,8 @@ final class NotchPanelController: NSObject {
 
         let panel = panel ?? makePanel()
         self.panel = panel
+        presentation.usesExpandedFrame = true
+        panel.allowsKeyboardFocus = true
         panel.setFrame(presentation.layout.windowFrame, display: true)
         panel.ignoresMouseEvents = false
         panel.makeKeyAndOrderFront(nil)
@@ -101,10 +111,14 @@ final class NotchPanelController: NSObject {
     func close() {
         captureTask?.cancel()
         guard isOpen else { return }
+        isOpen = false
+        panel?.allowsKeyboardFocus = false
+        panel?.makeFirstResponder(nil)
+        panel?.resignKey()
         presentation.capturedSelection = nil
         presentation.showsActions = false
+        presentation.showsSettings = false
         presentation.activeApplet.dismissOverlay()
-        isOpen = false
         isClosing = true
         transition += 1
         resizeTransition += 1
@@ -158,12 +172,8 @@ final class NotchPanelController: NSObject {
         let content = NSHostingView(rootView: NotchView(
             presentation: presentation,
             selectApplet: { [weak self] in self?.selectApplet($0) },
-            close: { [weak self] in self?.close() },
-            restoreFocus: { [weak self] in
-                guard let self else { return }
-                if !self.isOpen { self.open() }
-                else { self.panel?.makeKeyAndOrderFront(nil) }
-            },
+            close: { [weak self] in self?.goBackOrClose() },
+            restoreFocus: { [weak self] in self?.restoreFocus() },
             resizeContent: { [weak self] in
                 guard let self, self.isOpen, self.presentation.layout.contentHeight != self.presentation.contentHeight else { return }
                 self.resizeContent()
@@ -188,13 +198,48 @@ final class NotchPanelController: NSObject {
     }
 
     func selectApplet(_ id: AppletID) {
-        guard presentation.selection != id, let applet = presentation.registry.applet(for: id) else { return }
+        guard presentation.selection != id || presentation.showsSettings,
+              let applet = presentation.registry.applet(for: id) else { return }
         if !isOpen {
             presentation.select(id)
             presentation.layout.contentHeight = presentation.contentHeight
             return
         }
         resizeContent(height: applet.contentHeight) { self.presentation.select(id) }
+    }
+
+    func showSettings() {
+        presentation.activeApplet.dismissOverlay()
+        presentation.showsActions = false
+        presentation.capturedSelection = nil
+        presentation.showsSettings = true
+        if isOpen { resizeContent() }
+        else { open() }
+        restoreFocus()
+    }
+
+    func goBackOrClose() {
+        if presentation.showsSettings {
+            presentation.showsSettings = false
+            resizeContent()
+        } else {
+            close()
+        }
+    }
+
+    func restoreFocus() {
+        guard isOpen else { return }
+        panel?.makeKeyAndOrderFront(nil)
+    }
+
+    func showTerminationFailure() {
+        presentation.terminationError = "Your notes could not be saved. Your text is still in smool. Try saving again before quitting."
+        let notesID = AppletID(rawValue: "notes")
+        presentation.settings.setEnabled(true, for: notesID)
+        selectApplet(notesID)
+        open()
+        resizeContent()
+        restoreFocus()
     }
 
     private func resizeContent(height: CGFloat? = nil, update: () -> Void = {}) {
@@ -225,7 +270,18 @@ final class NotchPanelController: NSObject {
         removeEventMonitors()
 
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self else { return event }
+            guard let self, self.isOpen else { return event }
+            if event.type == .keyDown, event.window === self.panel,
+               self.presentation.showsSettings, event.keyCode == 53 {
+                self.goBackOrClose()
+                return nil
+            }
+            if event.type == .keyDown, event.window === self.panel,
+               self.presentation.showsSettings,
+               self.presentation.handleSettingsKey(event.keyCode, modifiers: event.modifierFlags,
+                                                   characters: event.charactersIgnoringModifiers) {
+                return nil
+            }
             if self.presentation.capturedSelection != nil, event.type == .keyDown, event.window === self.panel {
                 return event
             }
@@ -275,7 +331,7 @@ final class NotchPanelController: NSObject {
     // Route deck arrows before SwiftUI transfers focus during a page transition.
     // Editing scopes keep their native arrow keys.
     private func navigateApplet(keyCode: UInt16) -> Bool {
-        guard let arrow = AppletArrow(rawValue: keyCode) else { return false }
+        guard !presentation.showsSettings, let arrow = AppletArrow(rawValue: keyCode) else { return false }
         return withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .smooth(duration: 0.24)) {
             presentation.activeApplet.handleArrow(arrow, command: false)
         }
@@ -298,6 +354,7 @@ final class NotchPanelController: NSObject {
         transition += 1
         resizeTransition += 1
         presentation.isExpanded = false
+        panel?.allowsKeyboardFocus = false
         panel?.orderOut(nil)
         removeEventMonitors()
 
@@ -325,17 +382,18 @@ final class NotchPanelController: NSObject {
         guard size.height > 0 else { panel?.orderOut(nil); return }
         let panel = panel ?? makePanel()
         self.panel = panel
-        let screen = presentation.layout.screenFrame
-        panel.setFrame(CGRect(x: screen.midX - size.width / 2, y: screen.maxY - size.height,
-                              width: size.width, height: size.height), display: true)
+        presentation.usesExpandedFrame = false
+        panel.allowsKeyboardFocus = false
+        panel.setFrame(presentation.layout.collapsedFrame(statusCount: presentation.statusItems.count), display: true)
         // The narrow collapsed frame accepts status clicks and files without stealing keyboard focus.
         panel.ignoresMouseEvents = false
         panel.orderFrontRegardless()
     }
 }
 
-private final class NotchPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
+final class NotchPanel: NSPanel {
+    var allowsKeyboardFocus = false
+    override var canBecomeKey: Bool { allowsKeyboardFocus }
     override var canBecomeMain: Bool { false }
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {

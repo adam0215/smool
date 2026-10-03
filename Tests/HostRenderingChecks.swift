@@ -63,6 +63,29 @@ struct HostRenderingChecks {
                 }
             }
         }
+        let settingsPresentation = NotchPresentation(registry: AppletRegistry(applets), settings: AppSettings(defaults: defaults))
+        settingsPresentation.showsSettings = true
+        for section in SettingsSection.allCases {
+            settingsPresentation.changeSettingsSection(section)
+            var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+                                     notch: .physical(ScreenNotch.referenceSize))
+            layout.contentHeight = settingsPresentation.contentHeight
+            settingsPresentation.layout = layout
+            let view = VStack(spacing: 8) {
+                NotchTabBar(presentation: settingsPresentation, select: { _ in })
+                SettingsView(presentation: settingsPresentation)
+            }
+            .frame(width: layout.expandedSize.width, height: layout.expandedSize.height)
+            .background(.black)
+            .clipShape(NotchShape(shoulderRadius: 0, bottomRadius: 64))
+            .environment(\.colorScheme, .dark)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            guard let image = renderer.cgImage else { fatalError("Could not render settings") }
+            try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!
+                .write(to: output.appendingPathComponent("settings-\(section.rawValue.lowercased()).png"))
+        }
+
         print("Passed: 0–3 front applets, 11-app header, compact/full width and camera exclusion.")
     }
 }

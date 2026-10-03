@@ -57,12 +57,12 @@ struct IntegrationChecks {
 
         let screen = CGRect(x: 0, y: 0, width: 1512, height: 982)
         let layout = NotchLayout(screenFrame: screen, notch: .physical(ScreenNotch.referenceSize))
-        let size = NotchStatusView.size(layout: layout, hasStatus: true)
-        precondition(size.width == 409 && size.height == 32)
-        precondition(NotchStatusView.size(layout: layout, hasStatus: false) == layout.collapsedSize)
+        let size = layout.collapsedSize(statusCount: 2)
+        precondition(size.width == 241 && size.height == 32)
+        precondition(layout.collapsedSize(statusCount: 0) == layout.collapsedSize)
         let noNotch = NotchLayout(screenFrame: screen)
-        precondition(NotchStatusView.size(layout: noNotch, hasStatus: true).width == 224)
-        precondition(NotchStatusView.size(layout: noNotch, hasStatus: false).height == 0)
+        precondition(noNotch.collapsedSize(statusCount: 1).width == 28)
+        precondition(noNotch.collapsedSize(statusCount: 0).height == 0)
 
         if let output = CommandLine.arguments.dropFirst().first {
             let items = [

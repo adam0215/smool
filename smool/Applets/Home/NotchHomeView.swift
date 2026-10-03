@@ -84,7 +84,7 @@ struct NotchHomeView: View {
                     .modifier(GlassInk(illumination: lightLevel, isSelected: activeCard == .clock))
                     .frame(height: 64)
 
-                Text(date.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "sv_SE"))))
+                Text(date.formatted(.dateTime.day().month(.wide).year().locale(AppSettings.displayLocale())))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -102,10 +102,10 @@ struct NotchHomeView: View {
         .focusEffectDisabled()
         .onKeyPress(.return) { openCalendar(); return .handled }
         .onHover { updateHover($0, card: .clock) }
-        .accessibilityLabel("Öppna kalender")
+        .accessibilityLabel("Open calendar")
         .accessibilityValue(date.formatted(date: .complete, time: .shortened))
         .accessibilityAddTraits(activeCard == .clock ? .isSelected : [])
-        .help("Öppna kalender")
+        .help("Open calendar")
     }
 
     private func appButton(_ applet: AppletDestination, shape: HomeCardShape) -> some View {
@@ -126,9 +126,9 @@ struct NotchHomeView: View {
         .focusEffectDisabled()
         .onHover { updateHover($0, card: card) }
         .onKeyPress(.return) { openApplet(applet.id); return .handled }
-        .accessibilityLabel("Öppna \(applet.title)")
+        .accessibilityLabel("Open \(applet.title)")
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .help("Öppna \(applet.title)" + (applet.shortcutNumber.map { " · ⌘\($0)" } ?? ""))
+        .help("Open \(applet.title)" + (applet.shortcutNumber.map { " · ⌘\($0)" } ?? ""))
     }
 
     private func updateHover(_ hovering: Bool, card: HomeCard) {
@@ -150,7 +150,7 @@ enum HomeCard: Hashable {
 }
 
 #if DEBUG
-#Preview("Hem") {
+#Preview("Home") {
     let layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982))
     NotchHomeView(layout: layout, date: .now)
         .frame(width: layout.expandedSize.width, height: 112)

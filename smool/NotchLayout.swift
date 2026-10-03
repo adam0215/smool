@@ -17,6 +17,23 @@ struct NotchLayout {
         notch.size ?? CGSize(width: headerSize.width, height: 0)
     }
 
+    // Status symbols sit to the right of the camera, with no empty mirrored region.
+    func collapsedSize(statusCount: Int) -> CGSize {
+        guard statusCount > 0 else { return collapsedSize }
+        return CGSize(width: (notch.obscuresCenter ? headerSize.width : 0) + CGFloat(statusCount) * 28,
+                      height: headerSize.height)
+    }
+
+    func collapsedOffset(statusCount: Int) -> CGFloat {
+        notch.obscuresCenter ? CGFloat(statusCount) * 14 : 0
+    }
+
+    func collapsedFrame(statusCount: Int) -> CGRect {
+        let size = collapsedSize(statusCount: statusCount)
+        return CGRect(x: screenFrame.midX - size.width / 2 + collapsedOffset(statusCount: statusCount),
+                      y: screenFrame.maxY - size.height, width: size.width, height: size.height)
+    }
+
     var expandedSize: CGSize {
         CGSize(
             width: min(max(560, headerSize.width + 360), screenFrame.width - 40),

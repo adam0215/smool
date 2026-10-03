@@ -27,7 +27,12 @@ final class NotchPresentation {
     }
     private(set) var selection: AppletID
     var isExpanded = false
+    var usesExpandedFrame = false
     var showsActions = false
+    var showsSettings = false
+    var settingsSection = SettingsSection.general
+    var settingsRow = 0
+    var terminationError: String?
     let audio = SystemAudioLevel()
     var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900))
 
@@ -40,14 +45,23 @@ final class NotchPresentation {
     var activeApplet: any Applet { registeredApplets.applet(for: selection)! }
 
     func reconcileSettings() {
-        if registry.applet(for: selection) == nil { select(registry.applets[0].id) }
+        if registry.applet(for: selection) == nil {
+            let wasShowingSettings = showsSettings
+            select(registry.applets[0].id)
+            showsSettings = wasShowingSettings
+        }
     }
-    var contentHeight: CGFloat { max(activeApplet.contentHeight, capturedSelection == nil ? 0 : 250) }
+    var contentHeight: CGFloat {
+        if showsSettings { return 360 }
+        return max(activeApplet.contentHeight, capturedSelection == nil ? 0 : 250, terminationError == nil ? 0 : 280)
+    }
 
-    var collapsedSize: CGSize { NotchStatusView.size(layout: layout, hasStatus: !statusItems.isEmpty) }
+    var collapsedSize: CGSize { layout.collapsedSize(statusCount: statusItems.count) }
 
     func select(_ id: AppletID) {
-        guard selection != id, registry.applet(for: id) != nil else { return }
+        guard registry.applet(for: id) != nil else { return }
+        showsSettings = false
+        guard selection != id else { return }
         showsActions = false
         capturedSelection = nil
         activeApplet.deactivate()
@@ -121,10 +135,13 @@ struct NotchView: View {
                 acceptFiles(urls.filter(\.isFileURL))
             })
             .onTapGesture { if !presentation.isExpanded { open() } }
+            .offset(x: !presentation.isExpanded && presentation.usesExpandedFrame
+                    ? presentation.layout.collapsedOffset(statusCount: presentation.statusItems.count) : 0)
+            .animation(horizontalAnimation, value: presentation.isExpanded)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .ignoresSafeArea()
             .preferredColorScheme(.dark)
-            .environment(\.locale, Locale(identifier: "sv_SE"))
+            .environment(\.locale, AppSettings.displayLocale())
             .accessibilityElement(children: .contain)
             .accessibilityLabel("smool")
             .onChange(of: presentation.contentHeight) { _, _ in resizeContent() }

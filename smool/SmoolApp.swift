@@ -6,11 +6,11 @@ struct SmoolApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(settings: delegate.panel.presentation.settings, registry: delegate.panel.presentation.registeredApplets)
+            EmptyView()
         }
         .commands {
             CommandGroup(replacing: .appSettings) {
-                Button("Inställningar…") { delegate.showSettings() }
+                Button("Settings…") { delegate.showSettings() }
                     .keyboardShortcut(",", modifiers: .command)
             }
         }
@@ -20,7 +20,6 @@ struct SmoolApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let panel = NotchPanelController()
-    private var settingsWindow: NSWindow?
     private var shortcut: GlobalShortcut?
     private var selectionShortcut: GlobalShortcut?
     private var statusItem: NSStatusItem?
@@ -39,8 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Kortkommandot är upptaget"
-            alert.informativeText = "smool kunde inte registrera ⌃⌥Space. Du kan fortfarande öppna panelen från menyfältet.\n\n\(error.localizedDescription)"
+            alert.messageText = "Keyboard shortcut unavailable"
+            alert.informativeText = "smool could not register ⌃⌥Space. You can still open it from the menu bar.\n\n\(error.localizedDescription)"
             alert.runModal()
         }
 
@@ -49,14 +48,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.panel.captureSelection()
             }
         } catch {
-            statusItem?.button?.toolTip = "smool · ⌃⌥C är upptaget. Markerad text finns i menyn."
+            statusItem?.button?.toolTip = "smool · ⌃⌥C is unavailable. Selection actions are available in the menu."
         }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task {
-            await panel.presentation.finishPendingChanges()
-            sender.reply(toApplicationShouldTerminate: true)
+            let saved = await panel.presentation.finishPendingChanges()
+            sender.reply(toApplicationShouldTerminate: saved)
+            if !saved { panel.showTerminationFailure() }
         }
         return .terminateLater
     }
@@ -78,19 +78,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.toolTip = "smool · ⌃⌥Space"
 
         let menu = NSMenu()
-        let toggle = menu.addItem(withTitle: "Visa eller dölj smool", action: #selector(togglePanel), keyEquivalent: " ")
+        let toggle = menu.addItem(withTitle: "Show or hide smool", action: #selector(togglePanel), keyEquivalent: " ")
         toggle.keyEquivalentModifierMask = [.control, .option]
         toggle.target = self
-        let capture = menu.addItem(withTitle: "Gör något med markerad text", action: #selector(captureSelection), keyEquivalent: "c")
+        let capture = menu.addItem(withTitle: "Act on selected text", action: #selector(captureSelection), keyEquivalent: "c")
         capture.keyEquivalentModifierMask = [.control, .option]
         capture.target = self
         menu.addItem(.separator())
 
-        let settings = menu.addItem(withTitle: "Inställningar…", action: #selector(showSettings), keyEquivalent: ",")
+        let settings = menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(.separator())
 
-        let quit = menu.addItem(withTitle: "Avsluta smool", action: #selector(quit), keyEquivalent: "q")
+        let quit = menu.addItem(withTitle: "Quit smool", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
 
         item.menu = menu
@@ -104,21 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func captureSelection() { panel.captureSelection() }
 
     @objc func showSettings() {
-        panel.close()
-        let window: NSWindow
-        if let settingsWindow {
-            window = settingsWindow
-        } else {
-            let view = SettingsView(settings: panel.presentation.settings, registry: panel.presentation.registeredApplets)
-            window = NSWindow(contentViewController: NSHostingController(rootView: view))
-            window.title = "Inställningar"
-            window.styleMask = [.titled, .closable, .miniaturizable]
-            window.isReleasedWhenClosed = false
-            window.center()
-            settingsWindow = window
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        panel.showSettings()
     }
 
     @objc private func quit() {

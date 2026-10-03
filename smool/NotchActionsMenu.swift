@@ -10,11 +10,11 @@ struct NotchActionsMenu: View {
         }
         .buttonStyle(.plain).focusable(false)
         .keyboardShortcut("k", modifiers: .command)
-        .accessibilityLabel("Åtgärder")
-        .help("Åtgärder · ⌘K")
+        .accessibilityLabel("Actions")
+        .help("Actions · ⌘K")
         .popover(isPresented: $presentation.showsActions, arrowEdge: .bottom) {
             ActionList(actions: presentation.activeApplet.actions + [
-                AppletAction(id: "Inställningar…", symbol: "gearshape", shortcut: "⌘,") {
+                AppletAction(id: "Settings…", symbol: "gearshape", shortcut: "⌘,") {
                     presentation.openSettings()
                 }
             ]) { presentation.showsActions = false }

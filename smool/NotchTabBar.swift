@@ -6,39 +6,54 @@ struct NotchTabBar: View {
 
     var body: some View {
         NotchHeader(layout: presentation.layout, sideInset: 20) {
-            HStack(spacing: 3) {
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal) { tabs }
-                        .scrollIndicators(.hidden)
-                        .onChange(of: presentation.selection, initial: true) { _, selection in
-                            proxy.scrollTo(selection, anchor: .center)
-                        }
-                        .onChange(of: presentation.registry.applets.map(\.id)) { _, _ in
-                            proxy.scrollTo(presentation.selection, anchor: .center)
-                        }
-                }
-                Menu {
-                    ForEach(presentation.registry.applets, id: \.id) { applet in
-                        Button { select(applet.id) } label: {
-                            Label(applet.title + (presentation.registry.shortcutNumber(for: applet.id).map { "  ⌘\($0)" } ?? ""),
-                                  systemImage: presentation.selection == applet.id ? "checkmark" : "circle")
-                        }
-                    }
+            if presentation.showsSettings {
+                Button {
+                    presentation.showsSettings = false
                 } label: {
-                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
+                        Text("Settings").font(.system(size: 11, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Alla applets · ⌃Tab byter applet")
-                .accessibilityLabel("Alla applets")
+                .buttonStyle(.plain)
+                .help("Back · esc")
+            } else {
+                HStack(spacing: 3) {
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal) { tabs }
+                            .scrollIndicators(.hidden)
+                            .onChange(of: presentation.selection, initial: true) { _, selection in
+                                proxy.scrollTo(selection, anchor: .center)
+                            }
+                            .onChange(of: presentation.registry.applets.map(\.id)) { _, _ in
+                                proxy.scrollTo(presentation.selection, anchor: .center)
+                            }
+                    }
+                    Menu {
+                        ForEach(presentation.registry.applets, id: \.id) { applet in
+                            Button { select(applet.id) } label: {
+                                Label(applet.title + (presentation.registry.shortcutNumber(for: applet.id).map { "  ⌘\($0)" } ?? ""),
+                                      systemImage: presentation.selection == applet.id ? "checkmark" : "circle")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("All applets · ⌃Tab switches applet")
+                    .accessibilityLabel("All applets")
+                }
+                .frame(maxHeight: .infinity)
             }
-            .frame(maxHeight: .infinity)
         } center: {
             EmptyView()
         } trailing: {
             HStack(spacing: 10) {
-                if !presentation.activeApplet.pages.isEmpty { pageIndicators }
+                if !presentation.showsSettings, !presentation.activeApplet.pages.isEmpty { pageIndicators }
                 TimelineView(.everyMinute) { _ in
                     if presentation.settings.showBattery, let battery = BatteryStatus.current() {
                         HStack(spacing: 3) {
@@ -50,7 +65,11 @@ struct NotchTabBar: View {
                         .accessibilityLabel(battery.description)
                     }
                 }
-                NotchActionsMenu(presentation: presentation)
+                if presentation.showsSettings {
+                    Text("esc").font(.system(size: 10)).foregroundStyle(.tertiary)
+                } else {
+                    NotchActionsMenu(presentation: presentation)
+                }
             }
             .fixedSize()
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -58,21 +77,19 @@ struct NotchTabBar: View {
     }
 
     private var tabs: some View {
-        GlassEffectContainer(spacing: 4) {
-            HStack(spacing: 4) {
-                ForEach(presentation.registry.applets, id: \.id) { applet in
-                    Button { select(applet.id) } label: {
-                        applet.icon.view
-                            .foregroundStyle(.white.opacity(presentation.selection == applet.id ? 1 : 0.65))
-                            .frame(width: 26, height: 26)
-                            .modifier(CardGlass(shape: Circle(), isSelected: presentation.selection == applet.id))
-                    }
-                    .id(applet.id)
-                    .buttonStyle(.plain).focusable(false)
-                    .accessibilityLabel(applet.title)
-                    .accessibilityAddTraits(presentation.selection == applet.id ? .isSelected : [])
-                    .help(applet.title)
+        HStack(spacing: 4) {
+            ForEach(presentation.registry.applets, id: \.id) { applet in
+                Button { select(applet.id) } label: {
+                    applet.icon.view
+                        .foregroundStyle(.white.opacity(presentation.selection == applet.id ? 1 : 0.65))
+                        .frame(width: 26, height: 26)
+                        .background(.white.opacity(presentation.selection == applet.id ? 0.12 : 0), in: Circle())
                 }
+                .id(applet.id)
+                .buttonStyle(.plain).focusable(false)
+                .accessibilityLabel(applet.title)
+                .accessibilityAddTraits(presentation.selection == applet.id ? .isSelected : [])
+                .help(applet.title)
             }
         }
         .frame(height: presentation.layout.navigationHeight)
@@ -94,7 +111,7 @@ struct NotchTabBar: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Sidor")
+        .accessibilityLabel("Pages")
     }
 
 }

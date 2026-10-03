@@ -109,6 +109,15 @@ final class AppSettings {
         onChange?()
     }
 
+    static func displayLocale(for locale: Locale = .current) -> Locale {
+        var components = Locale.Components(languageCode: .english, languageRegion: locale.region)
+        components.hourCycle = locale.hourCycle
+        components.firstDayOfWeek = locale.firstDayOfWeek
+        components.calendar = locale.calendar.identifier
+        components.numberingSystem = locale.numberingSystem
+        return Locale(components: components)
+    }
+
     private static func readIDs(_ key: String, from defaults: UserDefaults) -> [AppletID] {
         var seen = Set<String>()
         return (defaults.stringArray(forKey: key) ?? [])
