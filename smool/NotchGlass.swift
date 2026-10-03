@@ -37,6 +37,7 @@ struct NotchGlassEdge: View {
     let darkHeight: CGFloat
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         if !reduceTransparency {
@@ -45,14 +46,11 @@ struct NotchGlassEdge: View {
                 Color.clear
                     .glassEffect(.clear, in: shape)
                     .overlay {
-                        shape.stroke(.white.opacity(0.55), lineWidth: 6)
-                            .blur(radius: 2.5)
-                    }
-                    .overlay {
-                        shape.stroke(.white.opacity(0.95), lineWidth: 2)
+                        shape.stroke(.white.opacity(0.9), lineWidth: 2 / displayScale)
                     }
                     .mask {
-                        shape.stroke(.white, lineWidth: 14)
+                        // The panel clips the outer half, leaving one physical pixel inside.
+                        shape.stroke(.white, lineWidth: 2 / displayScale)
                     }
                     .mask(alignment: .bottom) {
                         LinearGradient(colors: [.clear, .white.opacity(0.5), .white],

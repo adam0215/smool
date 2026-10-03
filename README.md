@@ -41,7 +41,7 @@ The home view shows the current time, a Swedish date, and battery status. Its Sp
 
 Arrow keys retain normal editing behavior inside text fields. Pages wrap at their edges. Tabs show icons without shortcut badges. The header greets the signed-in Mac user in Swedish. Reduced Motion and Reduced Transparency settings are respected, and the camera area stays black.
 
-The expanded panel has black-tinted Liquid Glass below its opaque black header. A sharp lower rim and a soft inner glow highlight the bottom curve. The rim's glass sits above the applet lighting to pick up its colors. Reduce Transparency restores the solid black background and removes the reflective rim.
+The expanded panel has black-tinted Liquid Glass below its opaque black header. A sharp, single-pixel lower rim highlights the bottom curve without a blurred halo. The rim's glass sits above the applet lighting to pick up its colors. Reduce Transparency restores the solid black background and removes the reflective rim.
 
 Reopening shows the last loaded content while services refresh. A shared in-memory cache keeps up to 24 decoded album and playlist covers with their gradient colors, so they are available on the first frame. The audio glow also retains its last frame until capture resumes. Project thumbnails are cached too. Codex retains a display snapshot while reconnecting, but commands still check the live connection. Calendar refreshes keep the loaded day's events visible. These caches last for the app session; a first visit still needs to load data. Polling and audio capture stop when their views close.
 
