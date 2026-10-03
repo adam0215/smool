@@ -54,6 +54,12 @@ struct SpotifyChecks {
         precondition(missingArtwork.status == "ready" && missingArtwork.track?.artwork == "")
         precondition(missingArtwork.track?.duration == 200 && missingArtwork.track?.playing == true)
 
+        let mediaFixture = #"{"bundleIdentifier":"com.spotify.client","appName":"Spotify","track":{"title":"Quoted \"track\"","artist":"Artist","artwork":"","duration":200,"position":61,"playing":true}}"#
+        let media = try JSONDecoder().decode(SystemMedia.self, from: Data(mediaFixture.utf8))
+        precondition(media.bundleIdentifier == "com.spotify.client" && media.track.progress == 0.305)
+        let noMedia = try JSONDecoder().decode(SystemMedia?.self, from: Data("null".utf8))
+        precondition(noMedia == nil)
+
         let process = SpotifyTestProcess()
         let replies = SpotifyTestReplies(response: timeout)
         let service = SpotifyService(processIdentifier: { process.id }, request: { _ in await replies.read() })

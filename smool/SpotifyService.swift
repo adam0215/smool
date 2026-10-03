@@ -282,33 +282,47 @@ actor SpotifyBridge {
         """
     }
 
+    private let media = MediaBridge()
+    private let runner = JavaScriptRunner()
+    private var systemOnlyProcess: pid_t?
+
     func run(_ command: Command? = nil) async throws -> Response {
         try Task.checkCancellation()
-        let script = try Self.script(for: command)
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-l", "JavaScript", "-e", script]
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        let timeout = DispatchWorkItem {
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        // Spotify's Apple Events can stop responding while macOS still has current playback.
+        // Prefer the system player only when its identity is actually Spotify.
+        if let current = try? await media.read(), current.bundleIdentifier == "com.spotify.client" {
+            switch command {
+            case nil:
+                // Preserve Spotify's artwork when scripting works. Once a process times out,
+                // use the system snapshot until Spotify restarts instead of waiting every poll.
+                let process = await MainActor.run {
+                    NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").first?.processIdentifier
+                }
+                if let process, systemOnlyProcess != process {
+                    if let response = try? await spotifyResponse(nil) {
+                        if response.status == "ready" { return response }
+                        if response.status == "error" { systemOnlyProcess = process }
+                    }
+                }
+                try Task.checkCancellation()
+                return Response(status: "ready", track: current.track, code: nil, message: nil)
+            case .togglePlayback, .nextTrack:
+                let action: MediaBridge.Command = if case .nextTrack = command { .nextTrack } else { .togglePlayback }
+                let sent = try await media.send(action, to: "com.spotify.client")
+                return Response(status: sent ? "success" : "error", track: nil, code: nil, message: nil)
+            case .playlist: break
+            }
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeout)
-        defer { timeout.cancel() }
-        let data = await withTaskCancellationHandler {
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return data
-        } onCancel: {
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-        }
+        return try await spotifyResponse(command)
+    }
+
+    private func spotifyResponse(_ command: Command?) async throws -> Response {
         try Task.checkCancellation()
-        if process.terminationReason == .uncaughtSignal, process.terminationStatus == SIGKILL {
+        do {
+            let data = try await runner.run(Self.script(for: command))
+            return try JSONDecoder().decode(Response.self, from: data)
+        } catch let error as CocoaError where error.code == .userCancelled && !Task.isCancelled {
             return Response(status: "error", track: nil, code: -1712, message: nil)
         }
-        guard process.terminationStatus == 0 else { throw CocoaError(.executableRuntimeMismatch) }
-        return try JSONDecoder().decode(Response.self, from: data)
     }
 }

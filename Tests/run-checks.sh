@@ -10,7 +10,7 @@ swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -
 "$checks/navigation"
 "${swiftc[@]}" smool/ScreenNotch.swift smool/NotchLayout.swift Tests/NotchLayoutChecks.swift -o "$checks/layout"
 "$checks/layout"
-"${swiftc[@]}" smool/SpotifyService.swift Tests/SpotifyChecks.swift -o "$checks/spotify"
+"${swiftc[@]}" smool/MediaBridge.swift smool/SpotifyService.swift Tests/SpotifyChecks.swift -o "$checks/spotify"
 "$checks/spotify"
 "${swiftc[@]}" smool/CodexProtocol.swift smool/CodexTransport.swift smool/CodexClient.swift smool/CodexService.swift Tests/CodexProtocolChecks.swift -o "$checks/codex"
 "$checks/codex"
