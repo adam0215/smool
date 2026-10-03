@@ -72,11 +72,6 @@ struct TimersAppletView: View {
                     .accessibilityLabel("Timer duration")
                     .accessibilityHint("Minutes, or minutes and seconds separated by a colon. Up and down adjust duration.")
                     .onSubmit { applet.startTimer() }
-                    .onKeyPress(keys: [.upArrow, .downArrow]) { key in
-                        guard key.modifiers.isEmpty else { return .ignored }
-                        applet.adjustDuration(by: key.key == .upArrow ? 60 : -60)
-                        return .handled
-                    }
                 Text(applet.durationInput.contains(":") ? "min : sec" : "min")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)

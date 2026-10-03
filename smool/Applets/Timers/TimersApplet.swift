@@ -92,6 +92,12 @@ final class TimersApplet: Applet {
         return true
     }
 
+    func handleEditingArrow(_ arrow: AppletArrow) -> Bool {
+        guard showsForm, arrow.isVertical else { return false }
+        adjustDuration(by: arrow == .up ? 60 : -60)
+        return true
+    }
+
     func startTimer() {
         do {
             selectedID = try store.start(input: durationInput.isEmpty ? "25" : durationInput, name: nameInput)
