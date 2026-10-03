@@ -5,36 +5,16 @@ struct NotchTabBar: View {
     let select: (AppletID) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            TimelineView(.everyMinute) { context in
-                Text(greeting(at: context.date))
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+        NotchHeader(layout: presentation.layout, sideInset: 20) {
+            ScrollView(.horizontal) {
+                tabs
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
+            .scrollIndicators(.hidden)
+            .frame(maxHeight: .infinity)
+        } center: {
+            EmptyView()
+        } trailing: {
             HStack(spacing: 10) {
-                GlassEffectContainer(spacing: 4) {
-                    HStack(spacing: 4) {
-                        ForEach(presentation.registry.applets, id: \.id) { applet in
-                            Button { select(applet.id) } label: {
-                                applet.icon.view
-                                    .foregroundStyle(.white.opacity(presentation.selection == applet.id ? 1 : 0.65))
-                                    .frame(width: 26, height: 26)
-                                    .glassEffect(.clear.tint(applet.tint.opacity(presentation.selection == applet.id ? 0.12 : 0.015)), in: .circle)
-                                    .overlay { Circle().strokeBorder(.white.opacity(presentation.selection == applet.id ? 0.18 : 0), lineWidth: 0.5) }
-                            }
-                            .buttonStyle(.plain).focusable(false)
-                            .accessibilityLabel(applet.title)
-                            .accessibilityAddTraits(presentation.selection == applet.id ? .isSelected : [])
-                            .help(applet.title)
-                        }
-                    }
-                }
-
-                Spacer(minLength: 8)
                 if !presentation.activeApplet.pages.isEmpty { pageIndicators }
                 TimelineView(.everyMinute) { _ in
                     if let battery = BatteryStatus.current() {
@@ -49,10 +29,30 @@ struct NotchTabBar: View {
                 }
                 NotchActionsMenu(presentation: presentation)
             }
+            .fixedSize()
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.horizontal, 20)
-        .frame(height: 58)
-        .padding(.top, presentation.layout.notch.obscuresCenter ? presentation.layout.headerSize.height : 0)
+    }
+
+    private var tabs: some View {
+        GlassEffectContainer(spacing: 4) {
+            HStack(spacing: 4) {
+                ForEach(presentation.registry.applets, id: \.id) { applet in
+                    Button { select(applet.id) } label: {
+                        applet.icon.view
+                            .foregroundStyle(.white.opacity(presentation.selection == applet.id ? 1 : 0.65))
+                            .frame(width: 26, height: 26)
+                            .glassEffect(.clear.tint(applet.tint.opacity(presentation.selection == applet.id ? 0.12 : 0.015)), in: .circle)
+                            .overlay { Circle().strokeBorder(.white.opacity(presentation.selection == applet.id ? 0.18 : 0), lineWidth: 0.5) }
+                    }
+                    .buttonStyle(.plain).focusable(false)
+                    .accessibilityLabel(applet.title)
+                    .accessibilityAddTraits(presentation.selection == applet.id ? .isSelected : [])
+                    .help(applet.title)
+                }
+            }
+        }
+        .frame(height: presentation.layout.navigationHeight)
     }
 
     private var pageIndicators: some View {
@@ -74,17 +74,4 @@ struct NotchTabBar: View {
         .accessibilityLabel("Sidor")
     }
 
-    private func greeting(at date: Date) -> String {
-        let hour = Calendar.current.component(.hour, from: date)
-        let salutation: String
-        switch hour {
-        case 5..<10: salutation = "God morgon"
-        case 10..<12: salutation = "God förmiddag"
-        case 12..<18: salutation = "God eftermiddag"
-        case 18..<23: salutation = "God kväll"
-        default: salutation = "God natt"
-        }
-        let name = NSFullUserName().split(separator: " ").first.map(String.init) ?? NSUserName()
-        return "\(salutation), \(name)"
-    }
 }

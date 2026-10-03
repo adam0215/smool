@@ -17,7 +17,7 @@ open .build/Build/Products/Debug/smool.app
 
 The app appears in the menu bar. Toggle the panel with ⌃⌥Space. Escape also closes it.
 
-The home view shows the current time, a Swedish date, and battery status. Its Spotify and Codex cards open applets inside the notch. The time-aware greeting sits above four circular glass tabs. Page indicators and the Actions menu stay on the right. On notched displays the header sits below the camera. Applets use compact horizontal layouts, 144–176 points high. Players and Codex threads sit directly on black. Playlist tiles, the glass usage dial, and the composer provide elevation where needed. The calendar places its date beside an event card. The composer starts on one line and expands up to five lines before scrolling. The home tiles keep their layout.
+The home view shows the current time, a Swedish date, and battery status. Its Spotify and Codex cards open applets inside the notch. The circular glass tabs sit at the far left beside the camera. Page indicators, battery status, and the Actions menu sit at the far right. The two sides have equal width, independent of the number of tabs; additional tabs scroll horizontally. The header shares the camera’s height. Applets use compact horizontal layouts, 144–176 points high. Players and Codex threads sit directly on black. Playlist tiles, the glass usage dial, and the composer provide elevation where needed. The calendar places its date beside an event card. The composer starts on one line and expands up to five lines before scrolling. The home tiles keep their layout.
 
 `Applets/BuiltInApplets.swift` registers the destinations in tab order. Each applet owns its services, state, view, actions, page indicators, keyboard handling, content height, and background. The panel and header use the shared `Applet` interface. `AppletPages` handles vertical navigation inside a view. The home cards are shortcuts to registered applets; their layout stays fixed.
 
@@ -39,7 +39,7 @@ The home view shows the current time, a Swedish date, and battery status. Its Sp
 | Escape | Leave details or editing, then close the panel |
 | ? | Show or hide contextual keyboard help |
 
-Arrow keys retain normal editing behavior inside text fields. Pages wrap at their edges. Tabs show icons without shortcut badges. The header greets the signed-in Mac user in Swedish. Reduced Motion and Reduced Transparency settings are respected, and the camera area stays black.
+Arrow keys retain normal editing behavior inside text fields. Pages wrap at their edges. Tabs show icons without shortcut badges. Reduced Motion and Reduced Transparency settings are respected, and the camera area stays black.
 
 The expanded panel has black-tinted Liquid Glass below its opaque black header. A sharp, single-pixel lower rim brightens the content's own colors with color-dodge blending, without a white stroke or blurred halo. The rim shares the panel's geometry animations and stays mounted through opening, resizing, and closing. Reduce Transparency restores the solid black background and removes the reflective rim.
 
