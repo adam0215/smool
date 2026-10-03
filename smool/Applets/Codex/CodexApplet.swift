@@ -47,10 +47,10 @@ final class CodexApplet: Applet {
             return AppletStatus(kind: .needsAttention, label: item.status.label, symbol: "bubble.left.and.exclamationmark.bubble.right")
         }
         if items.contains(where: { $0.status == .working }) {
-            return AppletStatus(kind: .working, label: "Codex arbetar", symbol: "waveform")
+            return AppletStatus(kind: .working, label: "Codex is working", symbol: "waveform")
         }
         if items.contains(where: { $0.isUnread && $0.status == .idle }) {
-            return AppletStatus(kind: .completed, label: "Codex är klar", symbol: "checkmark")
+            return AppletStatus(kind: .completed, label: "Codex is done", symbol: "checkmark")
         }
         return nil
     }
@@ -105,29 +105,29 @@ final class CodexApplet: Applet {
         let state = state
         let service = service
         var actions = [
-            AppletAction(id: "Sök trådar", symbol: "magnifyingglass", shortcut: "⌘F") {
+            AppletAction(id: "Search threads", symbol: "magnifyingglass", shortcut: "⌘F") {
                 if state.page == .usage { state.page = .history }
                 state.scope = .search
             },
-            AppletAction(id: "Visa arkiverade", symbol: "archivebox", shortcut: "⇧⌘A", selected: service.includesArchived) {
+            AppletAction(id: "Show archived", symbol: "archivebox", shortcut: "⇧⌘A", selected: service.includesArchived) {
                 state.page = .history
                 state.scope = .deck
                 Task { await service.setIncludesArchived(!service.includesArchived) }
             },
-            AppletAction(id: "Välj projekt", symbol: "folder", shortcut: "⌘P") { state.openProjects() },
-            AppletAction(id: "Gruppera per projekt", symbol: "folder", shortcut: "⇧⌘P", selected: state.groupsByProject) {
+            AppletAction(id: "Choose project", symbol: "folder", shortcut: "⌘P") { state.openProjects() },
+            AppletAction(id: "Group by project", symbol: "folder", shortcut: "⇧⌘P", selected: state.groupsByProject) {
                 state.groupsByProject.toggle()
                 state.page = .history
                 state.scope = .deck
             },
-            AppletAction(id: "Aktiva trådar", symbol: "waveform", selected: state.page == .active) { state.scope = .deck; state.page = .active },
-            AppletAction(id: "Tidigare trådar", symbol: "clock", selected: state.page == .history) { state.scope = .deck; state.page = .history },
-            AppletAction(id: "Användning", symbol: "chart.pie", selected: state.page == .usage) { state.scope = .deck; state.page = .usage }
+            AppletAction(id: "Active threads", symbol: "waveform", selected: state.page == .active) { state.scope = .deck; state.page = .active },
+            AppletAction(id: "Previous threads", symbol: "clock", selected: state.page == .history) { state.scope = .deck; state.page = .history },
+            AppletAction(id: "Usage", symbol: "chart.pie", selected: state.page == .usage) { state.scope = .deck; state.page = .usage }
         ]
         if state.groupsByProject, state.page == .history, state.scope == .deck {
             actions.insert(contentsOf: [
-                AppletAction(id: "Föregående projekt", symbol: "chevron.left", shortcut: "⌘←") { state.moveProject(-1, in: service.projects) },
-                AppletAction(id: "Nästa projekt", symbol: "chevron.right", shortcut: "⌘→") { state.moveProject(1, in: service.projects) }
+                AppletAction(id: "Previous project", symbol: "chevron.left", shortcut: "⌘←") { state.moveProject(-1, in: service.projects) },
+                AppletAction(id: "Next project", symbol: "chevron.right", shortcut: "⌘→") { state.moveProject(1, in: service.projects) }
             ], at: 3)
         }
         return actions
