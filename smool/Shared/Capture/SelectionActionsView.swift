@@ -53,7 +53,7 @@ struct SelectionActionsView: View {
 
                 HStack(spacing: 4) {
                     Button { saveNote(selection.text) } label: {
-                        Label("Save note", systemImage: "note.text.badge.plus")
+                        ShortcutLabel("Save note", keys: "⌘S")
                     }
                     .keyboardShortcut("s", modifiers: .command)
                     .disabled(!canSaveNote)
@@ -62,7 +62,7 @@ struct SelectionActionsView: View {
                     Spacer(minLength: 0)
 
                     Button { composeInCodex(selection.text) } label: {
-                        Label("To Codex…", systemImage: "arrow.up.right")
+                        ShortcutLabel("To Codex", keys: "⌘↵")
                     }
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(!canComposeInCodex)

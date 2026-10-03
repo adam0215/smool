@@ -90,8 +90,8 @@ struct FloatingComposer: View {
                 Spacer(minLength: 4)
 
                 Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                    Text("esc")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .frame(width: 28, height: 28)
                         .contentShape(Circle())
                 }
@@ -138,6 +138,14 @@ struct FloatingComposer: View {
                     .accessibilityLabel(isSending ? "Sending message" : "Send message")
                     .help("Send · ⌘↵")
                 }
+            }
+
+            if onSend != nil {
+                Text("⌘↵ Send")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 4)
             }
         }
         .padding(.horizontal, 24)

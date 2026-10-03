@@ -15,7 +15,7 @@ struct CompactPlayerView: View {
             PlayerArtwork(image: artwork)
                 .frame(width: 72, height: 72)
                 .clipShape(.rect(cornerRadius: 14))
-                .accessibilityLabel("Skivomslag")
+                .accessibilityLabel("Album artwork")
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(track.title)
@@ -28,7 +28,7 @@ struct CompactPlayerView: View {
                 ProgressView(value: track.progress)
                     .tint(.white.opacity(0.5))
                     .scaleEffect(x: 1, y: 0.5)
-                    .accessibilityLabel("\(track.elapsed), \(track.remaining) kvar")
+                    .accessibilityLabel("\(track.elapsed), \(track.remaining) remaining")
                     .help("\(track.elapsed) · \(track.remaining)")
             }
             .frame(maxWidth: .infinity, alignment: .leading)

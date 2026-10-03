@@ -37,10 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.panel.toggle()
             }
         } catch {
-            let alert = NSAlert()
-            alert.messageText = "Keyboard shortcut unavailable"
-            alert.informativeText = "smool could not register ⌃⌥Space. You can still open it from the menu bar.\n\n\(error.localizedDescription)"
-            alert.runModal()
+            statusItem?.button?.toolTip = "smool · ⌃⌥Space is unavailable. Open smool from this menu."
         }
 
         do {
