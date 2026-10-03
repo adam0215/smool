@@ -4,6 +4,7 @@ import AppKit
 struct NotchLayout {
     static let bottomRadius: CGFloat = 64
     static let contentInset: CGFloat = 8
+    static let statusTrailingInset: CGFloat = 8
 
     let screenFrame: CGRect
     let notch: ScreenNotch
@@ -20,12 +21,12 @@ struct NotchLayout {
     // Status symbols sit to the right of the camera, with no empty mirrored region.
     func collapsedSize(statusCount: Int) -> CGSize {
         guard statusCount > 0 else { return collapsedSize }
-        return CGSize(width: (notch.obscuresCenter ? headerSize.width : 0) + CGFloat(statusCount) * 28,
+        return CGSize(width: (notch.obscuresCenter ? headerSize.width : 0) + CGFloat(statusCount) * 28 + Self.statusTrailingInset,
                       height: headerSize.height)
     }
 
     func collapsedOffset(statusCount: Int) -> CGFloat {
-        notch.obscuresCenter ? CGFloat(statusCount) * 14 : 0
+        notch.obscuresCenter && statusCount > 0 ? (CGFloat(statusCount) * 28 + Self.statusTrailingInset) / 2 : 0
     }
 
     func collapsedFrame(statusCount: Int) -> CGRect {
@@ -36,7 +37,7 @@ struct NotchLayout {
 
     var expandedSize: CGSize {
         CGSize(
-            width: min(max(560, headerSize.width + 360), screenFrame.width - 40),
+            width: min(max(600, headerSize.width + 408), screenFrame.width - 40),
             height: navigationHeight + contentHeight
         )
     }

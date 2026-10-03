@@ -8,6 +8,7 @@ private final class FixtureApplet: Applet {
     let tint = Color.blue
     let contentHeight: CGFloat = 120
     var deactivations = 0
+    var hasPresentedOverlay = false
 
     init(_ name: String) {
         id = AppletID(rawValue: name)
@@ -16,6 +17,7 @@ private final class FixtureApplet: Applet {
 
     func makeView(context: AppletContext, artwork: NSImage?) -> AnyView { AnyView(Text(title)) }
     func deactivate() { deactivations += 1 }
+    func dismissOverlay() { hasPresentedOverlay = false }
 }
 
 @main
@@ -34,6 +36,48 @@ struct HostSettingsChecks {
             changes += 1
             presentation.reconcileSettings()
         }
+
+        precondition(presentation.registry.tabPage(containing: .home).map(\.id) == Array(ids.prefix(4)))
+        precondition(presentation.registry.tabPage(containing: ids[4]).map(\.id) == Array(ids[4..<8]))
+        precondition(presentation.registry.tabPage(containing: ids[10]).map(\.id) == Array(ids[8...10]))
+        let tools = [FixtureApplet("quick-actions"), FixtureApplet("workspaces")]
+        let toolPresentation = NotchPresentation(registry: AppletRegistry(applets + tools), settings: settings)
+        precondition(toolPresentation.registry.applets.map(\.id) == ids)
+        precondition(!toolPresentation.settingsAppletIDs.contains(where: \.isHostTool))
+        toolPresentation.showTool(.workspaces)
+        precondition(toolPresentation.displayedApplet.id == tools[1].id)
+        precondition(toolPresentation.selection == .home)
+        toolPresentation.showTool(.actions)
+        precondition(toolPresentation.displayedApplet.id == tools[0].id)
+        toolPresentation.dismissTool(returnToSource: true)
+        precondition(toolPresentation.hostTool == .workspaces)
+        settings.setFront(true, for: tools[0].id, in: ids + tools.map(\.id))
+        precondition(!settings.frontAppletIDs.contains(tools[0].id))
+        toolPresentation.dismissTool()
+        toolPresentation.showsSettings = true
+        toolPresentation.showTool(.actions)
+        precondition(toolPresentation.hostActions.map(\.id) == ["General settings", "Applet settings", "Back to home"])
+        toolPresentation.hostActions[1].perform()
+        precondition(toolPresentation.showsSettings && toolPresentation.settingsSection == .applets)
+        toolPresentation.showTool(.actions)
+        toolPresentation.dismissTool(returnToSource: true)
+        precondition(toolPresentation.showsSettings)
+        toolPresentation.select(ids[1])
+        precondition(toolPresentation.hostTool == nil && toolPresentation.selection == ids[1])
+        toolPresentation.showTool(.actions)
+        toolPresentation.presentCapturedSelection(.failure(.noSelection))
+        precondition(toolPresentation.hostTool == nil && toolPresentation.capturedSelection != nil)
+        let isolatedController = NotchPanelController(presentation: toolPresentation)
+        applets[1].hasPresentedOverlay = true
+        isolatedController.goBackOrClose()
+        precondition(toolPresentation.capturedSelection == nil && applets[1].hasPresentedOverlay,
+                     "Capture Escape cannot dismiss hidden applet state.")
+        toolPresentation.showsSettings = true
+        isolatedController.goBackOrClose()
+        precondition(!toolPresentation.showsSettings && applets[1].hasPresentedOverlay,
+                     "Settings Escape cannot dismiss hidden applet state.")
+        applets[1].hasPresentedOverlay = false
+        isolatedController.stop()
 
         precondition(settings.frontIDs(in: ids) == Array(ids[1...2]))
         precondition(settings.orderedIDs(in: ids) == ids)

@@ -14,7 +14,7 @@ struct NotchLayoutChecks {
         precondition(physical.simulatingIfAbsent(true) == physical, "Hardware must take precedence over simulation.")
 
         let macBook = NotchLayout(screenFrame: screenFrame, notch: physical)
-        precondition(macBook.expandedSize == CGSize(width: 560, height: 152))
+        precondition(macBook.expandedSize == CGSize(width: 600, height: 152))
         checkPlacement(macBook)
 
         let absent = ScreenNotch(topInset: 0, leftArea: nil, rightArea: nil)
@@ -36,7 +36,7 @@ struct NotchLayoutChecks {
         precondition(offsetNotch == physical, "Notch detection must not depend on the display's origin.")
 
         let wideNotch = NotchLayout(screenFrame: screenFrame, notch: .physical(CGSize(width: 432, height: 38)))
-        precondition(wideNotch.expandedSize.width == 792)
+        precondition(wideNotch.expandedSize.width == 840)
         precondition(wideNotch.headerSize.height == 38)
         checkPlacement(wideNotch)
 
@@ -76,11 +76,11 @@ struct NotchLayoutChecks {
                 if layout.notch.obscuresCenter {
                     precondition(frame.minX + layout.headerSize.width / 2 == layout.screenFrame.midX,
                                  "The camera stays fixed with one-sided status symbols.")
-                    precondition(frame.width == layout.headerSize.width + CGFloat(count) * 28,
+                    precondition(frame.width == layout.headerSize.width + CGFloat(count) * 28 + (count > 0 ? NotchLayout.statusTrailingInset : 0),
                                  "Only visible symbols add width; there is no empty mirrored side.")
                 } else {
                     precondition(frame.midX == layout.screenFrame.midX)
-                    precondition(count == 0 || frame.width == CGFloat(count) * 28)
+                    precondition(count == 0 || frame.width == CGFloat(count) * 28 + NotchLayout.statusTrailingInset)
                 }
             }
         }

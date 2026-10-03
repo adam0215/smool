@@ -10,7 +10,7 @@ struct NotchContentView: View {
     @State private var artwork: AlbumArtwork?
     @State private var loadedArtworkSource: AlbumArtwork.Source?
 
-    private var background: AppletBackground? { presentation.showsSettings ? nil : presentation.activeApplet.background }
+    private var background: AppletBackground? { presentation.showsSettings ? nil : presentation.displayedApplet.background }
     private var artworkSource: AlbumArtwork.Source? { background?.artworkSource }
 
     private var displayedArtwork: AlbumArtwork? {
@@ -20,7 +20,7 @@ struct NotchContentView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            NotchTabBar(presentation: presentation, select: selectApplet)
+            NotchTabBar(presentation: presentation, select: selectApplet, restoreFocus: restoreFocus)
 
             ZStack {
                 if presentation.showsSettings {
@@ -84,18 +84,19 @@ struct NotchContentView: View {
     }
 
     private var appletView: some View {
-        presentation.activeApplet.makeView(
+        presentation.displayedApplet.makeView(
             context: AppletContext(
                 layout: presentation.layout,
                 restoreFocus: restoreFocus,
                 frontApplets: presentation.frontApplets,
+                hostActions: presentation.showsActions ? presentation.hostActions : [],
                 openApplet: selectApplet,
                 composeInCodex: presentation.settings.isEnabled(AppletID(rawValue: "codex")) ? presentation.composeInCodex : nil,
                 openSettings: presentation.openSettings
             ),
             artwork: displayedArtwork?.image
         )
-        .id(presentation.selection)
+        .id(presentation.displayedApplet.id)
         .transition(.opacity)
     }
 

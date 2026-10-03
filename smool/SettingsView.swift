@@ -8,7 +8,7 @@ enum SettingsSection: String, CaseIterable {
 extension NotchPresentation {
     var settingsAppletIDs: [AppletID] {
         let available = registeredApplets.applets.map(\.id)
-        return settings.orderedIDs(in: available) + settings.frontAppletIDs.filter { !available.contains($0) }
+        return settings.orderedIDs(in: available) + settings.frontAppletIDs.filter { !available.contains($0) && !$0.isHostTool }
     }
 
     var settingsRowCount: Int { settingsSection == .general ? 4 : settingsAppletIDs.count }

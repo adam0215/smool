@@ -4,6 +4,8 @@ struct AppletID: RawRepresentable, Hashable, Codable, Sendable {
     let rawValue: String
 
     static let home = AppletID(rawValue: "home")
+
+    var isHostTool: Bool { rawValue == "quick-actions" || rawValue == "workspaces" }
 }
 
 struct AppletAction: Identifiable {
@@ -76,6 +78,7 @@ struct AppletContext {
     let layout: NotchLayout
     var restoreFocus: () -> Void = {}
     var frontApplets: [AppletDestination] = []
+    var hostActions: [AppletAction] = []
     var openApplet: (AppletID) -> Void = { _ in }
     /// Opens the destination with editable text. This capability must never send it.
     var composeInCodex: ((String) -> Void)?

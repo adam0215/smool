@@ -37,6 +37,12 @@ struct HostRenderingChecks {
                 let layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: width, height: 982),
                                          notch: .physical(ScreenNotch.referenceSize))
                 presentation.layout = layout
+                if width > 600 {
+                    let side = layout.headerRegions(in: layout.expandedSize.width).leading.width
+                    let fourTabsAndOverflow: CGFloat = 4 * 28 + 3 * 4 + 3 + 28
+                    precondition(side - 2 * 16 >= fourTabsAndOverflow,
+                                 "All four tab hit targets and overflow must fit beside the camera.")
+                }
                 do {
                     let view = VStack(spacing: 8) {
                         NotchTabBar(presentation: presentation, select: { _ in })
@@ -63,6 +69,23 @@ struct HostRenderingChecks {
                 }
             }
         }
+        let homeApplets = [
+            AppletDestination(id: AppletID(rawValue: "spotify"), title: "Spotify", icon: .symbol("music.note"), tint: .green),
+            AppletDestination(id: AppletID(rawValue: "codex"), title: "Codex", icon: .symbol("terminal"), tint: .purple)
+        ]
+        let cards = HomeCard.arrangement(for: homeApplets.map(\.id))
+        for (index, card) in cards.enumerated() {
+            let glow = card.glow(applets: homeApplets)
+            let reference = HomeGlow.color(for: index == 0 ? .spotify : index == 2 ? .codex : nil)
+            precondition(glow.color.resolve(in: EnvironmentValues()) == reference.resolve(in: EnvironmentValues()),
+                         "Configurable Home must preserve its original palette.")
+            precondition(glow.horizontalPosition == [0.25, 0.5, 0.75][index])
+            let renderer = ImageRenderer(content: glow.frame(width: 600, height: 120).background(.black))
+            guard let image = renderer.cgImage else { fatalError("Could not render configured Home glow") }
+            try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!
+                .write(to: output.appendingPathComponent("configured-home-glow-\(index).png"))
+        }
+
         let settingsPresentation = NotchPresentation(registry: AppletRegistry(applets), settings: AppSettings(defaults: defaults))
         settingsPresentation.showsSettings = true
         for section in SettingsSection.allCases {

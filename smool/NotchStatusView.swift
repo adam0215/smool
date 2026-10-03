@@ -18,9 +18,8 @@ struct NotchStatusView: View {
             }
             ForEach(items) { item in
                 Button { activate(item.id) } label: {
-                    Image(systemName: item.status.symbol)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(item.status.kind == .needsAttention ? .orange : .white.opacity(0.85))
+                    statusIcon(item)
+                        .foregroundStyle(statusColor(item.status))
                         .frame(width: 28, height: layout.headerSize.height)
                         .contentShape(Rectangle())
                 }
@@ -30,6 +29,25 @@ struct NotchStatusView: View {
                 .accessibilityLabel(item.status.label)
             }
         }
+        .padding(.trailing, items.isEmpty ? 0 : NotchLayout.statusTrailingInset)
         .frame(height: layout.headerSize.height)
+    }
+
+    private func statusColor(_ status: AppletStatus) -> Color {
+        switch status.kind {
+        case .needsAttention: .orange
+        case .completed: .green
+        case .working: .white.opacity(0.85)
+        }
+    }
+
+    @ViewBuilder
+    private func statusIcon(_ item: NotchStatusItem) -> some View {
+        if item.id.rawValue == "codex" {
+            AppletIcon.asset("Codex").image(size: 13)
+        } else {
+            Image(systemName: item.status.symbol)
+                .font(.system(size: 12, weight: .medium))
+        }
     }
 }

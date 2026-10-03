@@ -30,7 +30,7 @@ final class AppSettings {
         appletOrder = Self.readIDs("appletOrder", from: defaults)
         frontIsConfigured = defaults.object(forKey: "frontAppletIDs") != nil
         frontAppletIDs = Array(Self.readIDs("frontAppletIDs", from: defaults)
-            .filter { $0.rawValue != "home" && !disabled.contains($0) }.prefix(3))
+            .filter { $0.rawValue != "home" && !$0.isHostTool && !disabled.contains($0) }.prefix(3))
     }
 
     func isEnabled(_ id: AppletID) -> Bool {
@@ -42,7 +42,7 @@ final class AppSettings {
         let available = Set(registered)
         var seen = Set<AppletID>()
         return ([home] + appletOrder + registered).filter {
-            available.contains($0) && seen.insert($0).inserted
+            available.contains($0) && !$0.isHostTool && seen.insert($0).inserted
         }
     }
 
@@ -55,7 +55,7 @@ final class AppSettings {
     }
 
     func setEnabled(_ enabled: Bool, for id: AppletID) {
-        guard id != home, isEnabled(id) != enabled else { return }
+        guard id != home, !id.isHostTool, isEnabled(id) != enabled else { return }
         if enabled {
             disabledAppletIDs.remove(id)
         } else {
@@ -78,7 +78,7 @@ final class AppSettings {
     }
 
     func setFront(_ selected: Bool, for id: AppletID, in registered: [AppletID] = []) {
-        guard id != home, !selected || isEnabled(id) else { return }
+        guard id != home, !id.isHostTool, !selected || isEnabled(id) else { return }
         var selection = frontIsConfigured ? frontAppletIDs : frontIDs(in: registered)
         if selected {
             guard !selection.contains(id), selection.count < 3 else { return }

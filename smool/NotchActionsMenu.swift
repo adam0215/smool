@@ -1,24 +1,22 @@
 import SwiftUI
 
 struct NotchActionsMenu: View {
-    @Bindable var presentation: NotchPresentation
+    let presentation: NotchPresentation
+    var restoreFocus: () -> Void = {}
 
     var body: some View {
-        Button { presentation.showsActions.toggle() } label: {
-            Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold))
-                .frame(width: 24, height: 24).contentShape(Rectangle())
+        Button {
+            restoreFocus()
+            presentation.showTool(.actions)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain).focusable(false)
-        .keyboardShortcut("k", modifiers: .command)
+        .foregroundStyle(presentation.showsActions ? .primary : .secondary)
         .accessibilityLabel("Actions")
         .help("Actions · ⌘K")
-        .popover(isPresented: $presentation.showsActions, arrowEdge: .bottom) {
-            ActionList(actions: presentation.activeApplet.actions + [
-                AppletAction(id: "Settings…", symbol: "gearshape", shortcut: "⌘,") {
-                    presentation.openSettings()
-                }
-            ]) { presentation.showsActions = false }
-                .preferredColorScheme(.dark)
-        }
     }
 }

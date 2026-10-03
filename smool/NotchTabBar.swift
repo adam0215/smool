@@ -3,9 +3,13 @@ import SwiftUI
 struct NotchTabBar: View {
     let presentation: NotchPresentation
     let select: (AppletID) -> Void
+    var restoreFocus: () -> Void = {}
+
+    private var visibleApplets: [any Applet] { presentation.registry.tabPage(containing: presentation.selection) }
+    private var overflowCount: Int { presentation.registry.applets.count - visibleApplets.count }
 
     var body: some View {
-        NotchHeader(layout: presentation.layout, sideInset: 20) {
+        NotchHeader(layout: presentation.layout, sideInset: 16) {
             if presentation.showsSettings {
                 Button {
                     presentation.showsSettings = false
@@ -21,39 +25,33 @@ struct NotchTabBar: View {
                 .help("Back · esc")
             } else {
                 HStack(spacing: 3) {
-                    ScrollViewReader { proxy in
-                        ScrollView(.horizontal) { tabs }
-                            .scrollIndicators(.hidden)
-                            .onChange(of: presentation.selection, initial: true) { _, selection in
-                                proxy.scrollTo(selection, anchor: .center)
+                    tabs
+                    if overflowCount > 0 {
+                        Menu {
+                            ForEach(presentation.registry.applets, id: \.id) { applet in
+                                Button { select(applet.id) } label: {
+                                    Label(applet.title + (presentation.registry.shortcutNumber(for: applet.id).map { "  ⌘\($0)" } ?? ""),
+                                          systemImage: presentation.selection == applet.id ? "checkmark" : "circle")
+                                }
                             }
-                            .onChange(of: presentation.registry.applets.map(\.id)) { _, _ in
-                                proxy.scrollTo(presentation.selection, anchor: .center)
-                            }
-                    }
-                    Menu {
-                        ForEach(presentation.registry.applets, id: \.id) { applet in
-                            Button { select(applet.id) } label: {
-                                Label(applet.title + (presentation.registry.shortcutNumber(for: applet.id).map { "  ⌘\($0)" } ?? ""),
-                                      systemImage: presentation.selection == applet.id ? "checkmark" : "circle")
-                            }
+                        } label: {
+                            Text("+\(overflowCount)").font(.system(size: 11, weight: .medium))
+                                .frame(minWidth: 28, minHeight: 28)
                         }
-                    } label: {
-                        Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("All applets · ⌃Tab switches applet")
+                        .accessibilityLabel("All applets")
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("All applets · ⌃Tab switches applet")
-                    .accessibilityLabel("All applets")
                 }
-                .frame(maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
         } center: {
             EmptyView()
         } trailing: {
-            HStack(spacing: 10) {
-                if !presentation.showsSettings, !presentation.activeApplet.pages.isEmpty { pageIndicators }
+            HStack(spacing: 8) {
+                if !presentation.showsSettings, presentation.hostTool == nil, !presentation.displayedApplet.pages.isEmpty { pageIndicators }
                 TimelineView(.everyMinute) { _ in
                     if presentation.settings.showBattery, let battery = BatteryStatus.current() {
                         HStack(spacing: 3) {
@@ -65,11 +63,20 @@ struct NotchTabBar: View {
                         .accessibilityLabel(battery.description)
                     }
                 }
-                if presentation.showsSettings {
-                    Text("esc").font(.system(size: 10)).foregroundStyle(.tertiary)
-                } else {
-                    NotchActionsMenu(presentation: presentation)
+                Button {
+                    restoreFocus()
+                    presentation.showTool(.workspaces)
+                } label: {
+                    Image(systemName: "square.grid.2x2")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain).focusable(false)
+                .foregroundStyle(presentation.hostTool == .workspaces ? .primary : .secondary)
+                .accessibilityLabel("Workspaces")
+                .help("Workspaces · ⌘⇧W")
+                NotchActionsMenu(presentation: presentation, restoreFocus: restoreFocus)
             }
             .fixedSize()
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -79,18 +86,18 @@ struct NotchTabBar: View {
     private var tabs: some View {
         GlassEffectContainer(spacing: 4) {
             HStack(spacing: 4) {
-                ForEach(presentation.registry.applets, id: \.id) { applet in
+                ForEach(visibleApplets, id: \.id) { applet in
                     Button { select(applet.id) } label: {
                         applet.icon.view
                             .foregroundStyle(.white.opacity(presentation.selection == applet.id ? 1 : 0.65))
-                            .frame(width: 26, height: 26)
+                            .frame(width: 28, height: 28)
                             .modifier(CardGlass(shape: Circle(), isSelected: presentation.selection == applet.id))
                     }
                     .id(applet.id)
                     .buttonStyle(.plain).focusable(false)
                     .accessibilityLabel(applet.title)
                     .accessibilityAddTraits(presentation.selection == applet.id ? .isSelected : [])
-                    .help(applet.title)
+                    .help(applet.title + (presentation.registry.shortcutNumber(for: applet.id).map { " · ⌘\($0)" } ?? ""))
                 }
             }
         }
@@ -99,7 +106,7 @@ struct NotchTabBar: View {
 
     private var pageIndicators: some View {
         HStack(spacing: 0) {
-            ForEach(presentation.activeApplet.pages) { page in
+            ForEach(presentation.displayedApplet.pages) { page in
                 Button(action: page.select) {
                     Capsule().fill(.white.opacity(page.isSelected ? 0.85 : 0.25))
                         .frame(width: page.isSelected ? 10 : 4, height: 4)

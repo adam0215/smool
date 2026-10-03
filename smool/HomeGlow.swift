@@ -37,8 +37,30 @@ nonisolated struct BottomGlow: View {
     let horizontalPosition: Double
     let darkHeight: CGFloat
 
+    @Environment(\.self) private var environment
+
+    var body: some View {
+        AnimatedBottomGlow(color: color.resolve(in: environment),
+                           horizontalPosition: horizontalPosition, darkHeight: darkHeight)
+    }
+}
+
+private nonisolated struct AnimatedBottomGlow: View, Animatable {
+    var color: Color.Resolved
+    var horizontalPosition: Double
+    let darkHeight: CGFloat
+
+    var animatableData: AnimatablePair<Color.Resolved.AnimatableData, Double> {
+        get { AnimatablePair(color.animatableData, horizontalPosition) }
+        set {
+            color.animatableData = newValue.first
+            horizontalPosition = newValue.second
+        }
+    }
+
     var body: some View {
         Canvas { context, size in
+            let color = Color(color)
             let centerX = size.width * horizontalPosition
             let height = max(0, size.height - darkHeight)
 

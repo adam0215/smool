@@ -14,10 +14,6 @@ struct NotchHomeView: View {
 
     private var cards: [HomeCard] { HomeCard.arrangement(for: Array(applets.prefix(3)).map(\.id)) }
     private var activeCard: HomeCard { hoveredCard ?? focusedCard ?? .clock }
-    private var activeApplet: AppletDestination? {
-        guard case .applet(let id) = activeCard else { return nil }
-        return applets.first { $0.id == id }
-    }
 
     var body: some View {
         GlassEffectContainer(spacing: 0) {
@@ -38,8 +34,7 @@ struct NotchHomeView: View {
             .padding(.bottom, NotchLayout.contentInset)
         }
         .background {
-            BottomGlow(color: activeApplet?.tint ?? .blue,
-                       horizontalPosition: glowPosition, darkHeight: 16)
+            activeCard.glow(applets: applets)
                 .opacity(lightLevel)
         }
         .animation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.7), value: activeCard)
@@ -49,7 +44,7 @@ struct NotchHomeView: View {
             if let hoveredCard, !cards.contains(hoveredCard) { self.hoveredCard = nil }
         }
         .task {
-            withAnimation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.8)) {
+            withAnimation(reduceMotion ? .linear(duration: 0.12) : .timingCurve(0.5, 0, 0.2, 1, duration: 1).delay(0.1)) {
                 lightLevel = 1
             }
         }
@@ -59,11 +54,6 @@ struct NotchHomeView: View {
             hoveredCard = nil
             focusedCard = next
         }
-    }
-
-    private var glowPosition: Double {
-        guard cards.count > 1, let index = cards.firstIndex(of: activeCard) else { return 0.5 }
-        return 0.2 + 0.6 * Double(index) / Double(cards.count - 1)
     }
 
     private func edge(for card: HomeCard) -> HomeCardShape.Edge {
@@ -141,6 +131,23 @@ struct NotchHomeView: View {
 enum HomeCard: Hashable {
     case clock
     case applet(AppletID)
+
+    func glow(applets: [AppletDestination]) -> BottomGlow {
+        let cards = Self.arrangement(for: applets.map(\.id))
+        let index = cards.firstIndex(of: self) ?? 0
+        let position = cards.count > 1 ? 0.25 + 0.5 * Double(index) / Double(cards.count - 1) : 0.5
+        let color: Color
+        switch self {
+        case .clock: color = HomeGlow.color(for: nil)
+        case .applet(let id):
+            switch id.rawValue {
+            case "spotify": color = HomeGlow.color(for: .spotify)
+            case "codex": color = HomeGlow.color(for: .codex)
+            default: color = applets.first { $0.id == id }?.tint ?? HomeGlow.color(for: nil)
+            }
+        }
+        return BottomGlow(color: color, horizontalPosition: position, darkHeight: 16)
+    }
 
     static func arrangement(for ids: [AppletID]) -> [HomeCard] {
         let applets = Array(ids.prefix(3)).map(HomeCard.applet)

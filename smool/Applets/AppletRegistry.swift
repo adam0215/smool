@@ -36,6 +36,12 @@ struct AppletRegistry {
         return index + 1
     }
 
+    func tabPage(containing id: AppletID) -> [any Applet] {
+        let index = applets.firstIndex { $0.id == id } ?? 0
+        let start = index / 4 * 4
+        return Array(applets[start..<min(start + 4, applets.count)])
+    }
+
     func neighbor(of id: AppletID, offset: Int) -> AppletID {
         cyclingPage(in: applets.map(\.id), to: id, offset: offset)
     }
