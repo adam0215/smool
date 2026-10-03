@@ -7,6 +7,7 @@ final class NotchPresentation {
     let settings: AppSettings
     var openSettings: () -> Void = {}
     var composeInCodex: ((String) -> Void)?
+    var capturedSelection: SelectionPreview?
 
     var registry: AppletRegistry {
         let ids = settings.orderedIDs(in: registeredApplets.applets.map(\.id))
@@ -41,11 +42,14 @@ final class NotchPresentation {
     func reconcileSettings() {
         if registry.applet(for: selection) == nil { select(registry.applets[0].id) }
     }
-    var contentHeight: CGFloat { activeApplet.contentHeight }
+    var contentHeight: CGFloat { max(activeApplet.contentHeight, capturedSelection == nil ? 0 : 250) }
+
+    var collapsedSize: CGSize { NotchStatusView.size(layout: layout, hasStatus: !statusItems.isEmpty) }
 
     func select(_ id: AppletID) {
         guard selection != id, registry.applet(for: id) != nil else { return }
         showsActions = false
+        capturedSelection = nil
         activeApplet.deactivate()
         selection = id
     }
@@ -59,9 +63,12 @@ struct NotchView: View {
     var close: () -> Void = {}
     var restoreFocus: () -> Void = {}
     var resizeContent: () -> Void = {}
+    var activateStatus: (AppletID) -> Void = { _ in }
+    var acceptFiles: ([URL]) -> Bool = { _ in false }
+    var open: () -> Void = {}
 
     private var size: CGSize {
-        presentation.isExpanded ? presentation.layout.expandedSize : presentation.layout.collapsedSize
+        presentation.isExpanded ? presentation.layout.expandedSize : presentation.collapsedSize
     }
 
     private var shape: NotchShape {
@@ -95,6 +102,8 @@ struct NotchView: View {
                     NotchContentView(presentation: presentation, selectApplet: selectApplet, restoreFocus: restoreFocus)
                         .frame(width: presentation.layout.expandedSize.width, height: presentation.layout.expandedSize.height)
                         .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(.easeOut(duration: 0.16))))
+                } else if !presentation.statusItems.isEmpty {
+                    NotchStatusView(items: presentation.statusItems, layout: presentation.layout, activate: activateStatus)
                 }
             }
             .overlay {
@@ -107,6 +116,11 @@ struct NotchView: View {
             .frame(height: size.height, alignment: .top)
             .animation(verticalAnimation, value: presentation.isExpanded)
             .shadow(color: .black.opacity(presentation.isExpanded ? 0.22 : 0), radius: 14, y: 8)
+            .contentShape(shape)
+            .dropDestination(for: URL.self, action: { (urls: [URL], _: CGPoint) -> Bool in
+                acceptFiles(urls.filter(\.isFileURL))
+            })
+            .onTapGesture { if !presentation.isExpanded { open() } }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .ignoresSafeArea()
             .preferredColorScheme(.dark)

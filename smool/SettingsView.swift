@@ -45,6 +45,7 @@ struct SettingsView: View {
 
             Section("Tangentbord") {
                 LabeledContent("Visa eller dölj smool", value: "⌃⌥Space")
+                LabeledContent("Gör något med markerad text", value: "⌃⌥C")
                 LabeledContent("Välj applet", value: "⌘1–9")
                 LabeledContent("Nästa eller föregående applet", value: "⌃Tab / ⌃⇧Tab")
                 LabeledContent("Inställningar", value: "⌘,")

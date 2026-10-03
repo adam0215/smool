@@ -6,7 +6,7 @@ struct SelectedText: Sendable, Equatable {
     let applicationName: String
 }
 
-enum SelectionCaptureError: Error, LocalizedError {
+enum SelectionCaptureError: Error, LocalizedError, Equatable {
     case permission, noApplication, noSelection, unsupported, secureField, tooLong
 
     var errorDescription: String? {
@@ -18,6 +18,21 @@ enum SelectionCaptureError: Error, LocalizedError {
         case .secureField: "Text från lösenordsfält hämtas inte."
         case .tooLong: "Markeringen är för lång. Välj högst 64 kB text."
         }
+    }
+}
+
+enum SelectionPreview {
+    case text(SelectedText)
+    case failure(SelectionCaptureError)
+
+    var selection: SelectedText? {
+        if case .text(let text) = self { return text }
+        return nil
+    }
+
+    var error: SelectionCaptureError? {
+        if case .failure(let error) = self { return error }
+        return nil
     }
 }
 

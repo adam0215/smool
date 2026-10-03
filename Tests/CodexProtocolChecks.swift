@@ -132,7 +132,7 @@ struct CodexProtocolChecks {
         service.receive(event(patch, source: "another-owner"))
         precondition(service.threads.first?.isConnected == false, "Never apply another owner's patch.")
         service.receive(event(snapshot))
-        service.receive(event(.object(["type": .string("patches"), "baseRevision": .number(3), "revision": .number(4)])))
+        service.receive(event(.object(["type": .string("patches"), "baseRevision": .number(12), "revision": .number(13)])))
         precondition(service.threads.first?.isConnected == false, "Missing revisions invalidate live status.")
         service.receive(event(snapshot, version: 12))
         precondition(service.liveError != nil, "Unknown protocol versions must be visible.")

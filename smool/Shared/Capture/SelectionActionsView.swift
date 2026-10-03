@@ -3,6 +3,8 @@ import SwiftUI
 struct SelectionActionsView: View {
     let selection: SelectedText?
     let error: SelectionCaptureError?
+    var canSaveNote = true
+    var canComposeInCodex = true
     let saveNote: (String) -> Void
     let composeInCodex: (String) -> Void
     let dismiss: () -> Void
@@ -31,10 +33,16 @@ struct SelectionActionsView: View {
                 HStack {
                     Button("Spara anteckning") { saveNote(selection.text) }
                         .keyboardShortcut("s", modifiers: .command)
+                        .disabled(!canSaveNote)
                     Button("Till Codex…") { composeInCodex(selection.text) }
                         .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(!canComposeInCodex)
                 }
                 .buttonStyle(NotchControlStyle())
+                if !canSaveNote || !canComposeInCodex {
+                    Text("Aktivera Anteckningar och Codex i inställningarna för båda åtgärderna.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
             } else {
                 Text(error?.localizedDescription ?? "Hämtar markeringen…")
                     .font(.system(size: 12))

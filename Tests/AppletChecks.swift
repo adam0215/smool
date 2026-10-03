@@ -16,13 +16,17 @@ private final class SampleApplet: Applet {
 @main
 struct AppletChecks {
     @MainActor static func main() {
+        let suite = "smool.applet-checks.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
         let home = HomeApplet()
         let spotify = SpotifyApplet()
         let codex = CodexApplet()
         let music = MusicApplet()
         let sample = SampleApplet()
         let registry = AppletRegistry([home, spotify, codex, music, sample])
-        let presentation = NotchPresentation(registry: registry)
+        let presentation = NotchPresentation(registry: registry, settings: settings)
 
         precondition(registry.applets.map(\.title) == ["Hem", "Spotify", "Codex", "Musik", "Sample"])
         precondition(registry.applet(for: HomeApp.spotify) === spotify)
@@ -58,17 +62,17 @@ struct AppletChecks {
         codex.state.scope = .search
         precondition(!codex.handleArrow(.down, command: false), "Search retains native arrow keys")
         let thread = CodexThread(json: .object(["id": .string("fixture"), "title": .string("Fixture")]))!
+        codex.state.page = .active
         codex.state.scope = .composer(thread)
-        codex.state.composerHeight = 180
         codex.service.drafts[thread.id] = "Keep this draft"
-        precondition(presentation.contentHeight == 220)
+        precondition(presentation.contentHeight == 300)
         precondition(!codex.handleArrow(.up, command: false), "Composer retains native arrow keys")
         codex.state.showsProjects = true
         precondition(codex.hasPresentedOverlay)
         presentation.select(music.id)
         precondition(!codex.state.showsProjects && presentation.contentHeight == 144)
         presentation.select(codex.id)
-        precondition(codex.state.scope == .composer(thread) && presentation.contentHeight == 220)
+        precondition(codex.state.scope == .deck && presentation.contentHeight == 300)
         precondition(codex.service.drafts[thread.id] == "Keep this draft")
         codex.pages[0].select()
         precondition(codex.state.scope == .deck)

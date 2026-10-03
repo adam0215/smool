@@ -8,12 +8,39 @@ final class NotchPanelController: NSObject {
     private var localMonitor: Any?
     private var outsideMonitor: Any?
     private var isOpen = false
+    private var isClosing = false
     private var transition = 0
     private var resizeTransition = 0
+    private var isStopped = false
+    private var captureTask: Task<Void, Never>?
 
     override init() {
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(screenConfigurationChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+    }
+
+    func start() {
+        presentation.composeInCodex = { [weak self] text in
+            guard let self, let id = self.presentation.prepareCodexDraft(text) else { return }
+            self.selectApplet(id)
+            self.open()
+        }
+        presentation.updateBackgroundServices()
+        observeStatus()
+    }
+
+    func captureSelection() {
+        captureTask?.cancel()
+        captureTask = Task { [weak self] in
+            let preview: SelectionPreview
+            do { preview = .text(try await SelectedTextCapture.capture()) }
+            catch let error as SelectionCaptureError { preview = .failure(error) }
+            catch { preview = .failure(.unsupported) }
+            guard let self, !Task.isCancelled else { return }
+            self.presentation.capturedSelection = preview
+            self.open()
+            self.resizeContent()
+        }
     }
 
     func toggle() {
@@ -31,9 +58,11 @@ final class NotchPanelController: NSObject {
 
     func settingsDidChange() {
         presentation.reconcileSettings()
+        presentation.updateBackgroundServices()
         let demo = presentation.settings.demoNotchEnabled
         if demo != demoNotchEnabled { setDemoNotchEnabled(demo) }
         else if isOpen { resizeContent() }
+        else { updateCollapsedPanel() }
     }
 
     private var targetScreen: NSScreen? {
@@ -44,6 +73,7 @@ final class NotchPanelController: NSObject {
         guard !isOpen, let screen = targetScreen else { return }
 
         isOpen = true
+        isClosing = false
         transition += 1
         resizeTransition += 1
         let currentTransition = transition
@@ -69,9 +99,13 @@ final class NotchPanelController: NSObject {
     }
 
     func close() {
+        captureTask?.cancel()
+        guard isOpen else { return }
+        presentation.capturedSelection = nil
         presentation.showsActions = false
         presentation.activeApplet.dismissOverlay()
         isOpen = false
+        isClosing = true
         transition += 1
         resizeTransition += 1
         let currentTransition = transition
@@ -81,16 +115,17 @@ final class NotchPanelController: NSObject {
             presentation.isExpanded = false
         } completion: { [weak self] in
             guard let self, self.transition == currentTransition else { return }
-            self.panel?.orderOut(nil)
-            if self.presentation.layout.notch.isSimulated {
-                self.panel?.ignoresMouseEvents = true
-                self.panel?.orderFrontRegardless()
-            }
+            self.isClosing = false
+            self.updateCollapsedPanel()
         }
     }
 
     func stop() {
+        isStopped = true
+        captureTask?.cancel()
         isOpen = false
+        presentation.isExpanded = false
+        presentation.stopBackgroundServices()
         transition += 1
         resizeTransition += 1
         removeEventMonitors()
@@ -130,9 +165,22 @@ final class NotchPanelController: NSObject {
                 else { self.panel?.makeKeyAndOrderFront(nil) }
             },
             resizeContent: { [weak self] in
-                guard let self, self.presentation.layout.contentHeight != self.presentation.contentHeight else { return }
+                guard let self, self.isOpen, self.presentation.layout.contentHeight != self.presentation.contentHeight else { return }
                 self.resizeContent()
-            }
+            },
+            activateStatus: { [weak self] id in
+                guard let self else { return }
+                self.presentation.registry.applet(for: id)?.activateStatus()
+                self.selectApplet(id)
+                self.open()
+            },
+            acceptFiles: { [weak self] urls in
+                guard let self, !urls.isEmpty, let id = self.presentation.addFiles(urls) else { return false }
+                self.selectApplet(id)
+                self.open()
+                return true
+            },
+            open: { [weak self] in self?.open() }
         ))
         content.safeAreaRegions = []
         panel.contentView = content
@@ -141,6 +189,11 @@ final class NotchPanelController: NSObject {
 
     func selectApplet(_ id: AppletID) {
         guard presentation.selection != id, let applet = presentation.registry.applet(for: id) else { return }
+        if !isOpen {
+            presentation.select(id)
+            presentation.layout.contentHeight = presentation.contentHeight
+            return
+        }
         resizeContent(height: applet.contentHeight) { self.presentation.select(id) }
     }
 
@@ -173,6 +226,9 @@ final class NotchPanelController: NSObject {
 
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self else { return event }
+            if self.presentation.capturedSelection != nil, event.type == .keyDown, event.window === self.panel {
+                return event
+            }
             if event.type == .keyDown, event.window === self.panel,
                event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command {
                 if event.charactersIgnoringModifiers == "," {
@@ -238,20 +294,42 @@ final class NotchPanelController: NSObject {
 
     private func resetPresentation() {
         isOpen = false
+        isClosing = false
         transition += 1
         resizeTransition += 1
         presentation.isExpanded = false
         panel?.orderOut(nil)
         removeEventMonitors()
 
-        guard demoNotchEnabled, let screen = targetScreen else { return }
-        presentation.layout = NotchLayout(screen: screen, demoNotch: true)
-        guard presentation.layout.notch.isSimulated else { return }
+        guard let screen = targetScreen else { return }
+        presentation.layout = NotchLayout(screen: screen, demoNotch: demoNotchEnabled)
+        updateCollapsedPanel()
+    }
 
+    private func observeStatus() {
+        guard !isStopped else { return }
+        withObservationTracking {
+            _ = presentation.statusItems
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isStopped else { return }
+                self.updateCollapsedPanel()
+                self.observeStatus()
+            }
+        }
+    }
+
+    private func updateCollapsedPanel() {
+        guard !isOpen, !isClosing, !isStopped else { return }
+        let size = presentation.collapsedSize
+        guard size.height > 0 else { panel?.orderOut(nil); return }
         let panel = panel ?? makePanel()
         self.panel = panel
-        panel.setFrame(presentation.layout.windowFrame, display: true)
-        panel.ignoresMouseEvents = true
+        let screen = presentation.layout.screenFrame
+        panel.setFrame(CGRect(x: screen.midX - size.width / 2, y: screen.maxY - size.height,
+                              width: size.width, height: size.height), display: true)
+        // The narrow collapsed frame accepts status clicks and files without stealing keyboard focus.
+        panel.ignoresMouseEvents = false
         panel.orderFrontRegardless()
     }
 }

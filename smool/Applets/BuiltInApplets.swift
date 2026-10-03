@@ -5,6 +5,12 @@ func builtInApplets() -> AppletRegistry {
         HomeApplet(),
         SpotifyApplet(),
         CodexApplet(),
-        MusicApplet()
+        MusicApplet(),
+        FilesApplet(),
+        NotesApplet(),
+        AudioApplet(),
+        TimersApplet(),
+        WorkspacesApplet(),
+        QuickActionsApplet()
     ])
 }

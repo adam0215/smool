@@ -21,24 +21,15 @@ struct NotchContentView: View {
         VStack(spacing: 8) {
             NotchTabBar(presentation: presentation, select: selectApplet)
 
-            presentation.activeApplet.makeView(
-                context: AppletContext(
-                    layout: presentation.layout,
-                    restoreFocus: restoreFocus,
-                    frontApplets: presentation.frontApplets,
-                    openApplet: selectApplet,
-                    composeInCodex: presentation.composeInCodex,
-                    openSettings: presentation.openSettings,
-                    openShortcut: { shortcut in
-                        if let applet = presentation.registry.applet(for: shortcut) { selectApplet(applet.id) }
-                    },
-                    canOpenShortcut: { presentation.registry.applet(for: $0) != nil },
-                    shortcutNumber: { presentation.registry.shortcutNumber(for: $0) }
-                ),
-                artwork: displayedArtwork?.image
-            )
-            .id(presentation.selection)
-            .transition(.opacity)
+            ZStack {
+                appletView
+                    .disabled(presentation.capturedSelection != nil)
+                    .opacity(presentation.capturedSelection == nil ? 1 : 0.2)
+
+                if let preview = presentation.capturedSelection {
+                    selectionPreview(preview)
+                }
+            }
         }
         .background {
             if let background {
@@ -62,6 +53,45 @@ struct NotchContentView: View {
             }
         }
     }
+
+    private var appletView: some View {
+        presentation.activeApplet.makeView(
+            context: AppletContext(
+                layout: presentation.layout,
+                restoreFocus: restoreFocus,
+                frontApplets: presentation.frontApplets,
+                openApplet: selectApplet,
+                composeInCodex: presentation.settings.isEnabled(AppletID(rawValue: "codex")) ? presentation.composeInCodex : nil,
+                openSettings: presentation.openSettings
+            ),
+            artwork: displayedArtwork?.image
+        )
+        .id(presentation.selection)
+        .transition(.opacity)
+    }
+
+    private func selectionPreview(_ preview: SelectionPreview) -> some View {
+        SelectionActionsView(
+            selection: preview.selection,
+            error: preview.error,
+            canSaveNote: presentation.settings.isEnabled(AppletID(rawValue: "notes")),
+            canComposeInCodex: presentation.settings.isEnabled(AppletID(rawValue: "codex")),
+            saveNote: { text in
+                if let id = presentation.saveCapturedNote(text) {
+                    presentation.capturedSelection = nil
+                    selectApplet(id)
+                }
+            },
+            composeInCodex: { text in
+                presentation.capturedSelection = nil
+                presentation.composeInCodex?(text)
+            },
+            dismiss: { presentation.capturedSelection = nil; restoreFocus() }
+        )
+        .modifier(FloatingGlass())
+        .padding(12)
+    }
+
 }
 
 private struct AppletGlow: View {

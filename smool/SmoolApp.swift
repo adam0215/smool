@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let panel = NotchPanelController()
     private var settingsWindow: NSWindow?
     private var shortcut: GlobalShortcut?
+    private var selectionShortcut: GlobalShortcut?
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.presentation.openSettings = { [weak self] in self?.showSettings() }
         panel.presentation.settings.onChange = { [weak self] in self?.panel.settingsDidChange() }
         panel.setDemoNotchEnabled(panel.presentation.settings.demoNotchEnabled)
+        panel.start()
         configureMenu()
 
         do {
@@ -41,10 +43,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.informativeText = "smool kunde inte registrera ⌃⌥Space. Du kan fortfarande öppna panelen från menyfältet.\n\n\(error.localizedDescription)"
             alert.runModal()
         }
+
+        do {
+            selectionShortcut = try GlobalShortcut(command: .selection) { [weak self] in
+                self?.panel.captureSelection()
+            }
+        } catch {
+            statusItem?.button?.toolTip = "smool · ⌃⌥C är upptaget. Markerad text finns i menyn."
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Task {
+            await panel.presentation.finishPendingChanges()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         shortcut?.stop()
+        selectionShortcut?.stop()
         panel.stop()
     }
 
@@ -62,6 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let toggle = menu.addItem(withTitle: "Visa eller dölj smool", action: #selector(togglePanel), keyEquivalent: " ")
         toggle.keyEquivalentModifierMask = [.control, .option]
         toggle.target = self
+        let capture = menu.addItem(withTitle: "Gör något med markerad text", action: #selector(captureSelection), keyEquivalent: "c")
+        capture.keyEquivalentModifierMask = [.control, .option]
+        capture.target = self
         menu.addItem(.separator())
 
         let settings = menu.addItem(withTitle: "Inställningar…", action: #selector(showSettings), keyEquivalent: ",")
@@ -78,6 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func togglePanel() {
         panel.toggle()
     }
+
+    @objc private func captureSelection() { panel.captureSelection() }
 
     @objc func showSettings() {
         panel.close()

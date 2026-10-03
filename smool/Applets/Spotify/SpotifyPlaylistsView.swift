@@ -62,8 +62,7 @@ private struct PlaylistCover: View {
                 .multilineTextAlignment(.center).frame(maxWidth: .infinity)
         }
         .padding(8)
-        .background(.white.opacity(selected ? 0.09 : 0.025), in: .rect(cornerRadius: 14))
-        .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(selected ? 0.4 : 0.05), lineWidth: 0.75) }
+        .modifier(CardGlass(shape: RoundedRectangle(cornerRadius: 14), isSelected: selected))
         .task(id: playlist.artworkURL) {
             let url = playlist.artworkURL
             let loaded = if let url { await AlbumArtworkCache.shared.load(.spotify(url)) } else { nil as AlbumArtwork? }

@@ -2,7 +2,7 @@
 
 smool is a native macOS utility built around design and user experience. The goal is to bring access to apps and services to the notch through a simple interface you can navigate entirely with the keyboard. It should be fast, use minimal resources, and only appear when you need or want it.
 
-This project is a work in progress. Features and integrations have not been decided yet.
+The app includes Codex activity, a file shelf, quick notes, audio devices, timers, workspaces, quick actions, Spotify, system music, and a calendar.
 
 ## Development
 
@@ -17,14 +17,16 @@ open .build/Build/Products/Debug/smool.app
 
 The app appears in the menu bar. Toggle the panel with ⌃⌥Space. Escape also closes it.
 
-The home view shows the current time, a Swedish date, and battery status. Its Spotify and Codex cards open applets inside the notch. The circular glass tabs sit at the far left beside the camera. Page indicators, battery status, and the Actions menu sit at the far right. The two sides have equal width, independent of the number of tabs; additional tabs scroll horizontally. The header shares the camera’s height. Applets use compact horizontal layouts, 144–176 points high. Players and Codex threads sit directly on black. Playlist tiles, the glass usage dial, and the composer provide elevation where needed. The calendar places its date beside an event card. The composer starts on one line and expands up to five lines before scrolling. The home tiles keep their layout.
+The home view keeps the clock and up to three chosen applets. With two, the clock sits between them. With three, the clock sits on the left, followed by two rectangular tiles and the curved outer tile. Settings lets you choose, enable and reorder applets. The circular glass tabs scroll beside the camera; the applet menu also reaches every destination. Page indicators, battery and Actions stay on the right. The camera area stays black.
 
-`Applets/BuiltInApplets.swift` registers the destinations in tab order. Each applet owns its services, state, view, actions, page indicators, keyboard handling, content height, and background. The panel and header use the shared `Applet` interface. `AppletPages` handles vertical navigation inside a view. The home cards are shortcuts to registered applets; their layout stays fixed.
+`Applets/BuiltInApplets.swift` registers applets. Each owns its services, state, view, actions, keyboard handling and content height. Navigation, home tiles and shortcuts use the same saved preferences. Ordinary controls sit on the background; floating actions and composers share native Liquid Glass with accessibility fallbacks.
 
 | Key | Action |
 | --- | --- |
 | ⌃⌥Space | Show or hide smool |
-| ⌘1 / ⌘2 / ⌘3 / ⌘4 | Home / Spotify / Codex / Music |
+| ⌘1–9 | First nine enabled applets in saved order |
+| ⌘, | Open Settings |
+| ⌃⌥C | Preview selected text, then save a note or prepare a Codex draft |
 | ⌘← / ⌘→ | Previous or next project in grouped Codex history; otherwise previous or next tab |
 | ⌃Tab / ⌃⇧Tab | Next or previous tab |
 | ⌘K | Open the Actions popover; arrows select, Return activates, Escape dismisses |
@@ -34,6 +36,9 @@ The home view shows the current time, a Swedish date, and battery status. Its Sp
 | ← / → in the calendar | Previous or next day |
 | Space in the player | Play or pause |
 | ⌘F in Codex | Search thread titles and prompts |
+| ⌘E in Codex | Expand or collapse activity |
+| ⌘N in notes, timers or quick actions | Create an item |
+| Space in the file shelf | Quick Look the selected file |
 | Tab / Shift-Tab | Move through controls |
 | ⌘Return | Send the message being composed |
 | Escape | Leave details or editing, then close the panel |
@@ -43,21 +48,45 @@ Arrow keys retain normal editing behavior inside text fields. Pages wrap at thei
 
 The expanded panel has black-tinted Liquid Glass below its opaque black header. A sharp, single-pixel lower rim brightens the content's own colors with color-dodge blending, without a white stroke or blurred halo. The rim shares the panel's geometry animations and stays mounted through opening, resizing, and closing. Reduce Transparency restores the solid black background and removes the reflective rim.
 
-Reopening shows the last loaded content while services refresh. A shared in-memory cache keeps up to 24 decoded album and playlist covers with their gradient colors, so they are available on the first frame. The audio glow also retains its last frame until capture resumes. Project thumbnails are cached too. Codex retains a display snapshot while reconnecting, but commands still check the live connection. Calendar refreshes keep the loaded day's events visible. These caches last for the app session; a first visit still needs to load data. Polling and audio capture stop when their views close.
+Reopening shows the last loaded content while services refresh. A shared in-memory cache keeps up to 24 decoded album and playlist covers with their gradient colors, so they are available on the first frame. The audio glow also retains its last frame until capture resumes. Project thumbnails are cached too. Codex retains a display snapshot while reconnecting, but commands still check the live connection. Calendar refreshes keep the loaded day's events visible. These caches last for the app session; a first visit still needs to load data. Media polling and audio capture stop when their views close. Timers retain a deadline alarm, and optional Codex status monitoring keeps a lightweight connection while the panel is closed.
 
 ### Applet architecture
 
-The implementations live in `smool/Applets/Codex`, `Spotify`, `Music`, and `Home`. Home owns the dashboard and its calendar view. Shared media models, artwork, player controls, and macOS/Spotify adapters live in `smool/Shared/Media`. Both music applets use these adapters without depending on each other. Codex owns its service instance, including drafts and cached content.
+Implementations live in separate folders under `smool/Applets`. Shared media adapters live in `smool/Shared/Media`; the floating composer and glass controls live in `smool/Shared/FloatingComposer.swift`. Workspace resources and quick actions use the same typed launch model in `smool/Shared/Actions`.
 
 To add an applet:
 
-1. Implement `Applet` in its own folder with a stable `AppletID`, title, icon, tint, content height, and `makeView`. Return an `AnyView` at this boundary; internal views keep their concrete SwiftUI types.
-2. Provide pages, actions, background, or arrow handling as needed. The defaults suit a single view. Use observable state for values that change the header or panel size.
-3. Add its instance to `builtInApplets()`. Registration order supplies tabs, circular navigation, and ⌘1–⌘9. No host switch needs updating.
+1. Implement `Applet` with a stable `AppletID`, title, icon, tint, content height and `makeView`. Only this host boundary uses `AnyView`.
+2. Provide pages, actions, background, status or arrow handling where needed. Applet-owned observable state drives the view.
+3. Register its instance in `builtInApplets()`. It becomes available in Settings, navigation and the home tile picker.
 
-Remove an entry from `builtInApplets()` to disconnect it. Its services are no longer created, and its tab and shortcuts disappear. A missing target disables its branded home card while preserving the dashboard layout. `homeShortcut` optionally connects an applet to one of the two existing branded cards; adding a new card is a separate dashboard design change.
+The registry retains instances for the app session. `deactivate()` handles navigation away; `dismissOverlay()` closes transient UI when the panel closes. Views own their visible work through SwiftUI lifecycle. `AppletContext` supplies navigation, focus restoration and explicit draft handoffs. `AppletIntegration.swift` connects features at the composition boundary without giving one feature another's service.
 
-The registry retains applet instances for the app session. Views start polling in `.task` and stop when their view disappears, keeping loaded state between visits. `deactivate()` handles leaving an applet; `dismissOverlay()` closes transient UI when the panel closes. `AppletContext` supplies the layout, home shortcut routing, and focus restoration without exposing other applets' services.
+`AppletStatus` carries a label, symbol, attention state and optional countdown deadline. The closed notch observes these snapshots without projecting hidden activity. Clicking a status calls `activateStatus()` and opens that applet. Timer and Codex status can be disabled independently in Settings. No status opens the panel or takes keyboard focus automatically.
+
+### Files, notes and selected text
+
+The file shelf stores up to 40 bookmarked references to original files. Drop files on the notch or use the shelf's picker. Arrow keys select a file, Space opens Quick Look, and dragging exports its real file URL. Removing an item only removes the reference. Missing files remain visible so their absence is clear.
+
+Notes save locally with debounced, serialized, atomic writes. Changing applets, closing the panel and quitting flush pending edits. Deleting a note requires confirmation. **Till Codex** opens a recipient picker and an editable draft. It never submits the note by itself.
+
+⌃⌥C reads selected text from the foreground app using macOS Accessibility, before the notch takes focus. It previews the text and offers notes or Codex. Access is requested only from the explicit permission button. Unsupported apps and secure fields report a clear error; the feature does not read clipboard history or simulate Copy. Captured text is limited to 64 kB.
+
+### Audio and timers
+
+Audio lists available Core Audio output and input devices and changes the system defaults on request. Volume controls follow device capabilities; fixed-volume devices show a disabled control. Per-channel volume changes preserve balance. Property listeners run only while the applet is visible, without microphone recording.
+
+Timers accept `25 min`, `90 s`, `2 h` or `1:30` for minutes and seconds. Bare numbers mean minutes. Up to eight timers can run, pause, resume or extend. Persisted deadlines handle sleep and relaunch; expired timers remain until acknowledged. A single deadline alarm handles completion, while only visible countdowns redraw each second. There are no focus sessions or activity tracking.
+
+### Workspaces and quick actions
+
+Workspaces collect chosen apps, folders, web links and Codex thread links. Open a single resource or the selected resources together. Quick actions store ordered app, folder, web and Apple Shortcuts entries. A shortcut is listed by name and stable identifier and only runs after explicit activation. Launch failures are shown without automatic retries. Local references use bookmarks; URLs and saved documents are validated before use.
+
+Feature data lives in `~/Library/Application Support/smool`; preferences use the app's defaults. Invalid persisted documents are preserved instead of being overwritten with empty lists.
+
+### Apple Screen Time
+
+No Screen Time applet is included. The native macOS APIs available in the inspected SDK do not provide a supported route to the existing aggregate app/time data requested for smool. The project does not implement its own tracker. See [the API investigation](Docs/ScreenTime.md) for Apple references and availability checks.
 
 ### Spotify
 
@@ -73,10 +102,14 @@ Return on the home clock opens a daily agenda using EventKit. On first entry, Re
 
 ### Codex
 
-Codex has pages for active threads, previous threads, and a glass ring showing the percentage remaining in the Codex seven-day window with its reset time. Other usage buckets are omitted. Usage refreshes automatically while visible; ⌘R remains available without a visible refresh button. One thread is visible at a time. Up/down switches between active threads, history, and usage. Left/right selects a thread, Return opens its composer, and ⌘Return sends. The glass input grows with the draft and contracts when text is removed. ⌘F searches titles and prompts. Actions exposes search, archived threads, and project grouping. ⌘P or the project name opens a keyboard-navigable project picker. In grouped history, ⌘←/⌘→ changes project; ⇧⌘P toggles grouping. Project names, order, and explicit thread memberships come from the desktop’s saved `.codex-global-state.json`, including worktree assignments. Unassigned threads appear under “Utan projekt”; arbitrary working directories do not become projects. Local favicons and app icons replace the thread glyph where available, with a folder fallback. A breadth-first search finds the closest favicon or app icon across arbitrary monorepo layouts, including `packages/web`. It skips dependencies and build output, and stops after 1,000 entries or six directory levels. Icon scanning and decoding run off the UI thread, are bounded and cached, and stay within the project. Grouped filtering resolves the project once per selection; catalog pages publish in batches, and unchanged live snapshots do not redraw the thread view. Draft text belongs to its recipient; drafts, searches, page selection, and thread selection survive tab changes.
+Codex shows live user and agent messages, grouped tool calls, expandable results, and actual links from the stream. Active threads, history and weekly usage remain separate pages. Left/right switches threads; Return opens the floating composer, Escape closes it without deleting its draft, and ⌘Return sends. ⌘E expands activity for longer reading. Each thread keeps its reading position and draft for the app session. Reading older content pauses automatic scrolling and offers a **Ny aktivitet** button. A selected active thread remains available after completion.
+
+Requests, approvals and failures have distinct status, with a link to the exact desktop thread when interaction belongs there. Notes and selected text enter the same explicit recipient picker. Live updates use revision-checked snapshots and patches, coalesced visible publications and bounded full-stream caches. Closing the panel retains content. With background status enabled, the desktop connection continues; hidden activity is not repeatedly projected into UI.
+
+⌘F searches thread titles and previews. Actions exposes archived threads and project grouping; ⌘P opens the project picker. Grouped history uses ⌘←/⌘→ for projects. Saved desktop project membership, local icons and worktree assignments remain supported. Usage shows the Codex seven-day window and its reset time. Images are represented as attachment markers, and very large or older activity remains available in the desktop app.
 
 The integration uses the installed Codex CLI for history and account limits, and the desktop app's local IPC connection to follow and message existing threads. Desktop IPC is versioned but private; an incompatible or unavailable connection produces an explicit error. History alone is never treated as evidence that a thread is running. Choosing an unconnected historical thread opens that exact thread in Codex, waits for its owner, and returns focus to smool before composing. smool does not resume a second competing session or answer approval requests on your behalf.
 
-Run `Tests/run-checks.sh` for applet registration/removal, retained state, navigation, geometry, Spotify URL/privacy constraints, Codex protocol/state fixtures, and lighting checks. These checks never send prompts or change playback.
+Run `Tests/run-checks.sh` for all model, persistence, protocol, navigation, layout, rendering and integration checks. Fixtures test launches without executing them; Core Audio discovery is read-only. The checks never send prompts, run shortcuts, change audio devices or change playback.
 
 The bundled Spotify and Codex logos are the SVG assets from the [home design in Figma](https://www.figma.com/design/G2aym3oehQkvnPmGcSge4L/Smool?node-id=2-386), using the monochrome artwork supplied in the design. The logo library is [SVGL](https://svgl.app/).
