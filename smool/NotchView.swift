@@ -4,6 +4,10 @@ import SwiftUI
 @Observable
 final class NotchPresentation {
     var isExpanded = false
+    var tab: NotchTab = .home
+    let spotify = SpotifyService()
+    let spotifyState = SpotifyAppletState()
+    let codexState = CodexAppletState()
     var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900))
 }
 
@@ -11,7 +15,9 @@ struct NotchView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let presentation: NotchPresentation
-    let openApp: (HomeApp) -> Void
+    let selectTab: (NotchTab) -> Void
+    var close: () -> Void = {}
+    var restoreFocus: () -> Void = {}
 
     private var size: CGSize {
         presentation.isExpanded ? presentation.layout.expandedSize : presentation.layout.collapsedSize
@@ -49,16 +55,9 @@ struct NotchView: View {
             }
             .overlay(alignment: .top) {
                 if presentation.isExpanded {
-                    TimelineView(.everyMinute) { context in
-                        NotchHomeView(
-                            layout: presentation.layout,
-                            date: context.date,
-                            battery: BatteryStatus.current(),
-                            openApp: openApp
-                        )
-                    }
-                    .frame(width: presentation.layout.expandedSize.width, height: presentation.layout.expandedSize.height)
-                    .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(.easeOut(duration: 0.16))))
+                    NotchContentView(presentation: presentation, selectTab: selectTab, restoreFocus: restoreFocus)
+                        .frame(width: presentation.layout.expandedSize.width, height: presentation.layout.expandedSize.height)
+                        .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(.easeOut(duration: 0.16))))
                 }
             }
             .clipShape(shape)
@@ -66,8 +65,10 @@ struct NotchView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .ignoresSafeArea()
             .preferredColorScheme(.dark)
+            .environment(\.locale, Locale(identifier: "sv_SE"))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("smool")
+            .onExitCommand(perform: close)
     }
 }
 

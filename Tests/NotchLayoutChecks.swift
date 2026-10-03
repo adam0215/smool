@@ -36,13 +36,23 @@ struct NotchLayoutChecks {
         precondition(offsetNotch == physical, "Notch detection must not depend on the display's origin.")
 
         let wideNotch = NotchLayout(screenFrame: screenFrame, notch: .physical(CGSize(width: 432, height: 38)))
-        precondition(wideNotch.expandedSize.width == 532)
+        precondition(wideNotch.expandedSize.width == 656)
         precondition(wideNotch.headerSize.height == 38)
         checkPlacement(wideNotch)
 
         let compactDisplay = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 400, height: 600))
         precondition(compactDisplay.expandedSize.width == 360)
         checkPlacement(compactDisplay)
+
+        for original in [macBook, external, wideNotch, compactDisplay] {
+            var applet = original
+            applet.contentHeight = 300
+            precondition(applet.expandedSize.height == original.headerSize.height + 300)
+            precondition(applet.expandedSize.width == original.expandedSize.width)
+            precondition(applet.windowFrame.maxY == original.windowFrame.maxY,
+                         "Switching tabs must keep the panel anchored to the screen edge.")
+            checkPlacement(applet)
+        }
 
         let simulated = absent.simulatingIfAbsent(true)
         precondition(simulated.isSimulated && !simulated.isPhysical && simulated.obscuresCenter)

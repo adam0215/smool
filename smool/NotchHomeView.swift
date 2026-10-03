@@ -3,8 +3,7 @@ import SwiftUI
 struct NotchHomeView: View {
     let layout: NotchLayout
     let date: Date
-    let battery: BatteryStatus?
-    let openApp: (HomeApp) -> Void
+    let openTab: (NotchTab) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -24,8 +23,6 @@ struct NotchHomeView: View {
     var body: some View {
         GlassEffectContainer(spacing: 0) {
             VStack(spacing: 8) {
-                header
-
                 HStack(spacing: 8) {
                     appButton(.spotify)
                     clock
@@ -39,7 +36,7 @@ struct NotchHomeView: View {
             HomeGlow(
                 spotify: activeCard == .spotify ? 1 : 0,
                 codex: activeCard == .codex ? 1 : 0,
-                darkHeight: layout.headerSize.height + 16
+                darkHeight: 16
             )
             .opacity(lightLevel)
         }
@@ -63,44 +60,6 @@ struct NotchHomeView: View {
             default: break
             }
         }
-    }
-
-    private var header: some View {
-        NotchHeader(layout: layout) {
-            Button {
-                hoveredCard = nil
-                focusedCard = .clock
-            } label: {
-                Image(systemName: "house.fill")
-                    .font(.system(size: 10))
-                    .modifier(GlassInk(illumination: lightLevel))
-                    .frame(width: 24, height: 16)
-                    .glassEffect(.clear.interactive(), in: .capsule)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut("0", modifiers: .command)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel("Hem")
-            .accessibilityAddTraits(.isSelected)
-        } center: {
-            EmptyView()
-        } trailing: {
-            HStack(spacing: 2) {
-                if let battery {
-                    Text("\(battery.percentage)%")
-                        .font(.system(size: 8))
-                        .monospacedDigit()
-                }
-                Image(systemName: battery?.symbolName ?? "powerplug.fill")
-                    .font(.system(size: 10))
-            }
-            .foregroundStyle(.primary)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(battery?.description ?? "Nätansluten")
-            .help(battery?.description ?? "Nätansluten")
-        }
-        .padding(.horizontal, 4)
     }
 
     private var clock: some View {
@@ -141,7 +100,7 @@ struct NotchHomeView: View {
         let shape = HomeCardShape(app: app)
 
         return Button {
-            openApp(app)
+            openTab(app == .spotify ? .spotify : .codex)
         } label: {
             Image(app.rawValue)
                 .renderingMode(.template)
@@ -158,10 +117,9 @@ struct NotchHomeView: View {
         .focusEffectDisabled()
         .onHover { updateHover($0, card: card) }
         .onKeyPress(keys: [.return, .space]) { _ in
-            openApp(app)
+            openTab(app == .spotify ? .spotify : .codex)
             return .handled
         }
-        .keyboardShortcut(app == .spotify ? "1" : "2", modifiers: .command)
         .accessibilityLabel("Öppna \(app.rawValue)")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .help("Öppna \(app.rawValue) · ⌘\(app == .spotify ? "1" : "2")")
@@ -176,7 +134,7 @@ struct NotchHomeView: View {
 #if DEBUG
 #Preview("Hem") {
     let layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982))
-    NotchHomeView(layout: layout, date: .now, battery: BatteryStatus(percentage: 75, isCharging: false)) { _ in }
+    NotchHomeView(layout: layout, date: .now) { _ in }
         .frame(width: layout.expandedSize.width, height: layout.expandedSize.height)
         .background(.black)
         .clipShape(NotchShape(shoulderRadius: 0, bottomRadius: NotchLayout.bottomRadius))

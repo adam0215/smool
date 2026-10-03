@@ -7,6 +7,7 @@ struct NotchLayout {
 
     let screenFrame: CGRect
     let notch: ScreenNotch
+    var contentHeight: CGFloat = 120
 
     var headerSize: CGSize { notch.size ?? ScreenNotch.referenceSize }
 
@@ -16,8 +17,8 @@ struct NotchLayout {
 
     var expandedSize: CGSize {
         CGSize(
-            width: min(max(480, headerSize.width + 100), screenFrame.width - 40),
-            height: headerSize.height + 120
+            width: min(max(480, headerSize.width + 224), screenFrame.width - 40),
+            height: headerSize.height + contentHeight
         )
     }
 

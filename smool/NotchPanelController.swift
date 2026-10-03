@@ -39,6 +39,7 @@ final class NotchPanelController: NSObject {
         transition += 1
         let currentTransition = transition
         presentation.layout = NotchLayout(screen: screen, demoNotch: demoNotchEnabled)
+        presentation.layout.contentHeight = presentation.tab.contentHeight
 
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -106,28 +107,25 @@ final class NotchPanelController: NSObject {
         panel.animationBehavior = .none
         panel.title = "smool"
 
-        let content = NSHostingView(rootView: NotchView(presentation: presentation) { [weak self] app in
-            self?.openApp(app)
-        })
+        let content = NSHostingView(rootView: NotchView(
+            presentation: presentation,
+            selectTab: { [weak self] in self?.selectTab($0) },
+            close: { [weak self] in self?.close() },
+            restoreFocus: { [weak self] in
+                guard let self else { return }
+                if !self.isOpen { self.open() }
+                else { self.panel?.makeKeyAndOrderFront(nil) }
+            }
+        ))
         content.safeAreaRegions = []
         panel.contentView = content
         return panel
     }
 
-    private func openApp(_ app: HomeApp) {
-        let workspace = NSWorkspace.shared
-        close()
-
-        guard let url = workspace.urlForApplication(withBundleIdentifier: app.bundleIdentifier) else {
-            workspace.open(app.webURL)
-            return
-        }
-
-        workspace.openApplication(at: url, configuration: .init()) { _, error in
-            if error != nil {
-                DispatchQueue.main.async { NSWorkspace.shared.open(app.webURL) }
-            }
-        }
+    private func selectTab(_ tab: NotchTab) {
+        presentation.tab = tab
+        presentation.layout.contentHeight = tab.contentHeight
+        panel?.setFrame(presentation.layout.windowFrame, display: true)
     }
 
     private func installEventMonitors() {
@@ -135,9 +133,16 @@ final class NotchPanelController: NSObject {
 
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown, event.keyCode == 53 {
-                self.close()
-                return nil
+            if event.type == .keyDown, event.window === self.panel,
+               event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command {
+                if let number = Int(event.charactersIgnoringModifiers ?? ""), let tab = NotchTab(rawValue: number) {
+                    self.selectTab(tab)
+                    return nil
+                }
+                if event.keyCode == 123 || event.keyCode == 124 {
+                    self.selectTab(self.presentation.tab.neighbor(event.keyCode == 123 ? -1 : 1))
+                    return nil
+                }
             }
             if event.type != .keyDown, event.window !== self.panel {
                 self.close()

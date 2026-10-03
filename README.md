@@ -17,8 +17,38 @@ open .build/Build/Products/Debug/smool.app
 
 The app appears in the menu bar. Toggle the panel with ⌃⌥Space. Escape also closes it.
 
-The home view shows the current time, a Swedish date, and battery status. Open Spotify with ⌘1 or Codex with ⌘2, or choose a card with the arrow keys or Tab and press Return or Space. If an app is not installed, its website opens instead.
+The home view shows the current time, a Swedish date, and battery status. Its Spotify and Codex cards open applets inside the notch. Three capsule tabs stay visible beside the camera, with a subtle tint on the selected tab. Applets expand the panel downward; Home keeps its compact height.
 
-The glass cards and lettering catch a shared light that brightens as the panel opens. The arrow keys move through Spotify, the clock, and Codex, stopping at either end. The clock is selected when the panel opens. Focus or hover over Spotify for green light and Codex for dark purple; the clock has blue light. The selection stays subtly white and picks up the light through the glass. The Home button or ⌘0 selects the clock. Battery percentage uses the standard label color. The light stays below a black band at the screen edge, and the corner cards follow the panel's curve. Reduced Motion and Reduced Transparency settings are respected.
+`NotchTab` names the three destinations. `PageStack` displays a stack of glass cards and owns vertical page navigation. Each applet owns selection and actions inside its cards.
+
+| Key | Action |
+| --- | --- |
+| ⌃⌥Space | Show or hide smool |
+| ⌘0 / ⌘1 / ⌘2 | Home / Spotify / Codex |
+| ⌘← / ⌘→ | Previous or next tab |
+| ↑ / ↓ | Switch stack cards, or move through a focused Codex list |
+| ← / → | Select a home card, playback control, playlist, or usage window |
+| Return | Enter a card or activate the selection |
+| Space in the player | Play or pause |
+| ⌘F in Codex | Search thread titles and prompts |
+| Tab / Shift-Tab | Move through controls |
+| ⌘Return | Send the message being composed |
+| Escape | Step back through editor, list, and stack, then close the panel |
+
+Arrow keys retain normal editing behavior inside text fields. The stack stops at its first and last card. Keyboard hints and mouse buttons provide the same actions. Reduced Motion and Reduced Transparency settings are respected, and the camera area stays black.
+
+### Spotify
+
+The player shows artwork, title, artist, elapsed and remaining time, play/pause, and next track. It reads and controls the installed Spotify app through its scripting dictionary. macOS may ask to allow smool to control Spotify. Allow it in System Settings → Privacy & Security → Automation if necessary. Polling runs only while this applet is visible. The integration never reads login credentials or tokens. Artwork uses a separate ephemeral network session with cookies and credential storage disabled; image URLs and redirects are restricted to Spotify’s HTTPS CDN domains.
+
+The playlist card offers Release Radar, New Music Friday, and daylist. Spotify's Mac scripting interface does not expose the user's personalized playlist links. New Music Friday Sweden is ready to play. Release Radar and daylist need their personal Spotify playlist link once. Their Connect action opens a separate setup card with an explicitly labeled Spotify search. Saved links stay on this Mac.
+
+### Codex
+
+Codex has cards for active threads, previous threads, and account usage with reset times. Several threads are visible at once. Press Return to enter the list, use up and down to select, Return to compose, and ⌘Return to send. ⌘F searches titles and prompts. The archive button includes older archived threads. Draft text belongs to its recipient; drafts, searches, card selection, and list position survive tab changes.
+
+The integration uses the installed Codex CLI for history and account limits, and the desktop app's local IPC connection to follow and message existing threads. Desktop IPC is versioned but private; an incompatible or unavailable connection produces an explicit error. History alone is never treated as evidence that a thread is running. Choosing an unconnected historical thread opens that exact thread in Codex, waits for its owner, and returns focus to smool before composing. smool does not resume a second competing session or answer approval requests on your behalf.
+
+Run `Tests/run-checks.sh` for navigation, geometry, Spotify URL/privacy constraints, Codex protocol/state fixtures, and lighting checks. These checks never send prompts or change playback.
 
 The bundled Spotify and Codex logos are the SVG assets from the [home design in Figma](https://www.figma.com/design/G2aym3oehQkvnPmGcSge4L/Smool?node-id=2-386), using the monochrome artwork supplied in the design. The logo library is [SVGL](https://svgl.app/).

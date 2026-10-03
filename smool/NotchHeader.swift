@@ -4,17 +4,20 @@ import SwiftUI
 /// Place ordinary content below this view in a VStack with zero spacing.
 struct NotchHeader<Leading: View, Center: View, Trailing: View>: View {
     let layout: NotchLayout
+    private let sideInset: CGFloat
     private let leading: Leading
     private let center: Center
     private let trailing: Trailing
 
     init(
         layout: NotchLayout,
+        sideInset: CGFloat = 12,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder center: () -> Center,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.layout = layout
+        self.sideInset = sideInset
         self.leading = leading()
         self.center = center()
         self.trailing = trailing()
@@ -26,7 +29,7 @@ struct NotchHeader<Leading: View, Center: View, Trailing: View>: View {
 
             HStack(spacing: 0) {
                 ZStack { leading }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, sideInset)
                     .frame(width: regions.leading.width, height: regions.leading.height)
                     .clipped()
                     .contentShape(Rectangle())
@@ -40,7 +43,7 @@ struct NotchHeader<Leading: View, Center: View, Trailing: View>: View {
                 .clipped()
 
                 ZStack { trailing }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, sideInset)
                     .frame(width: regions.trailing.width, height: regions.trailing.height)
                     .clipped()
                     .contentShape(Rectangle())

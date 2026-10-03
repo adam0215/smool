@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+checks=".build/Checks"
+mkdir -p "$checks/ModuleCache" "$checks/renders"
+
+swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -parse-as-library)
+"${swiftc[@]}" smool/NotchTab.swift Tests/NotchNavigationChecks.swift -o "$checks/navigation"
+"$checks/navigation"
+"${swiftc[@]}" smool/ScreenNotch.swift smool/NotchLayout.swift Tests/NotchLayoutChecks.swift -o "$checks/layout"
+"$checks/layout"
+"${swiftc[@]}" smool/SpotifyService.swift Tests/SpotifyChecks.swift -o "$checks/spotify"
+"$checks/spotify"
+"${swiftc[@]}" smool/CodexProtocol.swift smool/CodexTransport.swift smool/CodexClient.swift smool/CodexService.swift Tests/CodexProtocolChecks.swift -o "$checks/codex"
+"$checks/codex"
+"${swiftc[@]}" smool/HomeApp.swift smool/HomeGlass.swift smool/HomeGlow.swift smool/NotchLayout.swift smool/ScreenNotch.swift Tests/HomeLightingChecks.swift -o "$checks/lighting"
+"$checks/lighting" "$checks/renders"
+"${swiftc[@]}" smool/NotchHeader.swift smool/NotchLayout.swift smool/ScreenNotch.swift Tests/NotchHeaderRenderingChecks.swift -o "$checks/header"
+"$checks/header" "$checks/renders"
