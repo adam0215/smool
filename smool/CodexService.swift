@@ -31,6 +31,10 @@ struct CodexLimit: Identifiable {
     let resetAt: Date?
     let durationMinutes: Int?
 
+    var isCodexWeek: Bool {
+        id.hasPrefix("codex.") && durationMinutes == 7 * 24 * 60
+    }
+
     static func parse(_ response: CodexJSON) -> [CodexLimit] {
         let buckets = response["rateLimitsByLimitId"].object
         let values = buckets.isEmpty ? [("codex", response["rateLimits"])] : buckets.sorted { $0.key < $1.key }

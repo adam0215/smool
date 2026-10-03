@@ -84,6 +84,11 @@ struct CodexProtocolChecks {
         precondition(limits[0].usedPercent == 25, "Prefer the multi-bucket view over the legacy bucket.")
         precondition(limits[0].resetAt == Date(timeIntervalSince1970: 1_800_000_000))
         precondition(limits[0].durationMinutes == 300)
+        precondition(!limits[0].isCodexWeek)
+        let weeklyFixture = #"{"rateLimitsByLimitId":{"codex":{"secondary":{"usedPercent":22,"windowDurationMins":10080}},"gpt-reserve":{"secondary":{"usedPercent":7,"windowDurationMins":10080}}}}"#
+        let weekly = CodexLimit.parse(try JSONDecoder().decode(CodexJSON.self, from: Data(weeklyFixture.utf8)))
+        precondition(weekly.filter(\.isCodexWeek).map(\.id) == ["codex.secondary"], "Only Codex's seven-day window belongs in the ring.")
+
 
         let thread = CodexThread(json: .object(["id": .string("thread-a"), "name": .string("Original title"),
                                                 "preview": .string("First prompt"), "updatedAt": .number(1_800_000_000_000)]))!

@@ -9,11 +9,11 @@ struct NotchNavigationChecks {
             precondition(tab.neighbor(-1).neighbor(1) == tab)
             precondition(tab.neighbor(tabs.count) == tab)
             precondition(tab.neighbor(-tabs.count) == tab)
-            precondition(tab.neighbor(-10) == tab.neighbor(-1))
-            precondition(tab.neighbor(10) == tab.neighbor(1))
+            precondition(tab.neighbor(-10) == tab.neighbor(-10 % tabs.count))
+            precondition(tab.neighbor(10) == tab.neighbor(10 % tabs.count))
         }
-        precondition(NotchTab.home.neighbor(-1) == .codex)
-        precondition(NotchTab.codex.neighbor(1) == .home)
+        precondition(NotchTab.home.neighbor(-1) == .music)
+        precondition(NotchTab.music.neighbor(1) == .home)
 
         let pages = ["Playing", "Playlists", "Queue"]
         precondition(adjacentPage(in: pages, to: "Playing", offset: -1) == "Playing")

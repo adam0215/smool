@@ -17,7 +17,6 @@ final class CodexAppletState {
     var scope = CodexScope.deck
     var selection: [CodexPage: String] = [:]
     var searches: [CodexPage: String] = [:]
-    var usageIndex = 0
 }
 
 struct CodexAppletView: View {
@@ -66,14 +65,15 @@ struct CodexAppletView: View {
             pages: CodexPage.allCases,
             selection: $state.page,
             title: { $0.rawValue },
+            showsTitle: state.page != .usage,
             isNavigating: state.scope == .deck,
             editingHint: editingHint,
-            navigationHint: state.page == .usage ? "↑↓ kort   ·   ←→ gränser   ·   ⌘R uppdatera" : "↑↓ kort   ·   ↵ välj tråd   ·   ⌘F sök"
+            navigationHint: state.page == .usage ? "↑↓ kort   ·   ⌘R uppdatera" : "↑↓ kort   ·   ↵ välj tråd   ·   ⌘F sök"
         ) { page in
             if case .composer(let thread) = state.scope {
                 composer(thread)
             } else if page == .usage {
-                CodexUsageView(service: service, index: $state.usageIndex)
+                CodexUsageView(service: service)
             } else {
                 threadList
             }
@@ -81,11 +81,6 @@ struct CodexAppletView: View {
         .onKeyPress(keys: [.upArrow, .downArrow]) { key in
             guard state.scope == .threads, unmodified(key) else { return .ignored }
             moveThread(key.key == .upArrow ? -1 : 1)
-            return .handled
-        }
-        .onKeyPress(keys: [.leftArrow, .rightArrow]) { key in
-            guard state.page == .usage, state.scope == .deck, unmodified(key) else { return .ignored }
-            state.usageIndex = min(max(state.usageIndex + (key.key == .leftArrow ? -1 : 1), 0), max(0, (service.limits.count - 1) / 2))
             return .handled
         }
         .onKeyPress(keys: [.return, .tab], phases: .down) { key in
@@ -236,10 +231,6 @@ struct CodexAppletView: View {
             if let error = service.liveError, state.page == .active {
                 Text(error).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
             }
-            Button { Task { await service.refresh() } } label: {
-                ShortcutLabel("Uppdatera", keys: "⌘R")
-            }
-                .buttonStyle(NotchControlStyle())
         }
         .frame(maxWidth: .infinity, minHeight: 123)
         .focusable(state.scope == .threads, interactions: .edit)

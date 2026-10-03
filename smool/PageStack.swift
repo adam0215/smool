@@ -5,6 +5,7 @@ struct PageStack<Page: Hashable, Content: View>: View {
     let pages: [Page]
     @Binding var selection: Page
     let title: (Page) -> String
+    var showsTitle = true
     var isNavigating = true
     var editingHint = "⌘↵ skicka   ·   esc tillbaka"
     var navigationHint: String? = nil
@@ -36,9 +37,7 @@ struct PageStack<Page: Hashable, Content: View>: View {
             ForEach(Array(neighbors.enumerated()), id: \.element) { depth, page in
                 GlassEffectContainer(spacing: 0) {
                     Button { select(page) } label: {
-                        Text(title(page))
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
+                        Color.clear
                             .frame(maxWidth: .infinity)
                             .frame(height: 22)
                             .padding(.bottom, 14)
@@ -56,16 +55,16 @@ struct PageStack<Page: Hashable, Content: View>: View {
 
             GlassEffectContainer(spacing: 0) {
                 VStack(spacing: 10) {
-                    HStack(spacing: 8) {
-                        Text(title(selection))
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        Text("\(index + 1) / \(pages.count)")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                        pageButton("chevron.up", offset: -1)
-                        pageButton("chevron.down", offset: 1)
+                    if showsTitle {
+                        HStack(spacing: 8) {
+                            Text(title(selection))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text("\(index + 1) / \(pages.count)")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     content(selection)
@@ -74,7 +73,7 @@ struct PageStack<Page: Hashable, Content: View>: View {
                         .transition(.identity)
                         .clipped()
 
-                    Text(isNavigating ? navigationHint ?? "↑↓ kort   ·   ↵ öppna   ·   ⌘0–2 flik" : editingHint)
+                    Text(isNavigating ? navigationHint ?? "↑↓ kort   ·   ↵ öppna   ·   ⌘1–4 flik" : editingHint)
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -104,20 +103,6 @@ struct PageStack<Page: Hashable, Content: View>: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(title(selection)), kort \(index + 1) av \(pages.count)")
-    }
-
-    private func pageButton(_ symbol: String, offset: Int) -> some View {
-        Button { move(offset) } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 9, weight: .semibold))
-                .frame(width: 22, height: 20)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focusable(false)
-        .disabled(!isNavigating || pages.count < 2)
-        .accessibilityLabel(offset < 0 ? "Föregående kort" : "Nästa kort")
-        .help(offset < 0 ? "Föregående kort · ↑" : "Nästa kort · ↓")
     }
 
     private func move(_ offset: Int) {

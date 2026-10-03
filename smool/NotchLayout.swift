@@ -18,7 +18,7 @@ struct NotchLayout {
     var expandedSize: CGSize {
         CGSize(
             width: min(max(480, headerSize.width + 224), screenFrame.width - 40),
-            height: headerSize.height + contentHeight
+            height: max(44, headerSize.height) + contentHeight
         )
     }
 

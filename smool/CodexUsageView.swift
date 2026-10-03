@@ -2,59 +2,41 @@ import SwiftUI
 
 struct CodexUsageView: View {
     let service: CodexService
-    @Binding var index: Int
-
-    private var pageCount: Int { max(1, (service.limits.count + 1) / 2) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if service.limits.isEmpty {
-                Text(service.isLoading ? "Hämtar användning…" : "Användning är inte tillgänglig")
-                    .font(.system(size: 12, weight: .medium))
-                Text(service.error ?? "Logga in på ditt konto i Codex och uppdatera.")
-                    .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
+        VStack(spacing: 10) {
+            if let limit = service.limits.first(where: { $0.isCodexWeek }) {
+                let remaining = max(0, min(100, 100 - limit.usedPercent))
+                ZStack {
+                    Circle().stroke(.white.opacity(0.08), lineWidth: 8)
+                    Circle()
+                        .trim(from: 0, to: remaining / 100)
+                        .stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Text("\(Int(remaining))%")
+                        .font(.system(size: 58, weight: .medium))
+                        .monospacedDigit()
+                        .minimumScaleFactor(0.7)
+                        .padding(16)
+                }
+                .frame(width: 156, height: 156)
+                .padding(4)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Codex, \(Int(remaining)) procent kvar av sjudagarsgränsen")
+
+                if let reset = limit.resetAt {
+                    Text("Återställs \(reset.formatted(.dateTime.day().month(.abbreviated).hour().minute().locale(Locale(identifier: "sv_SE"))))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             } else {
-                ForEach(Array(service.limits.dropFirst(index * 2).prefix(2))) { limit in
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack {
-                            Text(limit.title).lineLimit(1).minimumScaleFactor(0.8)
-                            Spacer()
-                            Text("\(Int(max(0, min(100, 100 - limit.usedPercent))))% kvar").monospacedDigit()
-                        }
-                        .font(.system(size: 11, weight: .medium))
-                        ProgressView(value: max(0, min(100, 100 - limit.usedPercent)), total: 100)
-                            .tint(.white.opacity(0.65))
-                        if let reset = limit.resetAt {
-                            HStack(spacing: 3) {
-                                Text("Återställs")
-                                Text(reset, format: .dateTime.day().month(.abbreviated).hour().minute().locale(Locale(identifier: "sv_SE")))
-                            }
-                            .font(.system(size: 9)).foregroundStyle(.secondary)
-                        }
-                    }
+                Text(service.isLoading ? "Hämtar användning…" : "Sjudagarsgränsen är inte tillgänglig")
+                    .font(.caption)
+                if let error = service.error {
+                    Text(error).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
                 }
             }
-            Spacer(minLength: 0)
-            HStack {
-                Button { Task { await service.refresh() } } label: {
-                    ShortcutLabel("Uppdatera", keys: "⌘R")
-                }
-                    .buttonStyle(NotchControlStyle())
-                    .disabled(service.isLoading)
-                Spacer()
-                if pageCount > 1 {
-                    Button { index = max(0, index - 1) } label: { Text("←") }
-                        .disabled(index == 0)
-                        .accessibilityLabel("Föregående användningsgränser")
-                    Text("\(index + 1) / \(pageCount)").foregroundStyle(.secondary)
-                    Button { index = min(pageCount - 1, index + 1) } label: { Text("→") }
-                        .disabled(index == pageCount - 1)
-                        .accessibilityLabel("Nästa användningsgränser")
-                }
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: 10))
         }
-        .onChange(of: service.limits.count) { _, _ in index = min(index, pageCount - 1) }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

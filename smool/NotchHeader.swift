@@ -5,6 +5,7 @@ import SwiftUI
 struct NotchHeader<Leading: View, Center: View, Trailing: View>: View {
     let layout: NotchLayout
     private let sideInset: CGFloat
+    private let height: CGFloat
     private let leading: Leading
     private let center: Center
     private let trailing: Trailing
@@ -12,12 +13,14 @@ struct NotchHeader<Leading: View, Center: View, Trailing: View>: View {
     init(
         layout: NotchLayout,
         sideInset: CGFloat = 12,
+        height: CGFloat? = nil,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder center: () -> Center,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.layout = layout
         self.sideInset = sideInset
+        self.height = height ?? layout.headerSize.height
         self.leading = leading()
         self.center = center()
         self.trailing = trailing()
@@ -30,7 +33,7 @@ struct NotchHeader<Leading: View, Center: View, Trailing: View>: View {
             HStack(spacing: 0) {
                 ZStack { leading }
                     .padding(.horizontal, sideInset)
-                    .frame(width: regions.leading.width, height: regions.leading.height)
+                    .frame(width: regions.leading.width, height: height)
                     .clipped()
                     .contentShape(Rectangle())
 
@@ -44,12 +47,12 @@ struct NotchHeader<Leading: View, Center: View, Trailing: View>: View {
 
                 ZStack { trailing }
                     .padding(.horizontal, sideInset)
-                    .frame(width: regions.trailing.width, height: regions.trailing.height)
+                    .frame(width: regions.trailing.width, height: height)
                     .clipped()
                     .contentShape(Rectangle())
             }
         }
-        .frame(height: layout.headerSize.height)
+        .frame(height: height)
     }
 }
 

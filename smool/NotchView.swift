@@ -5,6 +5,9 @@ import SwiftUI
 final class NotchPresentation {
     var isExpanded = false
     var tab: NotchTab = .home
+    var showCalendar = false
+    let calendar = CalendarService()
+    let music = MusicService()
     let spotify = SpotifyService()
     let spotifyState = SpotifyAppletState()
     let codexState = CodexAppletState()
@@ -18,6 +21,8 @@ struct NotchView: View {
     let selectTab: (NotchTab) -> Void
     var close: () -> Void = {}
     var restoreFocus: () -> Void = {}
+    var openCalendar: () -> Void = {}
+    var closeCalendar: () -> Void = {}
 
     private var size: CGSize {
         presentation.isExpanded ? presentation.layout.expandedSize : presentation.layout.collapsedSize
@@ -33,14 +38,14 @@ struct NotchView: View {
     private var horizontalAnimation: Animation? {
         guard !reduceMotion else { return nil }
         return presentation.isExpanded
-            ? .timingCurve(0.64, 0, 0.16, 1, duration: 0.7)
+            ? .spring(response: 0.48, dampingFraction: 0.78)
             : .spring(response: 0.42, dampingFraction: 0.86).delay(0.03)
     }
 
     private var verticalAnimation: Animation? {
         guard !reduceMotion else { return nil }
         return presentation.isExpanded
-            ? .timingCurve(0.68, 0, 0.18, 1, duration: 0.84).delay(0.035)
+            ? .spring(response: 0.54, dampingFraction: 0.76).delay(0.025)
             : .spring(response: 0.4, dampingFraction: 0.86)
     }
 
@@ -53,7 +58,7 @@ struct NotchView: View {
             .animation(verticalAnimation, value: presentation.isExpanded)
             .overlay(alignment: .top) {
                 if presentation.isExpanded {
-                    NotchContentView(presentation: presentation, selectTab: selectTab, restoreFocus: restoreFocus)
+                    NotchContentView(presentation: presentation, selectTab: selectTab, restoreFocus: restoreFocus, openCalendar: openCalendar, closeCalendar: closeCalendar)
                         .frame(width: presentation.layout.expandedSize.width, height: presentation.layout.expandedSize.height)
                         .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(.easeOut(duration: 0.16))))
                 }

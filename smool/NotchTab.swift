@@ -1,13 +1,14 @@
 import SwiftUI
 
 enum NotchTab: Int, CaseIterable, Hashable {
-    case home, spotify, codex
+    case home, spotify, codex, music
 
     var title: String {
         switch self {
         case .home: "Hem"
         case .spotify: "Spotify"
         case .codex: "Codex"
+        case .music: "Musik"
         }
     }
 
@@ -18,6 +19,7 @@ enum NotchTab: Int, CaseIterable, Hashable {
         case .home: .blue
         case .spotify: .green
         case .codex: .purple
+        case .music: .pink
         }
     }
 

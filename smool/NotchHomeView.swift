@@ -4,6 +4,7 @@ struct NotchHomeView: View {
     let layout: NotchLayout
     let date: Date
     let openTab: (NotchTab) -> Void
+    var openCalendar: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -88,8 +89,14 @@ struct NotchHomeView: View {
         .onTapGesture {
             hoveredCard = nil
             focusedCard = .clock
+            openCalendar()
+        }
+        .onKeyPress(.return) {
+            openCalendar()
+            return .handled
         }
         .onHover { updateHover($0, card: .clock) }
+        .accessibilityAction(named: "Öppna kalender", openCalendar)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(activeCard == .clock ? .isSelected : [])
     }
@@ -122,7 +129,7 @@ struct NotchHomeView: View {
         }
         .accessibilityLabel("Öppna \(app.rawValue)")
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .help("Öppna \(app.rawValue) · ⌘\(app == .spotify ? "1" : "2")")
+        .help("Öppna \(app.rawValue) · ⌘\(app == .spotify ? "2" : "3")")
     }
 
     private func updateHover(_ hovering: Bool, card: Card) {
