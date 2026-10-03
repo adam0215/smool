@@ -21,6 +21,11 @@ struct CodexProtocolChecks {
         precondition(submission.object["approvalPolicy"] == nil, "Preserve the owner's approval and permission settings.")
         precondition(submission.object["model"] == nil, "Preserve the thread's model.")
 
+        let discoveryRequest = CodexDesktopProtocol.request(id: "discovery-a", clientID: "smool-client",
+            method: "thread-owner-discovery", params: .object([:]), timeoutMilliseconds: 750)
+        precondition(discoveryRequest["timeoutMs"].number == 750, "Read-only discovery must use its shorter deadline.")
+        precondition(request["timeoutMs"].number == 8_000, "Sending keeps the original delivery deadline.")
+
         let steer = CodexDesktopProtocol.steer(text: text, threadID: "thread-a", messageID: "message-a")
         let steerRequest = CodexDesktopProtocol.request(id: "request-s", clientID: "smool-client",
             method: "thread-follower-steer-turn", params: steer, owner: "desktop-owner")

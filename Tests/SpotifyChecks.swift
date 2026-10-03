@@ -1,8 +1,10 @@
 import Foundation
+import JavaScriptCore
 
 @main
 struct SpotifyChecks {
-    static func main() throws {
+    @MainActor
+    static func main() async throws {
         let id = "37i9dQZEVXcABCDEFGHIJKLMNOP".prefix(22)
         let uri = "spotify:playlist:\(id)"
         precondition(SpotifyPlaylist.uri(from: uri) == uri)
@@ -38,6 +40,60 @@ struct SpotifyChecks {
         for url in ["https://scdn.co.evil.test/image", "https://example.com/image", "http://i.scdn.co/image", "https://user:password@i.scdn.co/image"] {
             precondition(!SpotifyTrack.allowsArtworkURL(URL(string: url)!))
         }
-        print("Spotify URI validation and playback formatting checks passed")
+        let javascript = JSContext()!
+        func evaluate(_ source: String, application: String) throws -> SpotifyBridge.Response {
+            let value = javascript.evaluateScript("(function(Application) { \(source); return run(); })(function() { return \(application); })")
+            precondition(javascript.exception == nil, "The Spotify script must execute without JavaScript errors")
+            return try JSONDecoder().decode(SpotifyBridge.Response.self, from: Data(value!.toString()!.utf8))
+        }
+        let stopped = try evaluate(readScript, application: "{ running: () => true, playerState: () => 'stopped', currentTrack: () => { throw new Error('Must not read a stopped track'); } }")
+        precondition(stopped.status == "idle")
+        let missingTrack = try evaluate(readScript, application: "{ running: () => true, playerState: () => 'paused', currentTrack: () => { throw {errorNumber: -1728}; } }")
+        precondition(missingTrack.status == "idle")
+        let missingArtwork = try evaluate(readScript, application: "{ running: () => true, playerState: () => 'playing', playerPosition: () => 61, currentTrack: () => ({ name: () => 'Track', artist: () => 'Artist', duration: () => 200000, artworkUrl: () => { throw new Error('No artwork'); } }) }")
+        precondition(missingArtwork.status == "ready" && missingArtwork.track?.artwork == "")
+        precondition(missingArtwork.track?.duration == 200 && missingArtwork.track?.playing == true)
+
+        let process = SpotifyTestProcess()
+        let replies = SpotifyTestReplies(response: timeout)
+        let service = SpotifyService(processIdentifier: { process.id }, request: { _ in await replies.read() })
+        await service.refresh()
+        guard case .failed = service.state else { preconditionFailure("Timeout must be visible") }
+        let ready = SpotifyBridge.Response(status: "ready", track: track, code: nil, message: nil)
+        await replies.setResponse(ready)
+        await service.refresh()
+        let readsBeforeRestart = await replies.readCount
+        precondition(readsBeforeRestart == 1, "A failing process must not be polled repeatedly")
+        process.id = 2
+        await service.refresh()
+        guard case .ready = service.state else { preconditionFailure("Restarted Spotify must reconnect automatically") }
+        let readsAfterRestart = await replies.readCount
+        precondition(readsAfterRestart == 2)
+
+        let changingProcess = SpotifyTestProcess()
+        let stale = SpotifyService(processIdentifier: { changingProcess.id }, request: { _ in
+            await MainActor.run { changingProcess.id = 2 }
+            return timeout
+        })
+        await stale.refresh()
+        guard case .loading = stale.state else { preconditionFailure("A stale response must not mark a new Spotify process failed") }
+        print("Spotify validation, scripting, artwork, and process-recovery checks passed")
+    }
+}
+
+@MainActor
+private final class SpotifyTestProcess {
+    var id: pid_t? = 1
+}
+
+private actor SpotifyTestReplies {
+    var response: SpotifyBridge.Response
+    private(set) var readCount = 0
+
+    init(response: SpotifyBridge.Response) { self.response = response }
+    func setResponse(_ response: SpotifyBridge.Response) { self.response = response }
+    func read() -> SpotifyBridge.Response {
+        readCount += 1
+        return response
     }
 }

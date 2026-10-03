@@ -175,15 +175,21 @@ final class CodexService {
     /// Opening a thread lets the desktop keep ownership, settings and approval handling.
     /// This explicit action only connects; sending always remains a separate user action.
     func ensureConnected(to thread: CodexThread) async -> Bool {
+        if desktop.isConnected, owners[thread.id] != nil,
+           threads.contains(where: { $0.id == thread.id && $0.isConnected }) {
+            error = nil
+            return true
+        }
         guard isConnectingThreadID == nil else { return false }
         isConnectingThreadID = thread.id
         defer { isConnectingThreadID = nil }
         do {
             try? await desktop.connect()
             try Task.checkCancellation()
-            if desktop.isConnected, let owner = try? await owner(of: thread.id) {
+            if desktop.isConnected, let owner = try? await owner(of: thread.id, timeout: .milliseconds(750)) {
                 return try await awaitSnapshot(threadID: thread.id, owner: owner)
             }
+            try Task.checkCancellation()
             guard let url = CodexDesktopProtocol.threadURL(thread.id),
                   let application = NSWorkspace.shared.urlForApplication(toOpen: url) else {
                 throw CodexConnectionError(message: "Installera eller öppna Codex för att ansluta tråden.")
@@ -197,22 +203,24 @@ final class CodexService {
                 try Task.checkCancellation()
                 try? await desktop.connect()
                 try Task.checkCancellation()
-                if desktop.isConnected, let owner = try? await owner(of: thread.id) {
+                if desktop.isConnected, let owner = try? await owner(of: thread.id, timeout: .milliseconds(750)) {
                     return try await awaitSnapshot(threadID: thread.id, owner: owner)
                 }
                 try await Task.sleep(for: .milliseconds(500))
             } while ContinuousClock.now < deadline
             throw CodexConnectionError(message: "Codex hann inte ansluta tråden. Ditt utkast är kvar; försök ansluta igen.")
+        } catch is CancellationError {
+            return false
         } catch {
             self.error = error.localizedDescription
             return false
         }
     }
 
-    private func owner(of threadID: String) async throws -> String {
+    private func owner(of threadID: String, timeout: Duration = .seconds(12)) async throws -> String {
         let response = try await desktop.request("thread-owner-discovery", params: .object([
             "hostId": .string("local"), "conversationId": .string(threadID)
-        ]))
+        ]), timeout: timeout)
         guard let owner = response["handledByClientId"].string else {
             throw CodexConnectionError(message: "Tråden har ännu inte anslutits i Codex.")
         }
@@ -282,6 +290,10 @@ final class CodexService {
         }
         guard params["hostId"].string == "local", let id = params["conversationId"].string else { return }
         if method == "thread-stream-following-changed" { follow(id); return }
+        if method == "thread-stream-following-status-requested" {
+            if followed.contains(id) { desktop.follow(id) }
+            return
+        }
         guard method == "thread-stream-state-changed" else { return }
         guard message["version"].number == Double(CodexDesktopProtocol.snapshotVersion) else {
             liveError = "Codex har ändrat sitt lokala gränssnitt. Live-status är inte tillgänglig med den här versionen."

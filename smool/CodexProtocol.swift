@@ -52,7 +52,7 @@ enum CodexDesktopProtocol {
         return URL(string: "codex://threads/\(threadID)")
     }
 
-    static func request(id: String, clientID: String, method: String, params: CodexJSON, owner: String? = nil) -> CodexJSON {
+    static func request(id: String, clientID: String, method: String, params: CodexJSON, owner: String? = nil, timeoutMilliseconds: Int = 8_000) -> CodexJSON {
         let version: Int
         switch method {
         case "thread-owner-discovery", "thread-follower-steer-turn": version = 1
@@ -62,7 +62,7 @@ enum CodexDesktopProtocol {
         var request: [String: CodexJSON] = [
             "type": .string("request"), "requestId": .string(id),
             "sourceClientId": .string(clientID), "version": .number(Double(version)),
-            "method": .string(method), "params": params, "timeoutMs": .number(8_000)
+            "method": .string(method), "params": params, "timeoutMs": .number(Double(timeoutMilliseconds))
         ]
         if let owner { request["targetClientId"] = .string(owner) }
         return .object(request)

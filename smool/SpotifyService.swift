@@ -100,11 +100,22 @@ final class SpotifyService {
     private(set) var state: State = .loading
     private(set) var isPerformingAction = false
     private(set) var actionError: String?
-    private let bridge = SpotifyBridge()
+    private let request: @Sendable (SpotifyBridge.Command?) async throws -> SpotifyBridge.Response
+    private let processIdentifier: @MainActor () -> pid_t?
+    private var connectedProcess: pid_t?
     private var refreshing = false
 
-    init(state: State = .loading) {
+    init(
+        state: State = .loading,
+        processIdentifier: @escaping @MainActor () -> pid_t? = {
+            NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").first?.processIdentifier
+        },
+        request: (@Sendable (SpotifyBridge.Command?) async throws -> SpotifyBridge.Response)? = nil
+    ) {
         self.state = state
+        self.processIdentifier = processIdentifier
+        let bridge = SpotifyBridge()
+        self.request = request ?? { try await bridge.run($0) }
     }
 
     func observe() async {
@@ -116,10 +127,17 @@ final class SpotifyService {
     }
 
     func refresh(retry: Bool = false) async {
-        guard !refreshing, !isPerformingAction else { return }
-        guard NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").isEmpty == false else {
+        guard !refreshing, !isPerformingAction, !Task.isCancelled else { return }
+        guard let process = processIdentifier() else {
+            connectedProcess = nil
             state = .notRunning
             return
+        }
+        // A restarted Spotify gets a fresh connection even if its old process timed out.
+        if connectedProcess != process {
+            connectedProcess = process
+            state = .loading
+            actionError = nil
         }
         // A denied permission needs an explicit retry, not another request on every poll.
         if !retry {
@@ -129,8 +147,12 @@ final class SpotifyService {
         refreshing = true
         defer { refreshing = false }
         do {
-            let response = try await bridge.run()
+            let response = try await request(nil)
             guard !Task.isCancelled else { return }
+            guard processIdentifier() == process else {
+                state = processIdentifier() == nil ? .notRunning : .loading
+                return
+            }
             switch response.status {
             case "notRunning": state = .notRunning
             case "idle": state = .idle
@@ -140,7 +162,12 @@ final class SpotifyService {
             default: state = response.code == -1743 ? .permissionDenied : .failed(response.errorDescription)
             }
         } catch {
-            if !Task.isCancelled { state = .failed("Kunde inte läsa Spotify. Försök igen.") }
+            guard !Task.isCancelled else { return }
+            if processIdentifier() != process {
+                state = processIdentifier() == nil ? .notRunning : .loading
+            } else {
+                state = .failed("Kunde inte läsa Spotify. Försök igen.")
+            }
         }
     }
 
@@ -150,12 +177,19 @@ final class SpotifyService {
     }
 
     func perform(_ command: SpotifyBridge.Command) async {
-        guard !isPerformingAction else { return }
+        guard !isPerformingAction, !Task.isCancelled else { return }
+        guard let process = processIdentifier() else { state = .notRunning; return }
         isPerformingAction = true
         actionError = nil
         var succeeded = false
         do {
-            let response = try await bridge.run(command)
+            let response = try await request(command)
+            guard !Task.isCancelled else { isPerformingAction = false; return }
+            guard processIdentifier() == process else {
+                isPerformingAction = false
+                state = processIdentifier() == nil ? .notRunning : .loading
+                return
+            }
             switch response.status {
             case "success": succeeded = true
             case "notRunning": state = .notRunning
@@ -229,14 +263,19 @@ actor SpotifyBridge {
                 const spotify = Application('com.spotify.client');
                 if (!spotify.running()) return JSON.stringify({status: 'notRunning'});
                 \(action)
+                const playerState = spotify.playerState();
+                if (playerState === 'stopped') return JSON.stringify({status: 'idle'});
                 const track = spotify.currentTrack();
                 if (!track || !track.name()) return JSON.stringify({status: 'idle'});
+                let artwork = '';
+                try { artwork = track.artworkUrl() || ''; } catch (_) {}
                 return JSON.stringify({status: 'ready', track: {
-                    title: track.name(), artist: track.artist(), artwork: track.artworkUrl() || '',
+                    title: track.name(), artist: track.artist(), artwork: artwork,
                     duration: track.duration() / 1000, position: spotify.playerPosition(),
-                    playing: spotify.playerState() === 'playing'
+                    playing: playerState === 'playing'
                 }});
             } catch (error) {
+                if (error.errorNumber === -1728) return JSON.stringify({status: 'idle'});
                 return JSON.stringify({status: 'error', code: error.errorNumber || 0, message: String(error.message || error)});
             }
         }
@@ -258,8 +297,13 @@ actor SpotifyBridge {
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeout)
         defer { timeout.cancel() }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        let data = await withTaskCancellationHandler {
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return data
+        } onCancel: {
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        }
         try Task.checkCancellation()
         if process.terminationReason == .uncaughtSignal, process.terminationStatus == SIGKILL {
             return Response(status: "error", track: nil, code: -1712, message: nil)

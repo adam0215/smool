@@ -84,18 +84,20 @@ final class CodexClient {
         }
     }
 
-    func request(_ method: String, params: CodexJSON, owner: String? = nil) async throws -> CodexJSON {
+    func request(_ method: String, params: CodexJSON, owner: String? = nil, timeout: Duration = .seconds(12)) async throws -> CodexJSON {
         guard (isConnected || method == "initialize"), let transport else { throw CodexConnectionError(message: "Anslutningen till Codex är stängd.") }
         try Task.checkCancellation()
         let id = UUID().uuidString
+        let milliseconds = Int(timeout.components.seconds * 1_000 + timeout.components.attoseconds / 1_000_000_000_000_000)
         let message = desktop
-            ? CodexDesktopProtocol.request(id: id, clientID: clientID, method: method, params: params, owner: owner)
+            ? CodexDesktopProtocol.request(id: id, clientID: clientID, method: method, params: params, owner: owner,
+                                           timeoutMilliseconds: min(8_000, milliseconds))
             : .object(["id": .string(id), "method": .string(method), "params": params])
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 pending[id] = continuation
                 timeouts[id] = Task { [weak self] in
-                    try? await Task.sleep(for: .seconds(12))
+                    try? await Task.sleep(for: timeout)
                     guard !Task.isCancelled else { return }
                     self?.finish(id, result: .failure(CodexConnectionError(message: "Codex svarade inte. Försök ansluta igen.")))
                 }
