@@ -7,7 +7,7 @@ final class AudioService {
     private(set) var error: String?
     @ObservationIgnored private let devices: any AudioDeviceControlling
     @ObservationIgnored private var isObserving = false
-    @ObservationIgnored private var volumeBeforeMute: [AudioDeviceID: Float32] = [:]
+    @ObservationIgnored private var volumeBeforeMute: [AudioDeviceID: AudioVolume] = [:]
 
     init(devices: any AudioDeviceControlling = CoreAudioDevices()) {
         self.devices = devices
@@ -50,16 +50,28 @@ final class AudioService {
     func toggleMute() {
         guard state.volume.isAdjustable else { return }
         if state.volume.value > 0 {
-            volumeBeforeMute[state.outputID] = state.volume.value
+            volumeBeforeMute[state.outputID] = state.volume
             setVolume(0)
+        } else if let saved = volumeBeforeMute[state.outputID],
+                  Set(saved.channels.map(\.element)) == Set(state.volume.channels.map(\.element)) {
+            do {
+                try devices.setVolume(saved, for: state.outputID)
+                error = nil
+            } catch {
+                self.error = "Could not restore the volume. Check the audio device."
+            }
+            refresh()
         } else {
-            setVolume(volumeBeforeMute[state.outputID] ?? 0.5)
+            setVolume(0.5)
         }
     }
 
     private func refresh() {
-        do { state = try devices.snapshot() }
-        catch {
+        do {
+            state = try devices.snapshot()
+            let available = Set(state.devices.map(\.id))
+            volumeBeforeMute = volumeBeforeMute.filter { available.contains($0.key) }
+        } catch {
             state = AudioDeviceSnapshot()
             self.error = "Audio devices could not be loaded."
         }

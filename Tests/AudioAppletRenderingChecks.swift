@@ -70,6 +70,7 @@ private final class RenderAudioDevices: AudioDeviceControlling {
     }
     func select(_ id: AudioDeviceID, for direction: AudioDirection) throws {}
     func setVolume(_ value: Float32, for id: AudioDeviceID) throws { volumeWrites += 1 }
+    func setVolume(_ volume: AudioVolume, for id: AudioDeviceID) throws { volumeWrites += 1 }
     func observe(_ change: @escaping @MainActor @Sendable () -> Void) { observing = true }
     func stopObserving() { observing = false }
 }

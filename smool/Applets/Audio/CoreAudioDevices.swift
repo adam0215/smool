@@ -35,7 +35,17 @@ final class CoreAudioDevices: AudioDeviceControlling {
         // Re-read controls: a device may have disconnected or changed its channel layout.
         let volume = volume(for: id)
         guard volume.isAdjustable, value.isFinite else { throw AudioDeviceError(status: kAudioHardwareUnsupportedOperationError) }
-        for channel in volume.setting(value) {
+        try setVolume(AudioVolume(channels: volume.setting(value)), for: id)
+    }
+
+    func setVolume(_ volume: AudioVolume, for id: AudioDeviceID) throws {
+        let current = self.volume(for: id)
+        guard current.isAdjustable,
+              Set(current.channels.map(\.element)) == Set(volume.channels.map(\.element)),
+              volume.channels.allSatisfy({ $0.value.isFinite && (0...1).contains($0.value) }) else {
+            throw AudioDeviceError(status: kAudioHardwareUnsupportedOperationError)
+        }
+        for channel in volume.channels {
             try set(id, address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput,
                                 element: channel.element), value: channel.value)
         }

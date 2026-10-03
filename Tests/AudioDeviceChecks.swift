@@ -48,6 +48,33 @@ struct AudioDeviceChecks {
         service.toggleMute()
         precondition(hardware.writes.count == beforeMute, "Mute must not write to fixed-volume devices")
         service.select(10, for: .output)
+        hardware.state.volume = stereo
+        hardware.change?()
+        service.toggleMute()
+        precondition(service.state.volume.channels.allSatisfy { $0.value == 0 })
+        service.toggleMute()
+        precondition(service.state.volume == stereo, "Unmute must restore each channel without changing balance")
+
+        service.toggleMute()
+        hardware.state.outputID = 20
+        hardware.state.volume = AudioVolume(channels: [.init(element: 0, value: 0.3)])
+        hardware.change?()
+        service.toggleMute()
+        service.toggleMute()
+        precondition(service.state.volume.value == 0.3, "Each output retains its own volume")
+        hardware.state.outputID = 10
+        hardware.state.volume = silent
+        hardware.change?()
+        service.toggleMute()
+        precondition(service.state.volume == stereo, "Switching outputs must retain the first output’s channel levels")
+
+        service.toggleMute()
+        hardware.state.volume = AudioVolume(channels: [.init(element: 0, value: 0)])
+        hardware.change?()
+        service.toggleMute()
+        precondition(service.state.volume.channels == [.init(element: 0, value: 0.5)],
+                     "Changed channel layouts must not receive saved channel writes")
+
         hardware.state.devices.removeAll { $0.id == 10 }
         hardware.state.outputID = 20
         hardware.state.volume = AudioVolume(channels: [])
@@ -99,6 +126,14 @@ private final class AudioDeviceFixture: AudioDeviceControlling {
         } else {
             state.inputID = id
         }
+    }
+
+    func setVolume(_ volume: AudioVolume, for id: AudioDeviceID) throws {
+        if fails { throw CocoaError(.fileWriteUnknown) }
+        precondition(id == state.outputID)
+        precondition(Set(volume.channels.map(\.element)) == Set(state.volume.channels.map(\.element)))
+        writes.append("channels:\(id)")
+        state.volume = volume
     }
 
     func setVolume(_ value: Float32, for id: AudioDeviceID) throws {

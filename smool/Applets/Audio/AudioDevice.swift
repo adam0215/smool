@@ -64,6 +64,7 @@ protocol AudioDeviceControlling: AnyObject {
     func snapshot() throws -> AudioDeviceSnapshot
     func select(_ id: AudioDeviceID, for direction: AudioDirection) throws
     func setVolume(_ value: Float32, for id: AudioDeviceID) throws
+    func setVolume(_ volume: AudioVolume, for id: AudioDeviceID) throws
     func observe(_ change: @escaping @MainActor @Sendable () -> Void)
     func stopObserving()
 }
