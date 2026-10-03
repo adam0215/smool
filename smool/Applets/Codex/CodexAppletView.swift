@@ -330,7 +330,9 @@ struct CodexAppletView: View {
 
     private func threadStatus(_ thread: CodexThread) -> some View {
         HStack(spacing: 6) {
-            if thread.isActive { ProgressView().controlSize(.mini) }
+            if service.threads.contains(where: { $0.id == thread.id && $0.isActive }) {
+                ProgressView().controlSize(.mini)
+            }
             Text(statusTitle(thread)).font(.system(size: 10)).foregroundStyle(.secondary)
             Spacer()
             if let url = CodexDesktopProtocol.threadURL(thread.id) {
@@ -340,7 +342,9 @@ struct CodexAppletView: View {
     }
 
     private func statusTitle(_ thread: CodexThread) -> String {
-        guard thread.isConnected else { return "Frånkopplad · sparat flöde" }
+        guard service.threads.contains(where: { $0.id == thread.id && $0.isConnected }) else {
+            return "Frånkopplad · sparat flöde"
+        }
         switch service.attentionByThread[thread.id] ?? .idle {
         case .idle: return "Klart · ↵ följdfråga"
         case .working: return "Arbetar"
