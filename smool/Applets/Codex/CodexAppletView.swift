@@ -5,9 +5,10 @@ struct CodexAppletView: View {
     @State private var state: CodexAppletState
     @State private var connectionTask: Task<Void, Never>?
     @State private var isVisible = false
+    @State private var recipientQuery = ""
     private let restoreFocus: () -> Void
 
-    private enum Focus: Hashable { case search, composer }
+    private enum Focus: Hashable { case search, composer, recipient }
     @FocusState private var focus: Focus?
 
     init(service: CodexService? = nil, state: CodexAppletState? = nil, restoreFocus: @escaping () -> Void = {}) {
@@ -39,12 +40,28 @@ struct CodexAppletView: View {
             editingHint: editingHint,
             navigationHint: state.page == .usage ? "↑↓ Byt sida · ⌘K Åtgärder" : "↑↓ Byt sida · ←→ Välj tråd · ↵ Skriv\n⌘P Välj projekt · ⌘←→ Byt projekt\n⌘F Sök · ? Stäng hjälpen"
         ) { page in
-            if case .composer(let thread) = state.scope {
-                composer(thread)
-            } else if page == .usage {
+            if page == .usage {
                 CodexUsageView(service: service)
             } else {
                 threadList
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if case .composer(let thread) = state.scope {
+                composer(thread)
+                    .id(thread.id)
+                    .padding(12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .popover(isPresented: $state.showsRecipientPicker, arrowEdge: .bottom) {
+            recipientPicker
+        }
+        .onChange(of: threadSelection.selectedThread?.id, initial: true) { _, id in
+            service.selectThread(id)
+            if let id {
+                state.selection[state.page] = id
+                if state.page == .active { state.retainedActiveThreadIDs = [id] }
             }
         }
         .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { key in
@@ -82,20 +99,23 @@ struct CodexAppletView: View {
                 state.scope = .deck
                 Task { await service.setIncludesArchived(!service.includesArchived) }
             }.keyboardShortcut("a", modifiers: [.command, .shift]).hidden()
+            Button("Expandera") { state.isExpanded.toggle() }.keyboardShortcut("e", modifiers: .command).hidden()
+            Button("Nästa tråd") { moveThread(1) }.keyboardShortcut("]", modifiers: .command).hidden()
+            Button("Föregående tråd") { moveThread(-1) }.keyboardShortcut("[", modifiers: .command).hidden()
             Button("Uppdatera", action: refreshOrConnect).keyboardShortcut("r", modifiers: .command).hidden()
         }
         .onChange(of: state.scope) { _, scope in
             if scope == .search { Task { await Task.yield(); focus = .search } }
         }
-        .onAppear { isVisible = true }
-        .task {
+        .onAppear {
+            isVisible = true
             restoreLocalFocus()
-            await service.start()
+            service.setVisible(true)
         }
         .onDisappear {
             isVisible = false
             connectionTask?.cancel()
-            service.stop()
+            service.setVisible(false)
         }
     }
 
@@ -149,23 +169,48 @@ struct CodexAppletView: View {
             .focusable(false)
 
             if let thread = selection.selectedThread {
-                Button { compose(thread) } label: {
-                    HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
                         ProjectIcon(path: thread.project?.roots.first ?? thread.projectPath, isActive: thread.isActive)
-                            .frame(width: 42, height: 42)
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(thread.title).font(.system(size: 17, weight: .medium)).lineLimit(2)
-                            if !thread.preview.isEmpty {
-                                Text(thread.preview).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                            }
+                            .frame(width: 22, height: 22)
+                        Text(thread.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if !service.unreadThreadIDs.subtracting([thread.id]).isEmpty {
+                            Circle().fill(.purple).frame(width: 5, height: 5)
+                                .accessibilityLabel("Ny aktivitet i andra trådar")
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Image(systemName: "arrow.turn.down.left").font(.system(size: 13)).foregroundStyle(.tertiary)
+                        Button { state.isExpanded.toggle() } label: {
+                            Image(systemName: state.isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        }
+                        .help(state.isExpanded ? "Minimera · ⌘E" : "Expandera · ⌘E")
+                        .accessibilityLabel(state.isExpanded ? "Minimera flödet" : "Expandera flödet")
+                        Button { compose(thread) } label: { Image(systemName: "square.and.pencil") }
+                            .help("Skriv till tråden · ↵")
+                            .accessibilityLabel("Skriv till tråden")
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    if let presentation = service.activities[thread.id] {
+                        CodexActivityView(presentation: presentation, readingPosition: Binding(
+                            get: { state.readingPositions[thread.id] ?? CodexReadingPosition() },
+                            set: { state.readingPositions[thread.id] = $0 }
+                        ))
+                        .id(thread.id)
+                    } else {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(thread.preview.isEmpty ? "Inget flöde inläst" : thread.preview)
+                                .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(3)
+                            if !thread.isConnected {
+                                Button("Anslut tråden i Codex") { connect(thread) }
+                                    .buttonStyle(.plain).font(.system(size: 11))
+                            } else { ProgressView().controlSize(.mini) }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
+                    if let issue = service.activityErrors[thread.id] ?? service.liveError {
+                        Text(issue).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)
+                    }
+                    threadStatus(thread)
                 }
-                .buttonStyle(.plain).focusable(false)
-                .accessibilityLabel("\(thread.title), \(thread.isActive ? "arbetar" : "tidigare tråd")")
             } else {
                 emptyState
             }
@@ -198,22 +243,15 @@ struct CodexAppletView: View {
         let draft = Binding(get: { service.drafts[thread.id] ?? "" }, set: { service.drafts[thread.id] = $0 })
         let connected = service.threads.contains { $0.id == thread.id && $0.isConnected }
         let connecting = service.isConnectingThreadID == thread.id
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                ProjectIcon(path: thread.project?.roots.first ?? thread.projectPath, isActive: thread.isActive).frame(width: 20, height: 20)
-                Text(thread.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                Spacer()
-            }
-            HStack(alignment: .bottom, spacing: 10) {
-                TextField("Skriv till Codex…", text: draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .lineLimit(1...5)
-                    .focused($focus, equals: .composer)
-                    .accessibilityLabel("Meddelande till \(thread.title)")
-                    .onKeyPress(.escape) { returnToDeck(); return .handled }
-                    .task { await Task.yield(); focus = .composer }
-                Button {
+        return VStack(alignment: .leading, spacing: 8) {
+            FloatingComposer(
+                text: draft,
+                recipient: thread.title,
+                placeholder: "Skriv till Codex…",
+                isSending: service.isSending,
+                canSend: connected,
+                onChooseRecipient: { state.showsRecipientPicker = true },
+                onSend: {
                     let text = draft.wrappedValue
                     Task {
                         if await service.send(text, to: thread), draft.wrappedValue == text {
@@ -221,40 +259,105 @@ struct CodexAppletView: View {
                             if case .composer(let recipient) = state.scope, recipient.id == thread.id { returnToDeck() }
                         }
                     }
-                } label: {
-                    if service.isSending { ProgressView().controlSize(.mini).frame(width: 24, height: 24) }
-                    else { Image(systemName: "arrow.up").font(.system(size: 13, weight: .semibold)).frame(width: 24, height: 24) }
-                }
-                .buttonStyle(.plain)
-                .background(.white.opacity(0.09), in: .circle)
-                .accessibilityLabel("Skicka meddelande").help("Skicka · ⌘↵")
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(!connected || service.isSending || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            .padding(14)
-            .modifier(CardGlass(shape: RoundedRectangle(cornerRadius: 18), isSelected: true))
+                },
+                onClose: returnToDeck
+            )
             if let error = service.error {
-                Text(error).font(.system(size: 9)).foregroundStyle(.orange).lineLimit(1)
+                Text(error).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(3)
             } else if !connected {
-                Text(connecting ? "Ansluter tråden… Du kan skriva under tiden." : "Anslut tråden i Codex för att skicka.")
-                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-            }
-            HStack {
-                Text("esc tillbaka").font(.system(size: 10)).foregroundStyle(.tertiary)
-                Spacer()
-                if !connected {
-                    Button(action: refreshOrConnect) {
-                        ShortcutLabel(connecting ? "Ansluter…" : "Anslut", keys: "⌘R")
-                    }
-                    .buttonStyle(NotchControlStyle())
-                    .disabled(service.isConnectingThreadID != nil)
-                    .help("Öppna tråden i Codex och anslut den. Utkastet skickas inte.")
+                HStack {
+                    Text(connecting ? "Ansluter tråden… Utkastet är kvar." : "Anslut tråden i Codex för att skicka.")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(connecting ? "Ansluter…" : "Anslut") { connect(thread) }
+                        .buttonStyle(FloatingControlStyle())
+                        .disabled(service.isConnectingThreadID != nil)
                 }
             }
-            .font(.system(size: 11))
         }
-        .fixedSize(horizontal: false, vertical: true)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { state.composerHeight = $0 }
+        .padding(8)
+        .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 26))
+    }
+
+    private var recipientPicker: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Välj mottagare").font(.headline)
+            TextField("Sök tråd…", text: $recipientQuery)
+                .textFieldStyle(.roundedBorder)
+                .focused($focus, equals: .recipient)
+                .onSubmit { if let thread = recipientThreads.first { chooseRecipient(thread) } }
+            if let text = state.pendingText {
+                Text(text).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(recipientThreads) { thread in
+                        Button { chooseRecipient(thread) } label: {
+                            Label(thread.title, systemImage: thread.isActive ? "waveform" : "bubble.left")
+                                .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: 280)
+            if service.displayedThreads.isEmpty { Text("Öppna en tråd i Codex för att välja mottagare.").foregroundStyle(.secondary) }
+        }
+        .padding(16).frame(width: 330).preferredColorScheme(.dark)
+        .task { await Task.yield(); focus = .recipient }
+        .onKeyPress(.escape) { state.showsRecipientPicker = false; return .handled }
+    }
+
+    private var recipientThreads: [CodexThread] {
+        Array(service.displayedThreads.filter {
+            recipientQuery.isEmpty || $0.title.localizedStandardContains(recipientQuery)
+        }.prefix(100))
+    }
+
+    private func chooseRecipient(_ thread: CodexThread) {
+        if let text = state.pendingText {
+            let existing = service.drafts[thread.id] ?? ""
+            service.drafts[thread.id] = existing.isEmpty ? text : existing + "\n\n" + text
+        }
+        state.pendingText = nil
+        state.showsRecipientPicker = false
+        recipientQuery = ""
+        state.page = .history
+        state.groupsByProject = false
+        state.searches[.history] = ""
+        compose(thread)
+    }
+
+    private func threadStatus(_ thread: CodexThread) -> some View {
+        HStack(spacing: 6) {
+            if thread.isActive { ProgressView().controlSize(.mini) }
+            Text(statusTitle(thread)).font(.system(size: 10)).foregroundStyle(.secondary)
+            Spacer()
+            if let url = CodexDesktopProtocol.threadURL(thread.id) {
+                Link("Öppna i Codex", destination: url).font(.system(size: 10))
+            }
+        }
+    }
+
+    private func statusTitle(_ thread: CodexThread) -> String {
+        guard thread.isConnected else { return "Frånkopplad · sparat flöde" }
+        switch service.attentionByThread[thread.id] ?? .idle {
+        case .idle: return "Klart · ↵ följdfråga"
+        case .working: return "Arbetar"
+        case .waitingForUser: return "Väntar på ditt svar i Codex"
+        case .approval: return "Godkännande behövs i Codex"
+        case .failed: return "Ett fel behöver hanteras i Codex"
+        }
+    }
+
+    private func connect(_ thread: CodexThread) {
+        guard service.isConnectingThreadID == nil else { return }
+        connectionTask = Task {
+            _ = await service.ensureConnected(to: thread)
+            guard !Task.isCancelled, isVisible else { return }
+            restoreFocus()
+            restoreLocalFocus()
+        }
     }
 
     private func beginSearch() {
@@ -272,6 +375,7 @@ struct CodexAppletView: View {
     }
 
     private func moveThread(_ offset: Int) {
+        guard state.scope == .deck else { return }
         let selection = threadSelection
         guard let selectedThread = selection.selectedThread else { return }
         let ids = selection.threads.map(\.id)

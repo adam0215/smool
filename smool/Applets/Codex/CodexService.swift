@@ -105,12 +105,6 @@ final class CodexService {
         desktop.onDisconnect = { [weak self] in self?.lostLiveConnection() }
     }
 
-    func start() async {
-        setVisible(true)
-        do { while !Task.isCancelled { try await Task.sleep(for: .seconds(60)) } }
-        catch { }
-    }
-
     func setVisible(_ visible: Bool) {
         isVisible = visible
         if visible { publishActivities() }
@@ -177,6 +171,8 @@ final class CodexService {
     }
 
     func stop() {
+        lifecycleTask?.cancel()
+        lifecycleTask = nil
         publicationTask?.cancel()
         publicationTask = nil
         for id in Array(streams.keys) { streams[id]?.disconnect() }

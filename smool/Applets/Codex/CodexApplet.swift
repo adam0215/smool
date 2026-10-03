@@ -11,15 +11,64 @@ final class CodexApplet: Applet {
     let service = CodexService()
 
     var contentHeight: CGFloat {
-        if case .composer = state.scope { return max(156, state.composerHeight + 40) }
-        return state.page == .usage ? 176 : 156
+        if state.page == .usage { return 176 }
+        return state.isExpanded ? 510 : 300
     }
 
     var background: AppletBackground? {
         AppletBackground(color: HomeGlow.color(for: .codex), horizontalPosition: 0.75)
     }
 
-    var hasPresentedOverlay: Bool { state.showsProjects }
+    var hasPresentedOverlay: Bool {
+        if case .composer = state.scope { return true }
+        return state.showsProjects || state.showsRecipientPicker
+    }
+
+    /// Presents a recipient picker. This never sends or connects a thread by itself.
+    func beginComposing(_ text: String) {
+        state.pendingText = text
+        state.scope = .deck
+        state.page = .history
+        state.showsRecipientPicker = true
+    }
+
+    var attention: [CodexThreadAttention] {
+        service.threads.compactMap { thread in
+            guard thread.isConnected, let status = service.attentionByThread[thread.id] else { return nil }
+            return CodexThreadAttention(threadID: thread.id, title: thread.title, status: status,
+                                        isUnread: service.unreadThreadIDs.contains(thread.id),
+                                        url: CodexDesktopProtocol.threadURL(thread.id))
+        }
+    }
+
+    var status: AppletStatus? {
+        let items = attention
+        if let item = items.first(where: { $0.status.needsAttention }) {
+            return AppletStatus(kind: .needsAttention, label: item.status.label, symbol: "bubble.left.and.exclamationmark.bubble.right")
+        }
+        if items.contains(where: { $0.status == .working }) {
+            return AppletStatus(kind: .working, label: "Codex arbetar", symbol: "waveform")
+        }
+        if items.contains(where: { $0.isUnread && $0.status == .idle }) {
+            return AppletStatus(kind: .completed, label: "Codex är klar", symbol: "checkmark")
+        }
+        return nil
+    }
+
+    func activateStatus() {
+        let items = attention
+        guard let item = items.first(where: { $0.status.needsAttention })
+                ?? items.first(where: { $0.isUnread })
+                ?? items.first(where: { $0.status == .working }) else { return }
+        state.page = .history
+        state.groupsByProject = false
+        state.searches[.history] = ""
+        state.selection[.history] = item.threadID
+        state.scope = .deck
+        service.selectThread(item.threadID)
+    }
+
+    func setStatusMonitoring(_ enabled: Bool) { service.setStatusMonitoring(enabled) }
 
     var pages: [AppletPage] {
         CodexPage.allCases.map { page in
@@ -46,7 +95,11 @@ final class CodexApplet: Applet {
         return true
     }
 
-    func dismissOverlay() { state.showsProjects = false }
+    func dismissOverlay() {
+        state.showsProjects = false
+        state.showsRecipientPicker = false
+        state.scope = .deck
+    }
 
     var actions: [AppletAction] {
         let state = state
@@ -79,4 +132,12 @@ final class CodexApplet: Applet {
         }
         return actions
     }
+}
+
+struct CodexThreadAttention {
+    let threadID: String
+    let title: String
+    let status: CodexAttention
+    let isUnread: Bool
+    let url: URL?
 }
