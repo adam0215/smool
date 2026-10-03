@@ -195,6 +195,7 @@ private struct WorkspacesAppletView: View {
                 .font(.system(size: 10)).foregroundStyle(.secondary)
         }
         .focusable(interactions: .edit).focused($listFocused).focusEffectDisabled()
+        .onAppletFocusRestore { listFocused = true }
         .task { await Task.yield(); listFocused = true }
         .onKeyPress(.return) { applet.openSelected(); return .handled }
         .onKeyPress(keys: ["e", .delete], phases: .down) { key in

@@ -213,6 +213,7 @@ private struct QuickActionsAppletView: View {
             }.font(.system(size: 10)).foregroundStyle(.secondary)
         }
         .focusable(interactions: .edit).focused($listFocused).focusEffectDisabled()
+        .onAppletFocusRestore { listFocused = true }
         .task {
             if applet.highlightedID == nil, let first = applet.entries.first { applet.highlight(first) }
             await Task.yield()

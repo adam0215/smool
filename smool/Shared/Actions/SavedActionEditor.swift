@@ -41,7 +41,7 @@ struct SavedActionEditor: View {
     @State private var error: String?
     @FocusState private var field: Field?
 
-    private enum Field: Hashable { case destination, name }
+    private enum Field: Hashable { case navigation, destination, name }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -67,7 +67,7 @@ struct SavedActionEditor: View {
                     if allowsShortcuts {
                         Button("Shortcut ⌘J") {
                             draft.usesShortcut = true
-                            field = nil
+                            field = .navigation
                             Task { await loadShortcuts() }
                         }.keyboardShortcut("j", modifiers: .command)
                     }
@@ -87,7 +87,7 @@ struct SavedActionEditor: View {
             }
 
             HStack {
-                Text("Tab fields · Esc back · draft kept")
+                Text(field == .navigation ? "↵ edit · Tab fields · Esc back · draft kept" : "Tab fields · Esc back · draft kept")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 Button("Save  ⌘↵", action: save)
@@ -100,9 +100,20 @@ struct SavedActionEditor: View {
         .textFieldStyle(EditorTextFieldStyle())
         .padding(20)
         .modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
-        .task { await Task.yield(); field = .destination }
+        .focusable(interactions: .edit).focused($field, equals: .navigation).focusEffectDisabled()
+        .onAppletFocusRestore { field = .navigation }
+        .task {
+            await Task.yield()
+            field = draft.usesShortcut ? .navigation : .destination
+        }
+        .onKeyPress(keys: [.return, .tab], phases: .down) { key in
+            guard field == .navigation,
+                  key.modifiers.isEmpty || (key.key == .tab && key.modifiers == .shift) else { return .ignored }
+            field = draft.usesShortcut || key.modifiers == .shift ? .name : .destination
+            return .handled
+        }
         .onKeyPress(.escape) {
-            if field != nil { field = nil }
+            if field != .navigation { field = .navigation }
             else { onClose() }
             return .handled
         }

@@ -11,3 +11,5 @@ Resource entry accepts an installed app name, a local path, a website, or a Code
 Resource editor shortcuts are shown in the view: Command-J switches between shortcut and inferred input, Option-Up/Down chooses an Apple Shortcut, Command-R reloads shortcuts, Command-Return saves. Text field Return also saves. These paths do not rely on macOS Full Keyboard Access enabling plain buttons in the Tab chain.
 
 Focused checks: `bash Tests/run-action-flow-checks.sh` verifies palette composition, draft lifetime, keyboard selection and workspace save boundaries without opening windows or launching resources. `Tests/SavedActionsChecks.swift` covers normalization, inference and persistence. Existing ActionAppletsChecks was updated for the inline WorkspaceDraft model; parent owns integrated UI rendering and live keyboard verification.
+
+The visible Actions list, workspace list, workspace resource list and resource editor root subscribe to `onAppletFocusRestore`. Restoring an editor focuses its non-text root. Its hint changes to Return to edit; Return or Tab reenters the destination field, or the optional name in shortcut mode. Hidden lists have no active subscriber.

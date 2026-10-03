@@ -130,6 +130,10 @@ struct WorkspaceEditor: View {
                 .onChange(of: draft.selectedResourceID) { _, id in if let id { proxy.scrollTo(id) } }
             }
             .focusable(interactions: .edit).focused($listFocused).focusEffectDisabled()
+            .onAppletFocusRestore {
+                nameFocused = false
+                listFocused = true
+            }
             .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { key in
                 guard key.modifiers.isEmpty else { return .ignored }
                 return draft.moveSelection(key.key == .upArrow ? -1 : 1) ? .handled : .ignored
