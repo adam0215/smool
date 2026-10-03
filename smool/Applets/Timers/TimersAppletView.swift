@@ -3,7 +3,6 @@ import SwiftUI
 struct TimersAppletView: View {
     @Bindable var applet: TimersApplet
     @FocusState private var focus: Focus?
-    @State private var windowIsVisible = false
 
     private enum Focus: Hashable { case deck, duration, name }
 
@@ -22,7 +21,6 @@ struct TimersAppletView: View {
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(.black)
-        .background(TimerWindowVisibility { windowIsVisible = $0 }.frame(width: 0, height: 0))
         .focusable(interactions: .edit)
         .focused($focus, equals: .deck)
         .focusEffectDisabled()
@@ -32,9 +30,6 @@ struct TimersAppletView: View {
             restoreFocus()
         }
         .onChange(of: applet.showsForm) { restoreFocus() }
-        .onChange(of: windowIsVisible) { _, visible in
-            if visible { applet.store.refresh() }
-        }
         .onKeyPress(.space, phases: .down) { key in
             guard focus == .deck, key.modifiers.isEmpty else { return .ignored }
             applet.toggleSelectedTimer()
@@ -124,7 +119,7 @@ struct TimersAppletView: View {
             .buttonStyle(.plain).font(.system(size: 11))
 
             HStack(alignment: .firstTextBaseline, spacing: 14) {
-                TimerCountdownView(timer: timer, isVisible: windowIsVisible)
+                TimerCountdownView(timer: timer)
                     .font(.system(size: 42, weight: .light, design: .rounded))
                 Text(timer.isExpired ? "Klar" : timer.isPaused ? "Pausad" : "Återstår")
                     .font(.system(size: 12))
@@ -168,13 +163,12 @@ struct TimersAppletView: View {
     }
 }
 
-/// Only this small subtree redraws each second, and only while its window is visible.
+/// Only running countdowns redraw. The host removes the applet view when the notch closes.
 struct TimerCountdownView: View {
     let timer: SmoolTimer
-    var isVisible = true
 
     var body: some View {
-        if isVisible && timer.deadline != nil {
+        if timer.deadline != nil {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 countdown(at: context.date)
             }
@@ -188,39 +182,5 @@ struct TimerCountdownView: View {
             .monospacedDigit()
             .contentTransition(.identity)
             .accessibilityLabel("\(TimerDuration.display(timer.remaining(at: date))) återstår")
-    }
-}
-
-/// An ordered-out notch keeps its SwiftUI hierarchy. Window visibility stops its countdown schedule.
-private struct TimerWindowVisibility: NSViewRepresentable {
-    let onChange: (Bool) -> Void
-
-    func makeNSView(context: Context) -> VisibilityView { VisibilityView() }
-
-    func updateNSView(_ view: VisibilityView, context: Context) {
-        view.onChange = onChange
-        view.reportVisibility()
-    }
-
-    final class VisibilityView: NSView {
-        var onChange: ((Bool) -> Void)?
-        private var lastVisibility: Bool?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            NotificationCenter.default.removeObserver(self)
-            if let window {
-                NotificationCenter.default.addObserver(self, selector: #selector(reportVisibility),
-                    name: NSWindow.didChangeOcclusionStateNotification, object: window)
-            }
-            reportVisibility()
-        }
-
-        @objc func reportVisibility() {
-            let visible = window?.occlusionState.contains(.visible) == true
-            guard visible != lastVisibility else { return }
-            lastVisibility = visible
-            Task { @MainActor [weak self] in self?.onChange?(visible) }
-        }
     }
 }
