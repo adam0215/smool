@@ -4,8 +4,6 @@ nonisolated struct HomeGlow: View, Animatable {
     var spotify: Double
     var codex: Double
     let darkHeight: CGFloat
-    var level = 0.0
-    var phase = 0.0
 
     var animatableData: AnimatablePair<Double, Double> {
         get { AnimatablePair(spotify, codex) }
@@ -28,15 +26,14 @@ nonisolated struct HomeGlow: View, Animatable {
             let color = Self.color(for: nil)
                 .mix(with: Self.color(for: .spotify), by: spotify)
                 .mix(with: Self.color(for: .codex), by: codex)
-            let centerX = size.width * (0.5 + 0.25 * (codex - spotify)) + sin(phase) * level * 36
+            let centerX = size.width * (0.5 + 0.25 * (codex - spotify))
             let height = max(0, size.height - darkHeight)
 
             // No gradient can contribute a pixel above this band, even mid-animation.
             context.clip(to: Path(CGRect(x: 0, y: darkHeight, width: size.width, height: height)))
             for (tint, opacity, radius) in [
-                (color, 0.66, CGSize(width: size.width * (0.66 + level * 0.1), height: height)),
-                (color.mix(with: .white, by: 0.4), 0.2 + level * 0.12,
-                 CGSize(width: size.width * 0.3, height: height * (0.48 + level * 0.14)))
+                (color, 0.66, CGSize(width: size.width * 0.66, height: height)),
+                (color.mix(with: .white, by: 0.4), 0.2, CGSize(width: size.width * 0.3, height: height * 0.48))
             ] {
                 var glow = context
                 glow.translateBy(x: centerX, y: size.height)

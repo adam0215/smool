@@ -90,29 +90,32 @@ private struct AppletGlow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var audio = SystemAudioLevel()
 
-    private var reactsToAudio: Bool {
-        isExpanded && !reduceMotion && (tab == .music || tab == .spotify)
-    }
+    private var usesAudioGlow: Bool { !reduceMotion && (tab == .music || tab == .spotify) }
+    private var capturesAudio: Bool { isExpanded && usesAudioGlow }
 
     var body: some View {
-        let envelope = reactsToAudio ? audio.envelope : AudioEnvelope()
         ZStack {
-            HomeGlow(
-                spotify: tab == .spotify ? 1 : 0,
-                codex: tab == .codex ? 1 : 0,
-                darkHeight: darkHeight,
-                level: envelope.level,
-                phase: envelope.phase
-            )
-            .opacity(artwork == nil ? 1 : 0)
-
-            if let artwork {
-                ArtworkGlow(colors: artwork.colors, darkHeight: darkHeight, level: envelope.level, phase: envelope.phase)
+            if usesAudioGlow {
+                MusicGlow(colors: artwork?.colors, fallback: HomeGlow.color(for: tab == .spotify ? .spotify : nil),
+                          darkHeight: darkHeight, audio: audio.envelope)
                     .id(artworkSource)
                     .transition(.opacity)
+            } else {
+                HomeGlow(
+                    spotify: tab == .spotify ? 1 : 0,
+                    codex: tab == .codex ? 1 : 0,
+                    darkHeight: darkHeight
+                )
+                .opacity(artwork == nil ? 1 : 0)
+
+                if let artwork {
+                    ArtworkGlow(colors: artwork.colors, darkHeight: darkHeight)
+                        .id(artworkSource)
+                        .transition(.opacity)
+                }
             }
         }
         .opacity(0.65)
-        .task(id: reactsToAudio) { await audio.observe(enabled: reactsToAudio) }
+        .task(id: capturesAudio) { await audio.observe(enabled: capturesAudio) }
     }
 }
