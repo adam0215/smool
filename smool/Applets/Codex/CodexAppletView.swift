@@ -33,43 +33,42 @@ struct CodexAppletView: View {
     }
 
     var body: some View {
-        AppletPages(
-            pages: CodexPage.allCases,
-            selection: $state.page,
-            title: { $0.rawValue },
-            isNavigating: state.scope == .deck && !state.showsProjects && !state.showsRecipientPicker,
-            editingHint: editingHint,
-            navigationHint: state.page == .usage ? "↑↓ Change page · ⌘K Actions" : "↑↓ Change page · ←→ Select thread · ↵ Write\n⌥↑↓ Activity · Space Details · ⌘F Search\n⌘P Choose project · ⌘K Actions"
-        ) { page in
-            if page == .usage {
-                CodexUsageView(service: service)
-            } else {
-                threadList
-            }
-        }
-        .focusable(interactions: .edit)
-        .focused($focus, equals: .deck)
-        .focusEffectDisabled()
-        .onAppletFocusRestore {
-            guard !state.showsProjects, !state.showsRecipientPicker else { return }
-            if case .composer = state.scope { return }
-            focus = .deck
-        }
-        .overlay(alignment: .bottom) {
-            if case .composer(let thread) = state.scope, !state.showsRecipientPicker {
-                composer(thread)
-                    .id(thread.id)
-                    .padding(NotchLayout.contentInset)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .overlay {
+        VStack(spacing: 0) {
             if state.showsProjects {
                 projectPicker
-                    .padding(NotchLayout.contentInset)
             } else if state.showsRecipientPicker {
                 recipientPicker
-                    .padding(NotchLayout.contentInset)
+            } else {
+                AppletPages(
+                    pages: CodexPage.allCases,
+                    selection: $state.page,
+                    title: { $0.rawValue },
+                    isNavigating: state.scope == .deck && !state.showsProjects && !state.showsRecipientPicker,
+                    editingHint: editingHint,
+                    navigationHint: state.page == .usage ? "↑↓ Change page · ⌘K Actions" : "↑↓ Change page · ←→ Select thread · ↵ Write\n⌥↑↓ Activity · Space Details · ⌘F Search\n⌘P Choose project · ⌘K Actions"
+                ) { page in
+                    if page == .usage {
+                        CodexUsageView(service: service)
+                    } else {
+                        threadList
+                    }
+                }
+                .focusable(interactions: .edit)
+                .focused($focus, equals: .deck)
+                .focusEffectDisabled()
+                .onAppletFocusRestore {
+                    guard !state.showsProjects, !state.showsRecipientPicker else { return }
+                    if case .composer = state.scope { return }
+                    focus = .deck
+                }
+                .overlay(alignment: .bottom) {
+                    if case .composer(let thread) = state.scope {
+                        composer(thread)
+                            .id(thread.id)
+                            .padding(NotchLayout.contentInset)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
             }
         }
         .onChange(of: threadSelection.selectedThread?.id, initial: true) { _, id in
@@ -381,10 +380,10 @@ struct CodexAppletView: View {
             Text("↑↓ Choose · ↵ Open · esc Back")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 30)
-        .padding(.vertical, 20)
+        .padding(.horizontal, 32)
+        .padding(.top, 16)
+        .padding(.bottom, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
         .focusable(interactions: .edit)
         .focused($focus, equals: .recipientList)
         .focusEffectDisabled()
@@ -439,9 +438,10 @@ struct CodexAppletView: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 30).padding(.vertical, 20)
+        .padding(.horizontal, 32)
+        .padding(.top, 16)
+        .padding(.bottom, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
         .preferredColorScheme(.dark)
         .onChange(of: recipientQuery) { _, _ in recipientIndex = 0 }
         .focusable(interactions: .edit)

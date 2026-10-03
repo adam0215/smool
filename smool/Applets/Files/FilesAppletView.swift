@@ -17,7 +17,6 @@ struct FilesAppletView: View {
         Group {
             if applet.showsPathEntry {
                 FilePathEntry(applet: applet)
-                    .padding(NotchLayout.contentInset)
             } else if let url = applet.previewURL {
                 preview(url)
             } else {
@@ -159,25 +158,18 @@ struct FilesAppletView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 24)
 
             ShelfFilePreview(url: url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipShape(.rect(cornerRadius: 20))
-                .padding(.horizontal, 16)
 
             Text("Space Close preview · ⌘K Actions")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .padding(.bottom, 16)
         }
+        .padding(.horizontal, 32)
         .padding(.top, 16)
-        .padding(.horizontal, 16)
-        .modifier(FloatingGlass(
-            cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset,
-            cornerStyle: .circular
-        ))
-        .padding(NotchLayout.contentInset)
+        .padding(.bottom, 28)
     }
 
     private var emptyState: some View {
@@ -298,10 +290,6 @@ private struct FilePathEntry: View {
         }
         .padding(.horizontal, 32)
         .padding(.vertical, 24)
-        .modifier(FloatingGlass(
-            cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset,
-            cornerStyle: .circular
-        ))
         .focusable()
         .focusEffectDisabled()
         .focused($focus, equals: .navigation)
