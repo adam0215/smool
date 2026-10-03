@@ -43,6 +43,21 @@ struct CodexNavigationChecks {
         state.openProjects()
         precondition(state.showsProjects && state.page == .history && state.groupsByProject)
 
+        // Actions and the transcript's New activity button resume the same follow state.
+        state.activitySelections["thread-0"] = "older-answer"
+        state.readingPositions["thread-0"] = CodexReadingPosition(
+            anchorID: "older-answer", contentOffset: 240, followsLatest: false,
+            hasNewActivity: true, expandedGroups: ["tools"], revision: 12
+        )
+        state.followLatestActivity(in: "thread-0")
+        let latest = state.readingPositions["thread-0"]!
+        precondition(state.activitySelections["thread-0"] == nil)
+        precondition(latest.followsLatest && !latest.hasNewActivity)
+        precondition(latest.anchorID == nil && latest.contentOffset == 0)
+        precondition(latest.revision == 12 && latest.expandedGroups == ["tools"])
+        state.followLatestActivity(in: "thread-0")
+        precondition(state.readingPositions["thread-0"] == latest)
+
         // A broad budget catches the former per-row full-catalog sort even on slower machines.
         let elapsed = ContinuousClock().measure {
             for _ in 0..<20 {

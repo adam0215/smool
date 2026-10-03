@@ -18,9 +18,60 @@ struct CodexActivityGroup: Identifiable {
     }
 }
 
+/// The notch starts with one update. The full transcript keeps its own reading position.
+struct CodexActivitySummary: View {
+    let presentation: CodexActivityPresentation
+    let selectedID: String?
+
+    static func selectedGroup(in groups: [CodexActivityGroup], id: String?) -> CodexActivityGroup? {
+        if let id, let selected = groups.first(where: { $0.id == id }) { return selected }
+        return groups.last { !$0.isToolGroup } ?? groups.last
+    }
+
+    var body: some View {
+        let groups = CodexActivityGroup.make(from: presentation.items)
+        let selected = Self.selectedGroup(in: groups, id: selectedID)
+
+        VStack(alignment: .leading, spacing: 10) {
+            if let selected, let item = selected.items.last {
+                HStack(spacing: 6) {
+                    Text(selected.isToolGroup ? "Activity" : item.kind == .user ? "You" : item.title)
+                    Spacer(minLength: 8)
+                    if let index = groups.firstIndex(where: { $0.id == selected.id }) {
+                        Text("\(index + 1) / \(groups.count)").monospacedDigit()
+                    }
+                }
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+
+                Text(activityMarkdown(item.text.isEmpty ? item.title : item.text))
+                    .font(.system(size: 14))
+                    .lineSpacing(3)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if selectedID == nil, let latest = groups.last, latest.isToolGroup,
+                   latest.id != selected.id, let tool = latest.items.last {
+                    Label(tool.title, systemImage: tool.isError ? "exclamationmark.circle" : tool.isRunning ? "ellipsis" : "checkmark")
+                        .font(.system(size: 10))
+                        .foregroundStyle(tool.isError ? Color.orange : Color.secondary)
+                        .lineLimit(1)
+                }
+            } else {
+                Text("Activity appears when Codex shares this thread.")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct CodexActivityView: View {
     let presentation: CodexActivityPresentation
     @Binding var readingPosition: CodexReadingPosition
+    var selectedActivityID: String? = nil
+    let onFollowLatest: () -> Void
     @State private var scrollPosition = ScrollPosition(idType: String.self)
     @State private var scrollPhase = ScrollPhase.idle
     @State private var restoredPosition = false
@@ -85,6 +136,18 @@ struct CodexActivityView: View {
             guard restoredPosition, userIsScrolling else { return }
             readingPosition.anchorID = groups.first { visibleIDs.contains($0.id) }?.id
         }
+        .onChange(of: selectedActivityID) { _, id in
+            if let id {
+                readingPosition.followsLatest = false
+                readingPosition.anchorID = id
+                scrollPosition.scrollTo(id: id, anchor: .top)
+            }
+        }
+        .onChange(of: readingPosition.followsLatest) { _, followsLatest in
+            guard followsLatest else { return }
+            onFollowLatest()
+            scrollPosition.scrollTo(edge: .bottom)
+        }
         .onChange(of: presentation.items) { _, _ in
             readingPosition.receive(revision: presentation.revision)
             readingPosition.expandedGroups.formIntersection(groups.map(\.id))
@@ -102,8 +165,7 @@ struct CodexActivityView: View {
         .overlay(alignment: .bottom) {
             if readingPosition.hasNewActivity {
                 Button {
-                    readingPosition.followsLatest = true
-                    readingPosition.hasNewActivity = false
+                    onFollowLatest()
                     scrollPosition.scrollTo(edge: .bottom)
                 } label: {
                     Label("New activity", systemImage: "arrow.down")
@@ -188,7 +250,7 @@ private struct CodexActivityMessage: View {
                 if item.isError { Image(systemName: "exclamationmark.circle").foregroundStyle(.orange) }
             }
             if !item.text.isEmpty {
-                Text(markdown(item.text))
+                Text(activityMarkdown(item.text))
                     .font(.system(size: 13)).lineSpacing(4)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -203,13 +265,6 @@ private struct CodexActivityMessage: View {
             CodexActivityLinks(links: item.links)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(item.kind == .user ? 12 : 0)
-        .background(item.kind == .user ? Color.white.opacity(0.045) : .clear, in: RoundedRectangle(cornerRadius: 14))
-    }
-
-    private func markdown(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
     }
 }
 
@@ -250,4 +305,9 @@ private struct CodexActivityLinks: View {
             .help(link.url.absoluteString)
         }
     }
+}
+
+private func activityMarkdown(_ text: String) -> AttributedString {
+    (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+        ?? AttributedString(text)
 }

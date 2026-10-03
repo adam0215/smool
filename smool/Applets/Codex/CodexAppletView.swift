@@ -6,6 +6,7 @@ struct CodexAppletView: View {
     @State private var connectionTask: Task<Void, Never>?
     @State private var isVisible = false
     @State private var recipientQuery = ""
+    @State private var recipientIndex = 0
     private let restoreFocus: () -> Void
 
     private enum Focus: Hashable { case search, composer, recipient }
@@ -36,9 +37,9 @@ struct CodexAppletView: View {
             pages: CodexPage.allCases,
             selection: $state.page,
             title: { $0.rawValue },
-            isNavigating: state.scope == .deck && !state.showsProjects,
+            isNavigating: state.scope == .deck && !state.showsProjects && !state.showsRecipientPicker,
             editingHint: editingHint,
-            navigationHint: state.page == .usage ? "↑↓ Change page · ⌘K Actions" : "↑↓ Change page · ←→ Select thread · ↵ Write\n⌘P Choose project · ⌘←→ Change project\n⌘F Search · ? Close help"
+            navigationHint: state.page == .usage ? "↑↓ Change page · ⌘K Actions" : "↑↓ Change page · ←→ Select thread · ↵ Write\n⌥↑↓ Activity · Space Details · ⌘F Search\n⌘P Choose project · ⌘K Actions"
         ) { page in
             if page == .usage {
                 CodexUsageView(service: service)
@@ -47,15 +48,21 @@ struct CodexAppletView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if case .composer(let thread) = state.scope {
+            if case .composer(let thread) = state.scope, !state.showsRecipientPicker {
                 composer(thread)
                     .id(thread.id)
                     .padding(NotchLayout.contentInset)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .popover(isPresented: $state.showsRecipientPicker, arrowEdge: .bottom) {
-            recipientPicker
+        .overlay {
+            if state.showsProjects {
+                projectPicker
+                    .padding(NotchLayout.contentInset)
+            } else if state.showsRecipientPicker {
+                recipientPicker
+                    .padding(NotchLayout.contentInset)
+            }
         }
         .onChange(of: threadSelection.selectedThread?.id, initial: true) { _, id in
             service.selectThread(id)
@@ -65,12 +72,24 @@ struct CodexAppletView: View {
             }
         }
         .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { key in
-            guard state.scope == .deck, !state.showsProjects, state.page != .usage, unmodified(key) else { return .ignored }
+            guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker, state.page != .usage, unmodified(key) else { return .ignored }
             moveThread(key.key == .leftArrow ? -1 : 1)
             return .handled
         }
+        .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { key in
+            guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker,
+                  key.modifiers == .option else { return .ignored }
+            moveActivity(key.key == .upArrow ? -1 : 1)
+            return .handled
+        }
+        .onKeyPress(.space, phases: .down) { key in
+            guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker,
+                  state.page != .usage, unmodified(key) else { return .ignored }
+            state.isExpanded.toggle()
+            return .handled
+        }
         .onKeyPress(.return, phases: .down) { key in
-            guard state.page != .usage, !state.showsProjects, unmodified(key) else { return .ignored }
+            guard state.page != .usage, !state.showsProjects, !state.showsRecipientPicker, unmodified(key) else { return .ignored }
             if state.scope == .deck, let thread = threadSelection.selectedThread {
                 compose(thread)
                 return .handled
@@ -79,7 +98,9 @@ struct CodexAppletView: View {
         }
         .onKeyPress(.escape) {
             switch state.scope {
-            case .deck: return .ignored
+            case .deck:
+                guard state.isExpanded else { return .ignored }
+                state.isExpanded = false
             case .composer: returnToDeck()
             case .search: returnToDeck()
             }
@@ -103,9 +124,15 @@ struct CodexAppletView: View {
             Button("Next thread") { moveThread(1) }.keyboardShortcut("]", modifiers: .command).hidden()
             Button("Previous thread") { moveThread(-1) }.keyboardShortcut("[", modifiers: .command).hidden()
             Button("Refresh", action: refreshOrConnect).keyboardShortcut("r", modifiers: .command).hidden()
+            Button("Open in Codex") {
+                if let id = threadSelection.selectedThread?.id, let url = CodexDesktopProtocol.threadURL(id) {
+                    NSWorkspace.shared.open(url)
+                }
+            }.keyboardShortcut("o", modifiers: [.command, .shift]).hidden()
         }
         .onChange(of: state.scope) { _, scope in
             if scope == .search { Task { await Task.yield(); focus = .search } }
+            else if scope == .deck { focus = nil; restoreFocus() }
         }
         .onAppear {
             isVisible = true
@@ -142,14 +169,7 @@ struct CodexAppletView: View {
                         }
                         .help("Choose project · ⌘P · ⌘←→ Change project")
                         .accessibilityLabel("Project: \(selection.project?.name ?? "Choose project")")
-                        .popover(isPresented: $state.showsProjects, arrowEdge: .bottom) {
-                            ActionList(title: "Project", actions: service.projects.map { project in
-                                AppletAction(id: project.name, symbol: "folder", selected: project.id == selection.project?.id) {
-                                    state.selectProject(project)
-                                }
-                            }) { state.showsProjects = false }
-                            .preferredColorScheme(.dark)
-                        }
+
                     } else {
                         Text(state.page.rawValue).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -170,31 +190,34 @@ struct CodexAppletView: View {
 
             if let thread = selection.selectedThread {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 12) {
                         ProjectIcon(path: thread.project?.roots.first ?? thread.projectPath, isActive: thread.isActive)
-                            .frame(width: 22, height: 22)
-                        Text(thread.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                        Spacer(minLength: 0)
+                            .frame(width: 32, height: 32)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(thread.title)
+                                .font(.system(size: 17, weight: .medium))
+                                .lineLimit(1)
+                            threadStatus(thread)
+                        }
                         if !service.unreadThreadIDs.subtracting([thread.id]).isEmpty {
                             Circle().fill(.purple).frame(width: 5, height: 5)
                                 .accessibilityLabel("New activity in other threads")
                         }
-                        Button { state.isExpanded.toggle() } label: {
-                            Image(systemName: state.isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                        }
-                        .help(state.isExpanded ? "Collapse · ⌘E" : "Expand · ⌘E")
-                        .accessibilityLabel(state.isExpanded ? "Collapse feed" : "Expand feed")
-                        Button { compose(thread) } label: { Image(systemName: "square.and.pencil") }
-                            .help("Write to thread · ↵")
-                            .accessibilityLabel("Write to thread")
                     }
-                    .buttonStyle(.plain)
+                    .padding(.bottom, 6)
                     if let presentation = service.activities[thread.id] {
-                        CodexActivityView(presentation: presentation, readingPosition: Binding(
-                            get: { state.readingPositions[thread.id] ?? CodexReadingPosition() },
-                            set: { state.readingPositions[thread.id] = $0 }
-                        ))
-                        .id(thread.id)
+                        if state.isExpanded {
+                            CodexActivityView(presentation: presentation, readingPosition: Binding(
+                                get: { state.readingPositions[thread.id] ?? CodexReadingPosition() },
+                                set: { state.readingPositions[thread.id] = $0 }
+                            ), selectedActivityID: state.activitySelections[thread.id]) {
+                                state.followLatestActivity(in: thread.id)
+                            }
+                            .id(thread.id)
+                        } else {
+                            CodexActivitySummary(presentation: presentation, selectedID: state.activitySelections[thread.id])
+                        }
+
                     } else {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(thread.preview.isEmpty ? "No activity loaded" : thread.preview)
@@ -209,7 +232,17 @@ struct CodexAppletView: View {
                     if let issue = service.activityErrors[thread.id] ?? service.liveError {
                         Text(issue).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)
                     }
-                    threadStatus(thread)
+                    HStack(spacing: 12) {
+                        Text("←→ Threads · ⌥↑↓ Activity")
+                        Spacer(minLength: 4)
+                        Button(state.isExpanded ? "Close details Space" : "Details Space") { state.isExpanded.toggle() }
+                        Button("Write ↵") { compose(thread) }
+                    }
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .buttonStyle(.plain)
+                    .focusable(false)
+                    .padding(.top, 4)
                 }
             } else {
                 emptyState
@@ -264,7 +297,10 @@ struct CodexAppletView: View {
                 placeholder: "Write to Codex…",
                 isSending: service.isSending,
                 canSend: connected,
-                onChooseRecipient: { state.showsRecipientPicker = true },
+                onChooseRecipient: {
+                    state.choosesPendingRecipient = false
+                    state.showsRecipientPicker = true
+                },
                 onSend: {
                     let text = draft.wrappedValue
                     Task {
@@ -279,35 +315,118 @@ struct CodexAppletView: View {
         }
     }
 
+    private var projectPicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Choose project").font(.system(size: 13, weight: .semibold))
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(service.projects) { project in
+                            Button {
+                                state.selectProject(project)
+                                state.showsProjects = false
+                                restoreFocus()
+                            } label: {
+                                HStack {
+                                    Label(project.name, systemImage: "folder")
+                                    Spacer()
+                                    if state.selectedProject(in: service.projects)?.id == project.id {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                                .font(.system(size: 12))
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .id(project.id)
+                        }
+                    }
+                }
+                .onChange(of: state.projectID) { _, id in
+                    if let id { proxy.scrollTo(id) }
+                }
+            }
+            Text("↑↓ Choose · ↵ Open · esc Back")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 30)
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
+        .focusable(interactions: .edit)
+        .focused($focus, equals: .recipient)
+        .focusEffectDisabled()
+        .task { await Task.yield(); focus = .recipient }
+        .onKeyPress(keys: [.upArrow, .downArrow]) { key in
+            state.moveProject(key.key == .upArrow ? -1 : 1, in: service.projects)
+            return .handled
+        }
+        .onKeyPress(.return) { state.showsProjects = false; returnToDeck(); return .handled }
+        .onKeyPress(.escape) { state.showsProjects = false; returnToDeck(); return .handled }
+    }
+
     private var recipientPicker: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Choose recipient").font(.headline)
             TextField("Search threads…", text: $recipientQuery)
                 .textFieldStyle(.plain)
-                .padding(12)
-                .background(.white.opacity(0.055), in: .rect(cornerRadius: 12))
+                .padding(.vertical, 6)
                 .focused($focus, equals: .recipient)
-                .onSubmit { if let thread = recipientThreads.first { chooseRecipient(thread) } }
-            if let text = state.pendingText {
+                .onSubmit { chooseHighlightedRecipient() }
+                .onKeyPress(keys: [.upArrow, .downArrow]) { key in
+                    recipientIndex = min(max(recipientIndex + (key.key == .upArrow ? -1 : 1), 0), max(0, recipientThreads.count - 1))
+                    return .handled
+                }
+            if state.choosesPendingRecipient, let text = state.pendingText {
                 Text(text).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
             }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(recipientThreads) { thread in
-                        Button { chooseRecipient(thread) } label: {
-                            Label(thread.title, systemImage: thread.isActive ? "waveform" : "bubble.left")
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(recipientThreads.enumerated()), id: \.element.id) { index, thread in
+                            Button { chooseRecipient(thread) } label: {
+                                HStack {
+                                    Label(thread.title, systemImage: thread.isActive ? "waveform" : "bubble.left")
+                                    Spacer(minLength: 4)
+                                    if index == recipientIndex { Image(systemName: "return") }
+                                }
+                                .font(.system(size: 12))
                                 .lineLimit(1).frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                                .foregroundStyle(index == recipientIndex ? .primary : .secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .id(index)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
+                .onChange(of: recipientIndex) { _, index in proxy.scrollTo(index) }
             }
-            .frame(maxHeight: 280)
-            if service.displayedThreads.isEmpty { Text("Open a thread in Codex to choose a recipient.").foregroundStyle(.secondary) }
+            .frame(maxHeight: .infinity)
+            Text("↑↓ Choose · ↵ Write · esc Back")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+            if recipientThreads.isEmpty {
+                Text(service.displayedThreads.isEmpty ? "Open a thread in Codex to choose a recipient." : "No matching threads")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
         }
-        .padding(20).frame(width: 350).preferredColorScheme(.dark)
+        .padding(.horizontal, 30).padding(.vertical, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
+        .preferredColorScheme(.dark)
+        .onChange(of: recipientQuery) { _, _ in recipientIndex = 0 }
         .task { await Task.yield(); focus = .recipient }
-        .onKeyPress(.escape) { state.showsRecipientPicker = false; return .handled }
+        .onKeyPress(.escape) {
+            state.showsRecipientPicker = false
+            focus = nil
+            restoreFocus()
+            return .handled
+        }
+    }
+
+    private func chooseHighlightedRecipient() {
+        guard recipientThreads.indices.contains(recipientIndex) else { return }
+        chooseRecipient(recipientThreads[recipientIndex])
     }
 
     private var recipientThreads: [CodexThread] {
@@ -317,11 +436,11 @@ struct CodexAppletView: View {
     }
 
     private func chooseRecipient(_ thread: CodexThread) {
-        if let text = state.pendingText {
+        if state.choosesPendingRecipient, let text = state.pendingText {
             let existing = service.drafts[thread.id] ?? ""
             service.drafts[thread.id] = existing.isEmpty ? text : existing + "\n\n" + text
+            state.pendingText = nil
         }
-        state.pendingText = nil
         state.showsRecipientPicker = false
         recipientQuery = ""
         state.page = .history
@@ -338,7 +457,8 @@ struct CodexAppletView: View {
             Text(statusTitle(thread)).font(.system(size: 10)).foregroundStyle(.secondary)
             Spacer()
             if let url = CodexDesktopProtocol.threadURL(thread.id) {
-                Link("Open in Codex", destination: url).font(.system(size: 10))
+                Link("Open ⇧⌘O", destination: url).font(.system(size: 10))
+                    .accessibilityLabel("Open thread in Codex")
             }
         }
     }
@@ -378,6 +498,7 @@ struct CodexAppletView: View {
         state.scope = .deck
         if let thread = threadSelection.selectedThread { state.selection[state.page] = thread.id }
         focus = nil
+        restoreFocus()
     }
 
     private func moveThread(_ offset: Int) {
@@ -386,6 +507,15 @@ struct CodexAppletView: View {
         guard let selectedThread = selection.selectedThread else { return }
         let ids = selection.threads.map(\.id)
         state.selection[state.page] = adjacentPage(in: ids, to: selectedThread.id, offset: offset)
+    }
+
+    private func moveActivity(_ offset: Int) {
+        guard let thread = threadSelection.selectedThread,
+              let activity = service.activities[thread.id] else { return }
+        let groups = CodexActivityGroup.make(from: activity.items)
+        guard let selected = CodexActivitySummary.selectedGroup(in: groups, id: state.activitySelections[thread.id]),
+              let index = groups.firstIndex(where: { $0.id == selected.id }) else { return }
+        state.activitySelections[thread.id] = groups[min(max(index + offset, 0), groups.count - 1)].id
     }
 
     private func compose(_ thread: CodexThread) {

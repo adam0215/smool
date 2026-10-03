@@ -12,7 +12,7 @@ final class CodexApplet: Applet {
 
     var contentHeight: CGFloat {
         if state.page == .usage { return 176 }
-        return state.isExpanded ? 510 : 300
+        return state.isExpanded ? 460 : 256
     }
 
     var background: AppletBackground? {
@@ -20,13 +20,14 @@ final class CodexApplet: Applet {
     }
 
     var hasPresentedOverlay: Bool {
-        if case .composer = state.scope { return true }
+        if state.scope != .deck || state.isExpanded { return true }
         return state.showsProjects || state.showsRecipientPicker
     }
 
     /// Presents a recipient picker. This never sends or connects a thread by itself.
     func beginComposing(_ text: String) {
         state.pendingText = text
+        state.choosesPendingRecipient = true
         state.scope = .deck
         state.page = .history
         state.showsRecipientPicker = true
@@ -96,9 +97,14 @@ final class CodexApplet: Applet {
     }
 
     func dismissOverlay() {
-        state.showsProjects = false
-        state.showsRecipientPicker = false
-        state.scope = .deck
+        if state.showsProjects || state.showsRecipientPicker {
+            state.showsProjects = false
+            state.showsRecipientPicker = false
+        } else if state.scope != .deck {
+            state.scope = .deck
+        } else {
+            state.isExpanded = false
+        }
     }
 
     var actions: [AppletAction] {
@@ -124,6 +130,24 @@ final class CodexApplet: Applet {
             AppletAction(id: "Previous threads", symbol: "clock", selected: state.page == .history) { state.scope = .deck; state.page = .history },
             AppletAction(id: "Usage", symbol: "chart.pie", selected: state.page == .usage) { state.scope = .deck; state.page = .usage }
         ]
+        if let thread = state.threadSelection(in: service.displayedThreads, projects: service.projects).selectedThread,
+           state.page != .usage {
+            actions.insert(contentsOf: [
+                AppletAction(id: "Write to thread", symbol: "square.and.pencil", shortcut: "↵") { state.scope = .composer(thread) },
+                AppletAction(id: state.isExpanded ? "Close activity details" : "Activity details", symbol: "text.alignleft", shortcut: "Space") { state.isExpanded.toggle() },
+                AppletAction(id: "Latest activity", symbol: "arrow.down.to.line") { state.followLatestActivity(in: thread.id) }
+            ], at: 0)
+            if let url = CodexDesktopProtocol.threadURL(thread.id) {
+                actions.append(AppletAction(id: "Open in Codex", symbol: "arrow.up.right", shortcut: "⇧⌘O") { NSWorkspace.shared.open(url) })
+            }
+        }
+        if state.pendingText != nil {
+            actions.append(AppletAction(id: "Choose recipient for saved draft", symbol: "square.and.pencil") {
+                state.choosesPendingRecipient = true
+                state.showsRecipientPicker = true
+            })
+        }
+        actions.append(AppletAction(id: "Refresh", symbol: "arrow.clockwise", shortcut: "⌘R") { Task { await service.refresh() } })
         if state.groupsByProject, state.page == .history, state.scope == .deck {
             actions.insert(contentsOf: [
                 AppletAction(id: "Previous project", symbol: "chevron.left", shortcut: "⌘←") { state.moveProject(-1, in: service.projects) },

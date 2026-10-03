@@ -201,14 +201,17 @@ struct CodexServiceActivityChecks {
     @MainActor private static func checkCancelledHandoff() {
         let state = CodexAppletState()
         state.pendingText = "Text från anteckningen"
+        state.choosesPendingRecipient = true
         state.showsRecipientPicker = true
         precondition(state.pendingText == "Text från anteckningen")
         state.showsRecipientPicker = false
-        precondition(state.pendingText == nil, "Dismissing the picker ends the text handoff.")
+        precondition(!state.choosesPendingRecipient, "A normal recipient switch must not attach a saved handoff.")
+        precondition(state.pendingText == "Text från anteckningen", "Dismissing the picker preserves the text handoff for a later recipient.")
         state.showsRecipientPicker = true
-        precondition(state.pendingText == nil, "A later recipient switch must not revive cancelled text.")
+        precondition(state.pendingText == "Text från anteckningen", "Reopening the picker resumes its draft.")
         state.pendingText = "Ny överföring"
         let chosenText = state.pendingText
+        state.pendingText = nil
         state.showsRecipientPicker = false
         precondition(chosenText == "Ny överföring" && state.pendingText == nil)
     }

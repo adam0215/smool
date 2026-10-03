@@ -42,6 +42,14 @@ struct CodexActivityViewChecks {
         precondition(reading.expandedGroups.contains(extended[1].id))
         precondition(CodexActivityGroup.make(from: []).isEmpty)
 
+        // A tool update stays secondary to the latest message in the compact view.
+        precondition(CodexActivitySummary.selectedGroup(in: extended, id: nil)?.id == "answer")
+        precondition(CodexActivitySummary.selectedGroup(in: extended, id: "prompt")?.id == "prompt")
+        precondition(CodexActivitySummary.selectedGroup(in: extended, id: "removed")?.id == "answer")
+        let nextTurn = CodexActivityGroup.make(from: initial + [item("answer", .assistant), item("follow-up", .user)])
+        precondition(CodexActivitySummary.selectedGroup(in: nextTurn, id: nil)?.id == "follow-up")
+        precondition(CodexActivitySummary.selectedGroup(in: [], id: nil) == nil)
+
         print("Codex activity reading and grouping checks passed")
     }
 
