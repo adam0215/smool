@@ -8,7 +8,8 @@ model=(smool/Applets/Codex/CodexProtocol.swift smool/Applets/Codex/CodexActivity
 service=(smool/Applets/Codex/CodexTransport.swift smool/Applets/Codex/CodexClient.swift smool/Applets/Codex/CodexService.swift smool/Applets/Codex/CodexProjects.swift)
 "${swiftc[@]}" "${model[@]}" Tests/CodexActivityChecks.swift -o "$checks/codex-activity"
 "$checks/codex-activity"
-"${swiftc[@]}" "${model[@]}" smool/ScreenNotch.swift smool/NotchLayout.swift smool/Shared/FloatingComposer.swift smool/Applets/Codex/CodexActivityView.swift Tests/CodexActivityViewChecks.swift -o "$checks/codex-activity-view"
+ui=(smool/ScreenNotch.swift smool/NotchLayout.swift smool/HomeApp.swift smool/Applets/Applet.swift smool/Shared/Media/MediaTrack.swift smool/Shared/Media/AlbumArtwork.swift smool/Shared/FloatingComposer.swift)
+"${swiftc[@]}" "${model[@]}" "${ui[@]}" smool/Applets/Codex/CodexActivityView.swift Tests/CodexActivityViewChecks.swift -o "$checks/codex-activity-view"
 "$checks/codex-activity-view"
 "${swiftc[@]}" "${model[@]}" "${service[@]}" smool/PageNavigation.swift smool/Applets/Codex/CodexAppletState.swift Tests/CodexServiceActivityChecks.swift -o "$checks/codex-service-activity"
 "$checks/codex-service-activity"
