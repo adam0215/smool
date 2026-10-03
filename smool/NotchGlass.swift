@@ -42,22 +42,16 @@ struct NotchGlassEdge: View {
     var body: some View {
         if !reduceTransparency {
             GeometryReader { geometry in
-                // This glass sits above the content so its rim can pick up the applet's light.
-                Color.clear
-                    .glassEffect(.clear, in: shape)
-                    .overlay {
-                        shape.stroke(.white.opacity(0.9), lineWidth: 2 / displayScale)
-                    }
-                    .mask {
-                        // The panel clips the outer half, leaving one physical pixel inside.
-                        shape.stroke(.white, lineWidth: 2 / displayScale)
-                    }
+                // Color dodge amplifies the content's own channels instead of painting white.
+                // Clipping the outer half leaves one physical pixel inside the panel.
+                shape.stroke(Color(white: 0.65), lineWidth: 2 / displayScale)
                     .mask(alignment: .bottom) {
                         LinearGradient(colors: [.clear, .white.opacity(0.5), .white],
                                        startPoint: .top, endPoint: .bottom)
                             .frame(height: max(0, min(NotchLayout.bottomRadius, geometry.size.height - darkHeight)))
                     }
             }
+            .blendMode(.colorDodge)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
