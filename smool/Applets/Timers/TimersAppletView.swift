@@ -31,9 +31,15 @@ struct TimersAppletView: View {
         .task {
             applet.store.refresh()
             await Task.yield()
-            focus = applet.showsForm ? .duration : .deck
+            focus = .deck
         }
-        .onChange(of: applet.showsForm) { focus = applet.showsForm ? .duration : .deck }
+        .onChange(of: applet.showsForm) { focus = .deck }
+        .onKeyPress(.tab, phases: .down) { key in
+            guard focus == .deck, applet.showsForm,
+                  key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
+            focus = .duration
+            return .handled
+        }
         .onKeyPress(.space, phases: .down) { key in
             guard focus != .duration, !applet.showsForm,
                   key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
@@ -43,7 +49,7 @@ struct TimersAppletView: View {
         .onKeyPress(.return, phases: .down) { key in
             guard focus != .duration,
                   key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
-            if applet.showsForm { focus = .duration }
+            if applet.showsForm { applet.startTimer() }
             else { applet.toggleSelectedTimer() }
             return .handled
         }
@@ -55,7 +61,7 @@ struct TimersAppletView: View {
             return .handled
         }
         .background {
-            Button("New timer") { applet.isCreating = true; focus = .duration }
+            Button("New timer") { applet.isCreating = true; focus = .deck }
                 .keyboardShortcut("n", modifiers: .command)
                 .disabled(!applet.store.canAddTimer).hidden()
         }
@@ -84,7 +90,6 @@ struct TimersAppletView: View {
                     Button {
                         applet.durationInput = presets[index]
                         applet.inputError = nil
-                        focus = .duration
                     } label: {
                         VStack(spacing: 4) {
                             Text(presetLabels[index]).font(.system(size: 11, weight: .medium))
@@ -99,7 +104,7 @@ struct TimersAppletView: View {
                     .accessibilityLabel("Set timer to \(presetLabels[index])")
                 }
             }
-            Text(applet.inputError ?? (focus == .duration ? "↑↓ Adjust · ↵ Start · Esc Done editing" : "↵ Edit duration · ⌘K Actions"))
+            Text(applet.inputError ?? (focus == .duration ? "↑↓ Adjust duration" : "Tab Edit duration"))
                 .font(.system(size: 11))
                 .foregroundStyle(applet.inputError == nil ? .secondary : Color.orange)
                 .multilineTextAlignment(.center)

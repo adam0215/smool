@@ -2,7 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-checks=".build/Checks"
+checks="${TIMER_CHECKS_DIR:-$(mktemp -d /tmp/smool-timer-checks.XXXXXX)}"
 mkdir -p "$checks/ModuleCache" "$checks/renders"
 swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -parse-as-library)
 
@@ -15,3 +15,9 @@ swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -
     smool/Shared/Media/AlbumArtwork.swift smool/Shared/Media/MediaTrack.swift \
     smool/Shared/FloatingComposer.swift smool/NotchControlStyle.swift Tests/TimerAppletChecks.swift -o "$checks/timer-applet"
 "$checks/timer-applet" "$checks/renders"
+
+"${swiftc[@]}" smool/Applets/Timers/*.swift smool/Applets/Applet.swift \
+    smool/NotchLayout.swift smool/ScreenNotch.swift smool/HomeApp.swift \
+    smool/Shared/Media/AlbumArtwork.swift smool/Shared/Media/MediaTrack.swift \
+    smool/Shared/FloatingComposer.swift smool/NotchControlStyle.swift Tests/TimerKeyboardChecks.swift -o "$checks/timer-keyboard"
+"$checks/timer-keyboard"
