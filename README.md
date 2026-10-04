@@ -36,11 +36,11 @@ The home view keeps the clock and up to three chosen applets. With two, the cloc
 | ← / → in the calendar | Previous or next day |
 | Space in the player | Play or pause |
 | ⌘F in Codex | Search thread titles and prompts |
-| ⌘E in Codex | Expand or collapse activity |
+| ⌘N in Codex | Write to the selected thread, or focus the New thread composer |
 | ⌘N in notes, timers or quick actions | Create an item |
 | Space in the file shelf | Quick Look the selected file |
 | Tab / Shift-Tab | Move through controls |
-| ⌘Return | Send the message being composed |
+| Return in a Codex composer | Send the message; Shift-Return inserts a line break |
 | Escape | Leave details or editing, then close the panel |
 | ? | Show or hide contextual keyboard help |
 
@@ -66,7 +66,7 @@ The registry retains instances for the app session. `deactivate()` handles navig
 
 ### Files, notes and selected text
 
-The file shelf stores up to 40 bookmarked references to original files. Drop files on the notch or use the shelf's picker. Arrow keys select a file, Space opens Quick Look, and dragging exports its real file URL. Removing an item only removes the reference. Missing files remain visible so their absence is clear.
+The file shelf stores up to 40 bookmarked references to original files. Dragging a file near the notch reveals a compact shelf target, including when the notch is closed. Leaving the area or cancelling hides it again without changing keyboard focus. Drop files there or use the shelf's picker. Arrow keys select a file, Space opens Quick Look, and dragging exports its real file URL. Removing an item only removes the reference. Missing files remain visible so their absence is clear.
 
 Notes save locally with debounced, serialized, atomic writes. Changing applets, closing the panel and quitting flush pending edits. Deleting a note requires confirmation. **Till Codex** opens a recipient picker and an editable draft. It never submits the note by itself.
 
@@ -76,7 +76,7 @@ Notes save locally with debounced, serialized, atomic writes. Changing applets, 
 
 Audio lists available Core Audio output and input devices and changes the system defaults on request. Volume controls follow device capabilities; fixed-volume devices show a disabled control. Per-channel volume changes preserve balance. Property listeners run only while the applet is visible, without microphone recording.
 
-Timers accept `25 min`, `90 s`, `2 h` or `1:30` for minutes and seconds. Bare numbers mean minutes. Up to eight timers can run, pause, resume or extend. Persisted deadlines handle sleep and relaunch; expired timers remain until acknowledged. A single deadline alarm handles completion, while only visible countdowns redraw each second. There are no focus sessions or activity tracking.
+Timers accept `25 min`, `90 s`, `2 h` or `1:30` for minutes and seconds. Bare numbers mean minutes. Opening Timers leaves the input unfocused; Tab enters it, Return starts the timer, and Escape leaves editing while preserving the draft. Up to eight timers can run, pause, resume or extend. Persisted deadlines handle sleep and relaunch; expired timers remain until acknowledged. A single deadline alarm handles completion, while only visible countdowns redraw each second. There are no focus sessions or activity tracking.
 
 ### Workspaces and quick actions
 
@@ -102,13 +102,17 @@ Return on the home clock opens a daily agenda using EventKit. On first entry, Re
 
 ### Codex
 
-Codex shows live user and agent messages, grouped tool calls, expandable results, and actual links from the stream. Active threads, history and weekly usage remain separate pages. Left/right switches threads; Return opens the floating composer, Escape closes it without deleting its draft, and ⌘Return sends. ⌘E expands activity for longer reading. Each thread keeps its reading position and draft for the app session. Reading older content pauses automatic scrolling and offers a **Ny aktivitet** button. A selected active thread remains available after completion.
+Codex shows the latest message, running tools, searches, thinking state and available public reasoning summaries. Finished tools disappear from the compact activity view. Active threads, history, New thread and weekly usage have separate pages. Left/right switches threads; Return opens the selected thread in Codex. ⌘N opens a narrow reply composer with a text field and send button. Return sends, Shift-Return inserts a line break, and Escape closes it without deleting its draft. A selected active thread remains available after completion.
+
+New thread contains a project picker and composer. Sending creates a thread in the selected local project, connects it to the desktop app and submits the initial message. Failed attempts retain the draft and reuse an already-created thread on retry.
 
 Requests, approvals and failures have distinct status, with a link to the exact desktop thread when interaction belongs there. Notes and selected text enter the same explicit recipient picker. Live updates use revision-checked snapshots and patches, coalesced visible publications and bounded full-stream caches. Closing the panel retains content. With background status enabled, the desktop connection continues; hidden activity is not repeatedly projected into UI.
 
 ⌘F searches thread titles and previews. Actions exposes archived threads and project grouping; ⌘P opens the project picker. Grouped history uses ⌘←/⌘→ for projects. Saved desktop project membership, local icons and worktree assignments remain supported. Usage shows the Codex seven-day window and its reset time. Images are represented as attachment markers, and very large or older activity remains available in the desktop app.
 
 The integration uses the installed Codex CLI for history and account limits, and the desktop app's local IPC connection to follow and message existing threads. Desktop IPC is versioned but private; an incompatible or unavailable connection produces an explicit error. History alone is never treated as evidence that a thread is running. Choosing an unconnected historical thread opens that exact thread in Codex, waits for its owner, and returns focus to smool before composing. smool does not resume a second competing session or answer approval requests on your behalf.
+
+Activity follows the public data in desktop snapshots. Searches, image tools and waits without a completion marker clear when the next activity arrives or the turn finishes. Raw MCP progress notifications that the desktop discards before broadcasting are unavailable through this connection.
 
 Run `Tests/run-checks.sh` for all model, persistence, protocol, navigation, layout, rendering and integration checks. Fixtures test launches without executing them; Core Audio discovery is read-only. The checks never send prompts, run shortcuts, change audio devices or change playback.
 

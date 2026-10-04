@@ -6,7 +6,7 @@ struct AppletPages<Page: Hashable, Content: View>: View {
     @Binding var selection: Page
     let title: (Page) -> String
     var isNavigating = true
-    var editingHint = "⌘↵ Send"
+    var editingHint = ""
     var navigationHint = "↑↓ Change page\n⌘K Actions · ? Close help"
     @ViewBuilder let content: (Page) -> Content
 
