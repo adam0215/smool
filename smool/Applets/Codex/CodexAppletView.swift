@@ -25,6 +25,13 @@ struct CodexAppletView: View {
     private var threadSelection: CodexThreadSelection { state.threadSelection(in: service.displayedThreads, projects: service.projects) }
     private var liveThreadID: String? { state.page == .active ? threadSelection.selectedThread?.id : nil }
     private var historyThread: CodexThread? { state.page == .history ? threadSelection.selectedThread : nil }
+    private var localRequests: [CodexSessionRequest] {
+        guard let thread = threadSelection.selectedThread else { return [] }
+        return service.localRequests(for: thread.id)
+    }
+    private var selectedRequest: CodexSessionRequest? {
+        localRequests.first { $0.id == state.requestID } ?? localRequests.first
+    }
     private var previewThread: CodexThread? {
         guard let thread = threadSelection.selectedThread else { return nil }
         if state.page == .history { return thread }
@@ -43,7 +50,7 @@ struct CodexAppletView: View {
         switch state.scope {
         case .composer, .newThread: "⇧↵ New line"
         case .search: "Search titles or content"
-        case .deck: ""
+        case .deck, .request: ""
         }
     }
 
@@ -53,6 +60,8 @@ struct CodexAppletView: View {
                 projectPicker
             } else if state.showsRecipientPicker {
                 recipientPicker
+            } else if state.scope == .request, let request = selectedRequest {
+                sessionRequest(request)
             } else {
                 AppletPages(
                     pages: CodexPage.allCases,
@@ -97,6 +106,9 @@ struct CodexAppletView: View {
             }
         }
         .onChange(of: liveThreadID, initial: true) { _, id in service.selectThread(id) }
+        .onChange(of: selectedRequest?.id) { _, id in
+            if id == nil, state.scope == .request { returnToDeck() }
+        }
         .task(id: previewThread) {
             guard let thread = previewThread else { return }
             await service.loadHistoryPreview(thread)
@@ -135,7 +147,7 @@ struct CodexAppletView: View {
         .onKeyPress(.escape) {
             switch state.scope {
             case .deck: return .ignored
-            case .composer, .newThread: returnToDeck()
+            case .composer, .newThread, .request: returnToDeck()
             case .search: returnToDeck()
             }
             return .handled
@@ -167,10 +179,18 @@ struct CodexAppletView: View {
             Button("Previous thread") { moveThread(-1) }.keyboardShortcut("[", modifiers: .command).hidden()
             Button("Refresh", action: refreshOrConnect).keyboardShortcut("r", modifiers: .command).hidden()
             Button("Open in Codex") {
-                if let id = threadSelection.selectedThread?.id, let url = CodexDesktopProtocol.threadURL(id) {
+                if let id = threadSelection.selectedThread?.id, !service.isLocallyOwned(id),
+                   let url = CodexDesktopProtocol.threadURL(id) {
                     NSWorkspace.shared.open(url)
                 }
             }.keyboardShortcut("o", modifiers: [.command, .shift]).hidden()
+            Button("Stop turn") {
+                guard let thread = threadSelection.selectedThread else { return }
+                Task { await service.cancelLocalTurn(thread.id) }
+            }
+            .keyboardShortcut(".", modifiers: .command)
+            .disabled(threadSelection.selectedThread.map { !service.isLocallyOwned($0.id) } ?? true)
+            .hidden()
         }
         .onChange(of: state.scope) { _, scope in
             if scope == .search { Task { await Task.yield(); focus = .search } }
@@ -257,7 +277,8 @@ struct CodexAppletView: View {
                         if let presentation = service.activities[thread.id], presentation.latestMessage != nil || issue == nil {
                             CodexActivityView(
                                 presentation: presentation,
-                                isLive: currentThread?.isConnected == true && issue == nil && service.attentionByThread[thread.id] == .working,
+                                isLive: currentThread?.isConnected == true && issue == nil
+                                    && (service.attentionByThread[thread.id] == .working || service.isLocallyOwned(thread.id)),
                                 unavailableReason: issue
                             )
                         } else if let issue {
@@ -280,7 +301,17 @@ struct CodexAppletView: View {
                         }
                     }
 
-                    if state.scope == .deck {
+                    if state.scope == .deck, let request = localRequests.first {
+                        Button {
+                            state.requestID = request.id
+                            state.scope = .request
+                        } label: {
+                            Label(request.title, systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.orange)
+                        }
+                        .buttonStyle(.plain)
+                    } else if state.scope == .deck {
                         Text("⌘N Write")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
@@ -567,7 +598,34 @@ struct CodexAppletView: View {
     }
 
     private func open(_ thread: CodexThread) {
+        if service.isLocallyOwned(thread.id) {
+            if let request = localRequests.first {
+                state.requestID = request.id
+                state.scope = .request
+            } else {
+                compose(thread)
+            }
+            return
+        }
         if let url = CodexDesktopProtocol.threadURL(thread.id) { NSWorkspace.shared.open(url) }
+    }
+
+    private func sessionRequest(_ request: CodexSessionRequest) -> some View {
+        let key = request.threadID + ":" + request.id
+        return CodexSessionRequestView(
+            request: request,
+            answers: Binding(get: { state.requestAnswers[key] ?? [:] }, set: { state.requestAnswers[key] = $0 }),
+            error: service.error,
+            respond: { decision in
+                service.respond(to: request, decision: decision)
+                if !service.localRequests(for: request.threadID).contains(where: { $0.id == request.id }) {
+                    state.requestAnswers[key] = nil
+                    returnToDeck()
+                }
+            },
+            close: returnToDeck
+        )
+        .id(key)
     }
 
     private func beginSearch() {
@@ -621,7 +679,7 @@ struct CodexAppletView: View {
 
     private func restoreLocalFocus() {
         switch state.scope {
-        case .deck: break
+        case .deck, .request: break
         case .search: focus = .search
         case .composer, .newThread: focus = .composer
         }

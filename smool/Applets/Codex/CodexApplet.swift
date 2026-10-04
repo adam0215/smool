@@ -11,6 +11,7 @@ final class CodexApplet: Applet {
     let service = CodexService()
 
     var contentHeight: CGFloat {
+        if state.scope == .request { return 340 }
         if state.page == .usage { return 176 }
         if state.page == .newThread { return state.newThread.error == nil ? 200 : 256 }
         return 256
@@ -39,7 +40,7 @@ final class CodexApplet: Applet {
             guard thread.isConnected, let status = service.attentionByThread[thread.id] else { return nil }
             return CodexThreadAttention(threadID: thread.id, title: thread.title, status: status,
                                         isUnread: service.unreadThreadIDs.contains(thread.id),
-                                        url: CodexDesktopProtocol.threadURL(thread.id))
+                                        url: service.isLocallyOwned(thread.id) ? nil : CodexDesktopProtocol.threadURL(thread.id))
         }
     }
 
@@ -142,7 +143,17 @@ final class CodexApplet: Applet {
             actions.insert(contentsOf: [
                 AppletAction(id: "Write to thread", symbol: "square.and.pencil", shortcut: "⌘N") { state.scope = .composer(thread) }
             ], at: 0)
-            if let url = CodexDesktopProtocol.threadURL(thread.id) {
+            if service.isLocallyOwned(thread.id) {
+                if let request = service.localRequests(for: thread.id).first {
+                    actions.insert(AppletAction(id: "Review request", symbol: "bubble.left.and.exclamationmark.bubble.right") {
+                        state.requestID = request.id
+                        state.scope = .request
+                    }, at: 0)
+                }
+                actions.append(AppletAction(id: "Stop turn", symbol: "stop.fill", shortcut: "⌘.") {
+                    Task { await service.cancelLocalTurn(thread.id) }
+                })
+            } else if let url = CodexDesktopProtocol.threadURL(thread.id) {
                 actions.append(AppletAction(id: "Open in Codex", symbol: "arrow.up.right", shortcut: "↵") { NSWorkspace.shared.open(url) })
             }
         }

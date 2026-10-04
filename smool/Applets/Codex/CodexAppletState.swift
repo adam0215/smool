@@ -8,7 +8,7 @@ enum CodexPage: String, CaseIterable {
 }
 
 enum CodexScope: Equatable {
-    case deck, search, newThread
+    case deck, search, newThread, request
     case composer(CodexThread)
 }
 
@@ -26,6 +26,8 @@ final class CodexAppletState {
     var choosesPendingRecipient = false
     var pendingText: String?
     var sendErrors: [String: String] = [:]
+    var requestID: String?
+    var requestAnswers: [String: [String: String]] = [:]
     var retainedActiveThreadIDs: Set<String> = []
     var page = CodexPage.active
     var scope = CodexScope.deck

@@ -93,6 +93,18 @@ struct AppletChecks {
         codex.deactivate()
         precondition(!codex.hasPresentedOverlay && codex.state.newThread.text == "Keep the initial prompt")
 
+        codex.state.page = .active
+        codex.state.scope = .request
+        codex.state.requestAnswers["fixture:1"] = ["question": "Keep this answer"]
+        precondition(codex.hasPresentedOverlay && presentation.contentHeight == 340)
+        precondition(!codex.handleArrow(.down, command: false), "Request controls retain their arrow keys")
+        codex.dismissOverlay()
+        precondition(codex.state.scope == .deck && presentation.contentHeight == 256)
+        precondition(codex.state.requestAnswers["fixture:1"] == ["question": "Keep this answer"])
+        codex.state.scope = .request
+        presentation.select(music.id)
+        precondition(!codex.hasPresentedOverlay && codex.state.requestAnswers["fixture:1"] != nil)
+
         presentation.select(sample.id)
         precondition(presentation.contentHeight == 150)
         sample.contentHeight = 200
