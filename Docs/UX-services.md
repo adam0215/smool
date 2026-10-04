@@ -1,17 +1,37 @@
-# Actions and Workspaces integration
+# Actions and Workspaces
 
-`QuickActionsApplet.makeView` reads `context.hostActions` and combines those commands with saved actions and management commands in one keyboard list. No separate ActionList/popover is needed. Contextual command shortcuts are attached to their rows. Saved-action management uses Command-Shift-N/E/Delete to avoid collisions. Plain Return always runs the highlighted row; source Return and Command-arrow hints are omitted because those keys belong to palette and host navigation. The host routes plain arrows through `handleArrow` on service lists; the inline workspace resource list handles its own arrows while the host suppresses overlay navigation. The Actions view owns Return. Context command closures come from the host so they can restore the source applet/tool before performing.
+Actions combines commands for the current view with saved launches. Workspaces groups resources to open together. Both are persistent host tools and keep their editors inside smool.
 
-`WorkspacesApplet` opens a vertical workspace list. Return opens the selected resources together. Command-E edits, Command-N creates or resumes a new draft. Inside the editor, arrows select resources, Space includes/excludes them, Return edits a resource, Command-N adds one, and Command-Return saves the workspace. Its `actions` exposes add/save and selected-resource edit/include/remove commands while editing; it exposes new/open/edit/delete on the list. `deactivate()` preserves the workspace editor so opening Actions does not lose the command context.
+## Contextual commands
 
-Editors live below the host header. `dismissOverlay` goes back one level while retaining draft objects. Actions retains a new-action draft and one draft per saved action. Workspaces retains a new-workspace draft, one draft per workspace, and resource drafts within each. A saved resource only changes its workspace draft; Command-Return commits the workspace. The retained workspace draft keeps unfinished resource edits across workspace saves. The first Escape can release a text field through the host; the next calls `dismissOverlay`. Parent should restore its focus after this call as described in UX-integration.md.
+`QuickActionsApplet.entries` reads `commandContext.hostActions()` and adds saved actions and management commands. `AppletCommandContext` is installed at host composition, so command availability does not depend on rendering the Actions view. The host restores the source destination before running a contextual command.
 
-Resource entry accepts an installed app name, a local path, a website, or a Codex thread ID/link. Names are optional and inferred. Bare websites normalize to HTTPS. Existing Codable data is unchanged. Apps and folders use inferred names and paths within the notch; there are no native pickers or dialogs in these flows.
+`AppletShortcut` supplies each command's label and binding. Saved-action management uses Command-Shift-N, Command-Shift-E and Command-Shift-Delete to avoid collisions with source commands. Plain Return runs the highlighted row; Command-arrows remain host navigation. Up/Down changes the highlighted entry through `handleArrow`. Keyboard bindings mount in the list background independently of the lazy rows, so commands still work when their rows are offscreen. Contextual entry IDs have a `context:` prefix to keep them separate from saved actions and management commands.
 
-Resource editor shortcuts are shown in the view: Command-J switches between shortcut and inferred input, Option-Up/Down chooses an Apple Shortcut, Command-R reloads shortcuts, Command-Return saves. Text field Return also saves. These paths do not rely on macOS Full Keyboard Access enabling plain buttons in the Tab chain.
+## Draft ownership
 
-Focused checks: `bash Tests/run-action-flow-checks.sh` verifies palette composition, draft lifetime, keyboard selection and workspace save boundaries without opening windows or launching resources. `Tests/SavedActionsChecks.swift` covers normalization, inference and persistence. Existing ActionAppletsChecks was updated for the inline WorkspaceDraft model; parent owns integrated UI rendering and live keyboard verification.
+Actions retains a new-action draft and one draft per saved action. Workspaces retains a new-workspace draft, drafts for existing workspaces, and resource drafts within each workspace. Leaving an editor dismisses a presentation level without deleting the draft. Opening Actions from Workspaces preserves the workspace editor and its command context.
 
-The visible Actions list, workspace list, workspace resource list and resource editor root subscribe to `onAppletFocusRestore`. Restoring an editor focuses its non-text root. Its hint changes to Return to edit; Return or Tab reenters the destination field, or the optional name in shortcut mode. Hidden lists have no active subscriber.
+A resource edit updates its workspace draft. Command-Return on the workspace editor saves the workspace. Unfinished resource drafts survive leaving and reopening that workspace. The host releases native text editing on the first Escape; subsequent Escape presses go through `handleBack()` and `dismissOverlay()`. See [host integration](UX-integration.md) for focus restoration.
 
-Tool heights follow editor mode. Workspaces starts at 180 points for zero or one workspace and grows with the list, capped at 320. Its resource list editor starts at 230 and is also capped at 320; individual resource editors use 250. Actions uses a stable 280-point list and a 250-point editor so contextual command snapshots do not introduce a resize dependency. List footer hints are centered with extra side insets. Workspace creation lives in Actions and the visible Command-N hint.
+## Persistence
+
+`QuickActionStore.save`, `delete` and `move`, and `WorkspaceStore.save` and `delete`, are asynchronous operations returning `Bool`. They serialize mutations, write atomically and publish the updated collection only after a successful write. A failed operation leaves the committed collection unchanged. Editors and deletion confirmations retain their state so the user can retry explicitly.
+
+`finishPendingChanges()` waits for current operations and reports their outcomes. It does not retry a failed save, deletion or move, or make an old failure block future quit attempts. The stores expose `hasPendingChanges` and a monotonically increasing `failedWriteGeneration`. The host repeats its drain while work remains and compares failure generations across the entire quit attempt. This catches failures even after their operation has left the pending queue. Applets remain active until draining succeeds, so failures leave the editor available.
+
+## Keyboard interaction
+
+Workspaces opens as a vertical list. Return opens the included resources together, Command-E edits, and Command-N creates or resumes a new workspace. Inside the workspace editor, arrows select resources, Space includes or excludes them, Return edits a resource, Command-N adds one, and Command-Return saves.
+
+Resource entry accepts an installed app name, local path, website or Codex thread ID/link. Names are optional and inferred. Bare websites normalize to HTTPS. App and folder entry stays inside the notch.
+
+The resource editor shows Command-J to switch between shortcut and inferred input, Option-Up/Down to choose an Apple Shortcut, Command-R to reload shortcuts, and Command-Return to save. Return in the text field also saves. These commands do not require macOS Full Keyboard Access to make ordinary buttons reachable with Tab.
+
+The visible Actions list, workspace list, resource list and resource editor subscribe to `onAppletFocusRestore`. Restoring an editor focuses its non-text root. Return or Tab then reenters the destination field, or the optional name field in shortcut mode.
+
+## Layout and checks
+
+Workspace content height follows the current list or editor and caps at 320 points. Actions keeps a stable list height so reading contextual commands does not create a resize dependency. Text, lists and forms sit on the background; Save controls and transient confirmations receive their own elevation.
+
+Run `Tests/run-checks.sh ActionFlows ActionApplets AppletCommand SavedActions` for command composition, draft lifetime, resource inference, persistence and rendering checks. Verify Escape-to-Return and nested workspace editing through the actual host after changing focus behavior.

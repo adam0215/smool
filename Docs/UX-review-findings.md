@@ -1,77 +1,41 @@
-# UI review findings
+# UI regression checks
 
-Latest refinement review: Timer commit `d28cc1e` limits its orange glow to the selected running timer, excluding creation, paused and expired states. Source review found no issue. The Codex latest-message/history/current-tool refinement has completed source review. Earlier final verification below applies to the preceding UI revision.
+The UI review on 4 October 2026 identified failures in focus recovery, arrow routing, draft retention, shortcut collisions and stale Codex activity. This document retains the useful regression scenarios. It does not certify later changes or record a current test run.
 
-## Current refinement findings
+Current ownership and keyboard contracts are described in [host integration](UX-integration.md) and [Actions and Workspaces](UX-services.md). Run checks through `Tests/run-checks.sh`; use `--list` to see the available cases.
 
-11. **Resolved in source: retained activity displayed stale tools as live.** The live gate, Active/History title shimmer and unavailable-state lookup now use the matching authoritative entry in `service.threads`. Cached display objects no longer supply connection state. The view retains the latest message, hides current tools/working summaries when unavailable, and shows the issue alongside retained content. Source review confirms the disconnect, revision-gap and close/reopen cache cases are addressed.
+## Keyboard and drafts
 
-12. **Resolved in source: Command-R did not retry an Active fallback failure.** The refresh path now force-loads `previewThread`, covering both History and the bounded Active fallback. A cached transient error can be retried without waiting for thread metadata to change.
+- Enter a Timer duration, leave with Escape, then press Return. Editing must resume with the same text. Opening the empty timer form must leave applet navigation available until Tab begins editing.
+- Adjust `59:30` with Up, then start the timer. The adjusted text must remain valid input.
+- Leave Notes, Files path entry, a saved-action editor and a Codex composer with Escape. Return or the advertised editing shortcut must reopen the retained draft.
+- Open Actions from Notes and invoke New note. The source command must operate on Notes; saved-action creation uses Command-Shift-N.
+- Edit a workspace with two resources. Up/Down must change selection and Space must change inclusion. Leave an unfinished resource edit, save the workspace, then reopen the resource. Its unfinished input must remain available.
+- Open Actions from Workspaces or Settings, then leave it. The source view must return. Command-number and Control-Tab must remain usable from text editing.
+- On Home, Escape leaves event details, then the calendar, then closes the notch. Capture previews and contextual help must have their own Escape step.
 
-Reviewed changes since `926630a`, including the working tree, against `AGENTS.md` and `Docs/UX-integration.md`. This reviewer performed source review only, with no app launches, CUA, or builds. Live results below were reported by the parent task. Files were reread after concurrent implementation changes.
+## Saving during quit
 
-## Unresolved findings
+- Edit Notes while another store is still saving during quit. The newer text must also reach disk before termination succeeds.
+- Fail an Actions or Workspaces write while another store is saving. The quit attempt must report the failure even if that operation has already left its pending queue. Its editor must remain available.
+- Retry Notes after a failed write. Dirty text must remain intact. Failed saved-action and workspace operations require explicit retry and must never replay during a later quit attempt.
 
-The preceding overhaul findings were resolved after elevation commits `836cf76` and `c5ee606`; the parent's final verification is recorded below. The subsequent refinement findings 11 and 12 are also resolved in source. The parent verified History/latest-message, Command-N, Up/Down and the oversized Active fallback live.
+## Rendering and accessibility
 
-## Focus follow-up resolved in source
+- Verify groups of four applet tabs, the plain +N menu, navigation wrapping and tab hit targets beside the camera. Actions and Workspaces stay outside the applet tabs.
+- Check Home's shared palette, moving glow, black camera band and concentric card edges on compact and notched displays.
+- Check the closed notch with no status, one status and multiple statuses. Content remains compact with deliberate trailing padding.
+- Timer creation, paused timers and completed timers stay unlit. Only the displayed running timer gets the orange glow.
+- Inspect resource forms, Files previews and Codex pickers on the background layer. Floating composers and confirmations may use their own glass surface; the whole page should not be elevated.
+- Repeat representative transitions with Reduce Motion and Reduce Transparency enabled. Closing the notch removes expanded content and stops visible-only work.
 
-8. **P2: Escape left Timer without a SwiftUI keyboard focus target.** The parent task confirmed live that Escape from the Timer duration field then Return did nothing, despite the "Return Edit duration" hint. Making `NSHostingView` the first responder released text editing but did not select a SwiftUI keyboard target. The host now advances an environment focus generation; visible navigation views respond by selecting their non-text focus target. Timer restores its deck, while its Return handler resumes duration editing. The shared composer, saved-action editor and Files path editor each have a navigation target and a Return reentry path. Workspace resources, Audio, Notes lists/confirmation, and Codex search/pickers also register visible focus owners. Codex guards its outer restoration handler while a composer or picker is visible, avoiding competing requests. The parent subsequently confirmed live that Escape-to-Return works in Timer, Notes and Files path entry, with drafts preserved.
+## Audio and Codex
 
-## Arrow follow-up verified live
+- Check device-list keyboard selection and per-channel mute restoration. Muting and unmuting unequal channels must preserve their balance.
+- History shows a title and latest-message preview. Return opens the exact thread; Command-N opens its composer and Escape preserves its draft.
+- Live activity shows the latest message and current tools. Completed tools disappear. Disconnects and revision gaps must not leave cached tools looking live.
+- After Escape releases the Codex search field, Command-F must focus it again. Open Actions from a composer for a disconnected thread; its Connect command must retain the intended recipient. Source commands must also work when their rows are outside the Actions viewport.
+- A failed history preview can be retried with Command-R. Large activity streams show their supported compact fallback and a way to open the full thread in Codex.
+- Leaving Codex dismisses its transient pickers and composer while preserving drafts and thread selection. Hidden activity must not keep rebuilding the visible projection.
 
-9. **P2: Audio picker and Timer editing arrows were ignored.** The parent reproduced both failures live. Arrow events can include system modifier flags, so comparing the complete modifier set with an empty set rejected ordinary arrow presses. Audio, workspace resources, Codex and Files now compare only Command, Control, Option and Shift. Timer uses `handleEditingArrow` from the host when an `NSTextView` owns focus; only its duration form implements the hook, and only unmodified vertical arrows are handled. Its former SwiftUI field arrow handler has been removed, and a handled host event returns nil, so the current source has no duplicate adjustment path. The hook ignores Settings/capture and preserves modified native editing arrows. The parent confirmed live that Timer `59:30` plus Up becomes editable `60:30`, Audio Down/Return switches from MacBook Pro Speakers to Studio Headphones, and workspace Up/Space excludes the first resource before saving the second. Source review found no further defect in these paths.
-
-## Codex departure follow-up resolved in source
-
-10. **P2: Leaving Codex dismissed only the top overlay.** AppletChecks exposed a composer with a project picker remaining in composer scope after switching away and returning. Commit `1c7be4f` gives Codex an explicit `deactivate()` that closes both pickers, resets scope to the deck and collapses activity details. `NotchPresentation.select` calls it only when changing applets. The separate `dismissOverlay()` retains one-layer Escape behavior. The reset does not touch service drafts, pending captured text, search queries, thread selections or reading positions, so content and reading state survive departure. Source review confirms the regression trigger is addressed without clearing drafts or changing host-tool suspension. The parent reports AppletChecks and the build now pass.
-
-## Elevation follow-up
-
-The user requested intentional elevation rather than shared glass around entire pages. Commit `836cf76` removes full-form glass from saved-action and workspace editors and raises their Save controls independently. Their text, lists and shortcut hints remain on the content background. The reviewed Codex changes replace the deck with either picker in one stable outer VStack; they do not leave transparent picker content over the underlying deck. Focus callbacks stay on each visible branch, while service visibility and connection lifecycle remain on the stable outer view. The actual composer remains an overlay with its own glass surface. Files removes glass from preview/path entry while retaining inline preview lifetime, draft state, reentry handlers and rounded-edge padding. No new correctness or composition-contract issue was found in source. Floating composers and transient deletion confirmations remain valid glass uses under the updated `AGENTS.md` principle. The parent subsequently verified the workspace/resource forms, Files preview and Codex project/recipient pickers live after these elevation changes.
-
-## Original findings resolved in source
-
-The seven findings below have been rechecked in current source. Their original triggers and locations are preserved for regression verification. Resolution details follow the list.
-
-1. **P2: Workspace resource selection cannot move with the advertised arrow keys.** `smool/Applets/Workspaces/WorkspaceEditor.swift:131` attaches Space and Return handlers to the resource list, but no Up/Down handlers. `smool/NotchPanelController.swift:340` suppresses applet arrow routing whenever an overlay is presented, and every workspace editor is an overlay. Open a workspace with two resources and press Down. Selection stays on the initial resource, so Space, Return and Delete continue targeting it. Add Up/Down handlers to the focused resource list that call `draft.moveSelection`, leaving native text-field arrows alone.
-
-2. **P2: Saving a workspace deletes unfinished resource drafts.** `smool/Applets/Workspaces/WorkspacesApplet.swift:80` removes the owning `WorkspaceDraft` from every retained reference after save. Its nested `resourceDrafts` and `newResource` are the only owners of unfinished resource input. Edit or add a resource, type an unfinished value, choose Back, save the workspace, then reopen that resource editor. The text promised by the editor's "draft kept" hint is gone. Preserve nested resource drafts across workspace saves, either by retaining the draft with updated saved workspace data or storing those drafts independently.
-
-3. **P2: Timer adjustment emits values that its parser rejects.** `smool/Applets/Timers/TimersApplet.swift:53` uses the countdown display formatter for nonwhole-minute input. Enter `59:30`, press Up, then Return. The field becomes `1:00:30`, but `TimerDuration.parse` only accepts two colon-separated components, so starting fails. Another Up falls back to 25 minutes and produces `26`. Format editable durations as total minutes and seconds, or explicitly support the generated hours format in the parser.
-
-4. **P2: Mute/unmute changes stereo balance on devices with separate channel controls.** `smool/Applets/Audio/AudioService.swift:53` retains only the peak scalar before setting all channels to zero. Unmute sends that scalar through `AudioVolume.setting`, which sees zeroed channels and assigns the same value to all of them. For example, `[0.8, 0.4]` becomes `[0.8, 0.8]` after pressing M twice. Preserve the channel values for restoration or use the device's hardware mute control. The mute command is new in this overhaul.
-
-5. **P2: Codex's Latest activity command does not resume following the transcript.** `smool/Applets/Codex/CodexApplet.swift:137` clears only `activitySelections`. Select older activity with Option-Up, open Actions and choose Latest activity. The retained reading position still has `followsLatest == false`, and the recreated transcript restores the old offset. `CodexActivityView.swift:138` also ignores a nil selection. Conversely, the New activity button at line 160 sets follow mode without clearing the selected activity, so reopening details can restore the old selection. Update selection and reading position together when following latest, clear the old anchor/new-activity flag, and scroll to the bottom.
-
-6. **P2: Actions displays source shortcuts that instead operate on saved actions.** `smool/Applets/QuickActions/QuickActionsApplet.swift:199` unconditionally maps Command-N/E/Delete to saved-action management while the list also displays the source applet's shortcut labels at line 40. Open Actions from Notes: New note and Save an action both show Command-N, but pressing it opens the saved-action editor. From an edited workspace, Command-Delete shown for Remove resource can instead open the deletion confirmation for a previously selected saved action. Give these commands distinct shortcuts, or route source shortcuts consistently while the source commands are displayed. Do not advertise a shortcut for two different operations in the same view.
-
-7. **P2: App/folder selection still leaves smool for a separate dialog.** `smool/Shared/Actions/SavedActionEditor.swift:163` creates an `NSOpenPanel` and presents it at line 170. Choosing App or Folder in either Actions or Workspaces leaves the inline editor for an external panel. This predates the overhaul but remains in the rewritten workflow and conflicts with the explicit inline-workflow requirement. Replace these controls with inline app/folder selection or path completion. Files also retains its existing system importer and Quick Look presentation; decide whether the same requirement covers those before calling the overhaul complete.
-
-## Fixes rechecked
-
-- Workspace resource list now handles unmodified Up/Down directly. Workspace save retains its `WorkspaceDraft` and nested resource drafts.
-- Timer adjustment formats total minutes and seconds. Audio mute stores and restores the complete channel set and checks channel compatibility.
-- Codex's shared `followLatestActivity` clears the selected activity and old anchor, enables following, and clears the new-activity flag. The transcript observes follow mode and its New activity button calls the same operation.
-- Actions registers source command keyboard shortcuts and assigns Shift-Command-N/E/Delete to saved-action management. Source Return and Command-arrow hints are omitted because those keys belong to list activation and host navigation.
-- SavedActionEditor no longer contains an `NSOpenPanel`. App/folder input remains inline. Files now uses inline path entry and an embedded `QLPreviewView`, retaining path drafts across Escape and failed additions and closing the preview when its view is removed. The parent confirmed live that the embedded preview opens/closes inside smool and path editor Escape-to-Return preserves its draft.
-
-## Remaining verification
-
-The parent confirmed tab groups, the applet menu, navigation wrapping, Codex composer close, preservation of real app icons, Timer/Notes/Files Escape-to-Return, Notes Command-K then Command-N creating a note, two Escapes returning to the Notes list with saved text, and keyboard-only workspace creation/resource entry with bare-domain normalization and save. It also confirmed all three arrow retests above, the compact workspace layout, and saved-action Shift-Command-N then Escape/Return preserving and reopening its draft. Source inspection confirms Command-number and Control-Tab routing precedes text-field handling. Home's gradient modifier has actual animatable color and position data, and expanded content is removed on close. The parent reports the build, AppletChecks, base/model/transport/timer checks and rendering checks through ActionApplets pass. Integration, termination, actions and Files checks are still running. No builds or tests were run by this reviewer; implementation-task results are separate evidence.
-
-
-## Final parent verification — 4 October 2026
-
-- Debug `xcodebuild` succeeded after `c5ee606`. The current production build is running; process inspection confirmed one smool instance and no UXPreview instance. The isolated preview removed its temporary fixtures on quit.
-- Base audio, glow, navigation, layout, Spotify, Codex protocol, header, artwork, icon and project checks passed. AppletChecks passed after correcting its expected compact Codex height and fixing departure cleanup.
-- Selected-text, audio device, Notes, file persistence, saved-resource inference, Codex activity/navigation/transport and timer checks passed. Transport checks exercised bounded reads, ACK ordering, cancellation and frame limits; model checks include persistence failures and mute channel preservation.
-- Host settings/rendering, Notes, Audio and Actions rendering checks passed. Final integration, termination-save-failure, action-flow and Files checks passed. The checks were run in stages; an interrupted compilation during concurrent edits was rerun against the final sources.
-- Live keyboard checks covered timer editing and Escape/Return, device selection, note creation through contextual Actions, workspace creation with two inferred websites and inclusion selection, saved-action draft reentry, inline file preview/path editing, settings access, four-tab paging and wrapping.
-- Final live elevation checks confirmed background-level workspace/resource forms with an independently elevated Save control, embedded Files preview without surrounding glass, and inline Codex project/recipient pickers. Escape restored the Codex deck/composer correctly. No test message was sent.
-- The real Codex asset was verified in the closed status, tab bar and Home. Production Home uses English date copy. Its existing glass cards remain intact.
-
-
-## Codex refinement verification
-
-The parent verified the real installed Codex history API with a bounded read of the current large thread. History displayed its latest message rather than the opening prompt. Live checks confirmed the simplified history view, Command-N composer, Escape and page navigation. The oversized Active thread displayed the latest message with a quiet live-activity limitation. No message was sent. Timer creation was unlit, starting lit the orange gradient, and pausing removed it, verified in an isolated app with disposable timers. Timer and applet regression checks passed; the Codex owner ran activity, preview/cache/cancellation, navigation and transport checks. The running-tools fixture was visually inspected with latest message and public summary; the completed-tool fixture omitted the tool. Reduce Motion disables the shimmer timeline in source.
+The earlier review also covered transcript scrolling and local project thumbnails. Those implementations have been removed; current checks should exercise the compact activity projection and project membership instead.
