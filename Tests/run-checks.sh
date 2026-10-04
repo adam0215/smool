@@ -59,6 +59,7 @@ bash Tests/run-codex-new-thread-checks.sh
 bash Tests/run-codex-session-checks.sh
 bash Tests/run-codex-composer-checks.sh
 bash Tests/run-notch-file-drop-checks.sh
+bash Tests/run-notch-sizing-checks.sh
 bash Tests/run-timer-checks.sh
 
 for name in HostSettings HostRendering NotesApplet AudioAppletRendering ActionApplets Integration Termination; do

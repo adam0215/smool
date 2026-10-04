@@ -5,6 +5,7 @@ final class NotchPanelController: NSObject {
     private(set) var demoNotchEnabled = false
     let presentation: NotchPresentation
     private var panel: NotchPanel?
+    private weak var hostingView: NSHostingView<NotchView>?
     private var localMonitor: Any?
     private var outsideMonitor: Any?
     private(set) var isOpen = false
@@ -198,8 +199,16 @@ final class NotchPanelController: NSObject {
             },
             open: { [weak self] in self?.open() }
         ))
+        // Keep SwiftUI out of NSWindow's content-size negotiation. Even with
+        // sizing disabled, a root hosting view updates its graph during that pass.
+        content.sizingOptions = []
         content.safeAreaRegions = []
-        panel.contentView = content
+        content.autoresizingMask = [.width, .height]
+        let container = NSView(frame: panel.contentLayoutRect)
+        content.frame = container.bounds
+        container.addSubview(content)
+        panel.contentView = container
+        hostingView = content
         return panel
     }
 
@@ -256,7 +265,7 @@ final class NotchPanelController: NSObject {
 
     func restoreFocus() {
         guard isOpen else { return }
-        panel?.makeFirstResponder(panel?.contentView)
+        panel?.makeFirstResponder(hostingView)
         panel?.makeKeyAndOrderFront(nil)
         presentation.focusGeneration &+= 1
     }
