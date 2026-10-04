@@ -6,8 +6,8 @@ struct AppletPages<Page: Hashable, Content: View>: View {
     @Binding var selection: Page
     let title: (Page) -> String
     var isNavigating = true
-    var editingHint = "⌘↵ Send · esc Back"
-    var navigationHint = "↑↓ Change page · ↵ Open\n⌘K Actions · ? Close help"
+    var editingHint = "⌘↵ Send"
+    var navigationHint = "↑↓ Change page\n⌘K Actions · ? Close help"
     @ViewBuilder let content: (Page) -> Content
 
     @FocusState private var focused: Bool

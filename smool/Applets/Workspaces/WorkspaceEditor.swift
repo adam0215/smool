@@ -159,7 +159,7 @@ struct WorkspaceEditor: View {
                     .disabled(!store.canSave)
             }.buttonStyle(.plain)
             ActionFeedback(error: store.error, result: nil)
-            Text("↑↓ choose · Space include · ↵ edit · ⌘K actions · Esc back")
+            Text("Space Include · ⌘K Actions")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)

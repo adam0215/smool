@@ -43,7 +43,7 @@ struct MusicAppletView: View {
             }
             return .handled
         }
-        .notchHelp("←→ Select control\n↵ Activate · Space Play/pause\n? Close help")
+        .notchHelp("←→ Select control\nSpace Play/pause\n? Close help")
         .task { await service.observe() }
     }
 }

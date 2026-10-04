@@ -37,8 +37,8 @@ struct SpotifyAppletView: View {
             selection: $state.page,
             title: { $0.title },
             navigationHint: state.page == .player
-                ? "↑↓ Change page · ←→ Select control\nSpace Play/pause · ↵ Activate\n? Close help"
-                : "↑↓ Change page · ←→ Select playlist\n↵ Play · ⌘K Actions\n? Close help"
+                ? "↑↓ Change page · ←→ Select control\nSpace Play/pause\n? Close help"
+                : "↑↓ Change page · ←→ Select playlist\n⌘K Actions\n? Close help"
         ) { page in
             switch page {
             case .player: SpotifyPlayerView(service: service, artwork: artwork, selectedControl: $state.selectedControl)

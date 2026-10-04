@@ -23,8 +23,8 @@ struct AudioAppletView: View {
                 }
                 .transition(.opacity)
                 Text(service.state.volume.isAdjustable
-                     ? "←→ Output/mic · ↵ Devices · ↑↓ Volume · M Mute"
-                     : "←→ Output/mic · ↵ Devices · Volume controlled by device")
+                     ? "←→ Output/mic · ↑↓ Volume · M Mute"
+                     : "←→ Output/mic · Volume controlled by device")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
@@ -143,7 +143,6 @@ struct AudioAppletView: View {
             HStack {
                 Text("Choose \(direction.title.lowercased())").font(.system(size: 13, weight: .semibold))
                 Spacer()
-                Text("↑↓ Choose · ↵ Select · Esc Back").font(.system(size: 10)).foregroundStyle(.secondary)
             }
             let devices = service.state.devices(for: direction)
             if devices.isEmpty {

@@ -167,9 +167,6 @@ private struct WorkspacesAppletView: View {
                                             .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                     Spacer()
-                                    if applet.selected?.id == workspace.id {
-                                        Text("↵").font(.system(size: 12)).foregroundStyle(.secondary)
-                                    }
                                 }
                                 .padding(12).contentShape(Rectangle())
                                 .background(.white.opacity(applet.selected?.id == workspace.id ? 0.09 : 0), in: .rect(cornerRadius: 12))
@@ -193,7 +190,7 @@ private struct WorkspacesAppletView: View {
             }
             ActionFeedback(error: applet.store.error, result: applet.store.result)
             if !applet.store.canSave { Button("Reload") { applet.store.reload() } }
-            Text(applet.store.workspaces.isEmpty ? "⌘N new workspace · ⌘K actions · Esc back" : "↑↓ choose · ↵ open · ⌘N new · ⌘E edit · ⌘K actions")
+            Text(applet.store.workspaces.isEmpty ? "⌘N New workspace · ⌘K Actions" : "⌘N New · ⌘E Edit · ⌘K Actions")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)

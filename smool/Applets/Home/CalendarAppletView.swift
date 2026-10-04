@@ -114,7 +114,7 @@ struct CalendarAppletView: View {
             else { close() }
             return .handled
         }
-        .notchHelp("←→ Change day · ↑↓ Select event\n↵ Details, then open Calendar\nesc Back · ? Close help")
+        .notchHelp("←→ Change day · ↑↓ Select event\n↵ Details, then open Calendar\n? Close help")
     }
 
     private func connectCalendar() {

@@ -53,7 +53,7 @@ struct NotesAppletView: View {
                     .task { listIsFocused = true }
                 } else {
                     noteList
-                    Text("↑↓ Select · ↵ Edit · ⌘K Actions")
+                    Text("⌘K Actions")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
@@ -118,7 +118,7 @@ struct NotesAppletView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             HStack(spacing: 24) {
-                Button("Keep note  esc") { applet.dismissOverlay() }
+                Button("Keep note") { applet.dismissOverlay() }
                     .keyboardShortcut(.escape, modifiers: [])
                 Button("Delete  ⌘⌫", role: .destructive) {
                     applet.confirmDeletion()

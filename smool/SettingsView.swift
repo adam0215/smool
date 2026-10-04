@@ -121,7 +121,7 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(presentation.settingsSection == .general
-                     ? "↑ ↓ Select    Space Toggle    esc Back"
+                     ? "↑ ↓ Select    Space Toggle"
                      : "↑ ↓ Select    Space Enable    F Pin    ⌘↑ ↓ Reorder")
                 Text(presentation.settingsSection == .general
                      ? "⌃⌥Space Open smool    ⌘1–9 Applets    ⌘, Settings"

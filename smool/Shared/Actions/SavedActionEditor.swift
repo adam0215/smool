@@ -87,7 +87,7 @@ struct SavedActionEditor: View {
             }
 
             HStack {
-                Text(field == .navigation ? "↵ edit · Tab fields · Esc back · draft kept" : "Tab fields · Esc back · draft kept")
+                Text(field == .navigation ? "Tab Edit fields" : "Draft kept")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 Button("Save  ⌘↵", action: save)

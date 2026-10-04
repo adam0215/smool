@@ -212,11 +212,6 @@ private struct QuickActionsAppletView: View {
             }
             ActionFeedback(error: applet.store.error, result: applet.store.result)
             if !applet.store.canSave { Button("Reload saved actions") { applet.store.reload() } }
-            Text("↑↓ choose · ↵ run · ⇧⌘N new action · ⇧⌘E edit · Esc back")
-                .font(.system(size: 10)).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 20)
         }
         .focusable(interactions: .edit).focused($listFocused).focusEffectDisabled()
         .onAppletFocusRestore { listFocused = true }

@@ -14,8 +14,6 @@ struct NotesEditor: View {
                 Text(saveStatus)
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer()
-                Text("esc All notes")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 16)
 
