@@ -152,7 +152,7 @@ struct FilesAppletView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
-                Button("Close  esc") { applet.dismissOverlay() }
+                Button("Close") { applet.dismissOverlay() }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.space, modifiers: [])
                     .font(.system(size: 11))
@@ -254,7 +254,7 @@ private struct FilePathEntry: View {
                 Text("Add files")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
-                Button("Back  esc") { applet.dismissOverlay() }
+                Button("Back") { applet.dismissOverlay() }
                     .buttonStyle(.plain)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -277,7 +277,7 @@ private struct FilePathEntry: View {
             Spacer(minLength: 0)
 
             HStack(alignment: .bottom, spacing: 16) {
-                Text(focus == .navigation ? "↵ Edit paths · draft kept\nYou can also drop files here." : "One path per line, or drop files here.\nEsc leaves your draft here.")
+                Text("One path per line, or drop files here.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
