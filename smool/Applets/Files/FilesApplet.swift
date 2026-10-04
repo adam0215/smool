@@ -22,15 +22,15 @@ final class FilesApplet: Applet {
 
     var actions: [AppletAction] {
         var actions = [
-            AppletAction(id: "Add files", symbol: "plus", shortcut: "⌘O") { self.openPathEntry() },
-            AppletAction(id: "Refresh shelf", symbol: "arrow.clockwise", shortcut: "⌘R") { self.store.refresh() }
+            AppletAction(id: "add-files", title: "Add files", symbol: "plus", shortcut: AppletShortcut(key: "o")) { self.openPathEntry() },
+            AppletAction(id: "refresh-shelf", title: "Refresh shelf", symbol: "arrow.clockwise", shortcut: AppletShortcut(key: "r")) { self.store.refresh() }
         ]
         if let file = store.selectedFile {
             if file.url != nil {
-                actions.append(AppletAction(id: "Preview", symbol: "eye", shortcut: "Space") { self.showPreview(file.url) })
-                actions.append(AppletAction(id: "Show in Finder", symbol: "folder") { NSWorkspace.shared.activateFileViewerSelecting(self.store.selectedURLs) })
+                actions.append(AppletAction(id: "preview", title: "Preview", symbol: "eye", shortcut: AppletShortcut(key: .space, modifiers: [])) { self.showPreview(file.url) })
+                actions.append(AppletAction(id: "show-in-finder", title: "Show in Finder", symbol: "folder") { NSWorkspace.shared.activateFileViewerSelecting(self.store.selectedURLs) })
             }
-            actions.append(AppletAction(id: "Remove from shelf", symbol: "minus.circle", shortcut: "⌘⌫") { self.store.removeSelected() })
+            actions.append(AppletAction(id: "remove-from-shelf", title: "Remove from shelf", symbol: "minus.circle", shortcut: AppletShortcut(key: .delete)) { self.store.removeSelected() })
         }
         return actions
     }

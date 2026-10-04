@@ -1,8 +1,9 @@
+@testable import SmoolChecksSupport
 import SwiftUI
 
 @main
 struct ActionAppletsChecks {
-    @MainActor static func main() throws {
+    @MainActor static func main() async throws {
         _ = NSApplication.shared
         NSApp.appearance = NSAppearance(named: .darkAqua)
         let folder = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
@@ -18,7 +19,9 @@ struct ActionAppletsChecks {
         try render(spaces, name: "workspaces-empty", folder: folder)
         let first = SavedAction(name: "Designsystem", destination: try .web("https://developer.apple.com/design/"))
         let second = SavedAction(name: "Projektets dokumentation", destination: try .web("https://example.com/docs"))
-        precondition(quick.store.save(first) && quick.store.save(second))
+        let savedFirst = await quick.store.save(first)
+        let savedSecond = await quick.store.save(second)
+        precondition(savedFirst && savedSecond)
         quick.highlightedID = nil
         precondition(quick.handleArrow(.down, command: false) && quick.selectedID == first.id)
         precondition(quick.handleArrow(.down, command: false) && quick.selectedID == second.id)
@@ -27,8 +30,10 @@ struct ActionAppletsChecks {
         quick.dismissOverlay()
         precondition(!quick.hasPresentedOverlay)
         let workspace = SavedWorkspace(name: "smool", resources: [first, second], selectedResourceIDs: [first.id])
-        precondition(spaces.store.save(workspace))
-        precondition(spaces.store.save(SavedWorkspace(name: "Nästa projekt")))
+        let savedWorkspace = await spaces.store.save(workspace)
+        precondition(savedWorkspace)
+        let savedNextWorkspace = await spaces.store.save(SavedWorkspace(name: "Nästa projekt"))
+        precondition(savedNextWorkspace)
         precondition(spaces.handleArrow(.right, command: false) && spaces.selected?.name == "Nästa projekt")
         precondition(spaces.handleArrow(.left, command: false) && spaces.selected?.id == workspace.id)
         spaces.editor = WorkspaceDraft(workspace)

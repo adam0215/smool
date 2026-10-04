@@ -75,8 +75,7 @@ struct NotesAppletView: View {
             applet.isEditing = true
             return .handled
         }
-        .onDisappear { applet.store.flush() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in applet.store.flush() }
+        .onDisappear { applet.store.requestSave() }
     }
 
     private var header: some View {

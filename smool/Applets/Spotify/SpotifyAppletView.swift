@@ -73,7 +73,7 @@ private struct SpotifyPlayerView: View {
             switch service.state {
             case .ready(let track): player(track)
             case .loading:
-                ProgressView("Connecter till Spotify…")
+                ProgressView("Connecting to Spotify…")
                     .font(.system(size: 12))
             case .notRunning:
                 message("Spotify is not running", detail: "Launch Spotify to see your music here.", action: "Launch Spotify") {
@@ -96,7 +96,7 @@ private struct SpotifyPlayerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             if case .ready = service.state {
-                Button("Vald kontroll") {
+                Button("Selected control") {
                     Task { await service.perform(selectedControl == 0 ? .togglePlayback : .nextTrack) }
                 }
                 .keyboardShortcut(.return, modifiers: [])

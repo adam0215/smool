@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import Foundation
 import JavaScriptCore
 

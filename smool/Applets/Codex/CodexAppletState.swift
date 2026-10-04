@@ -7,9 +7,11 @@ enum CodexPage: String, CaseIterable {
     case usage = "Usage"
 }
 
-enum CodexScope: Equatable {
+enum CodexPresentation: Equatable {
     case deck, search, newThread, request
     case composer(CodexThread)
+    case projects
+    case recipientPicker
 }
 
 @MainActor @Observable
@@ -19,18 +21,15 @@ final class CodexAppletState {
     }
     let newThread = CodexNewThreadDraft()
     var projectID: String?
-    var showsProjects = false
-    var showsRecipientPicker = false {
-        didSet { if !showsRecipientPicker { choosesPendingRecipient = false } }
-    }
-    var choosesPendingRecipient = false
     var pendingText: String?
     var sendErrors: [String: String] = [:]
     var requestID: String?
     var requestAnswers: [String: [String: String]] = [:]
     var retainedActiveThreadIDs: Set<String> = []
     var page = CodexPage.active
-    var scope = CodexScope.deck
+    var presentation = CodexPresentation.deck
+    var composerFocusRequest = 0
+    var searchFocusRequest = 0
     var selection: [CodexPage: String] = [:]
     var searches: [CodexPage: String] = [:]
 
@@ -64,7 +63,7 @@ final class CodexAppletState {
         projectID = project.id
         groupsByProject = true
         page = .history
-        scope = .deck
+        if presentation != .projects { presentation = .deck }
     }
 
     func moveProject(_ offset: Int, in projects: [CodexProject]) {
@@ -79,8 +78,7 @@ final class CodexAppletState {
             page = .history
             groupsByProject = true
         }
-        scope = .deck
-        showsProjects = true
+        presentation = .projects
     }
 }
 

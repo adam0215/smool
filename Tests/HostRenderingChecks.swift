@@ -1,4 +1,6 @@
+@testable import SmoolChecksSupport
 import SwiftUI
+import ScreenCaptureKit
 
 @MainActor
 private final class RenderApplet: Applet {
@@ -19,7 +21,9 @@ private final class RenderApplet: Applet {
 
 @main
 struct HostRenderingChecks {
-    @MainActor static func main() throws {
+    @MainActor static func main() async throws {
+        _ = NSApplication.shared
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         let date = ISO8601DateFormatter().date(from: "2026-10-03T20:46:00+02:00")!
         let suite = "smool.host-rendering.\(UUID().uuidString)"
@@ -52,14 +56,11 @@ struct HostRenderingChecks {
                     .background(.black)
                     .clipShape(NotchShape(shoulderRadius: 0, bottomRadius: 64))
                     .environment(\.colorScheme, .dark)
-                    let renderer = ImageRenderer(content: view)
-                    renderer.scale = 2
-                    guard let image = renderer.cgImage else { fatalError("Could not render home") }
-                    let bitmap = NSBitmapImageRep(cgImage: image)
-                    precondition(bitmap.pixelsWide == Int(layout.expandedSize.width * 2))
+                    let bitmap = try await capture(view, size: layout.expandedSize)
+                    let scale = CGFloat(bitmap.pixelsWide) / layout.expandedSize.width
                     let center = layout.headerRegions(in: layout.expandedSize.width).center
-                    for x in Int(center.minX * 2)..<Int(center.maxX * 2) {
-                        for y in 0..<Int(center.height * 2) {
+                    for x in Int(center.minX * scale)..<Int(center.maxX * scale) {
+                        for y in 0..<Int(center.height * scale) {
                             let pixel = bitmap.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
                             precondition(max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent) < 0.03)
                         }
@@ -76,18 +77,20 @@ struct HostRenderingChecks {
         let cards = HomeCard.arrangement(for: homeApplets.map(\.id))
         for (index, card) in cards.enumerated() {
             let glow = card.glow(applets: homeApplets)
-            let reference = HomeGlow.color(for: index == 0 ? .spotify : index == 2 ? .codex : nil)
+            let reference: Color = index == 0 ? Color(nsColor: .systemGreen)
+                : index == 2 ? Color(nsColor: .systemPurple).mix(with: .black, by: 0.46)
+                : Color(nsColor: .systemBlue)
             precondition(glow.color.resolve(in: EnvironmentValues()) == reference.resolve(in: EnvironmentValues()),
                          "Configurable Home must preserve its original palette.")
             precondition(glow.horizontalPosition == [0.25, 0.5, 0.75][index])
-            let renderer = ImageRenderer(content: glow.frame(width: 600, height: 120).background(.black))
-            guard let image = renderer.cgImage else { fatalError("Could not render configured Home glow") }
-            try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!
+            let bitmap = try await capture(glow.frame(width: 600, height: 120).background(.black),
+                                 size: CGSize(width: 600, height: 120))
+            try bitmap.representation(using: .png, properties: [:])!
                 .write(to: output.appendingPathComponent("configured-home-glow-\(index).png"))
         }
 
         let settingsPresentation = NotchPresentation(registry: AppletRegistry(applets), settings: AppSettings(defaults: defaults))
-        settingsPresentation.showsSettings = true
+        settingsPresentation.showSettings()
         for section in SettingsSection.allCases {
             settingsPresentation.changeSettingsSection(section)
             var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
@@ -102,13 +105,45 @@ struct HostRenderingChecks {
             .background(.black)
             .clipShape(NotchShape(shoulderRadius: 0, bottomRadius: 64))
             .environment(\.colorScheme, .dark)
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
-            guard let image = renderer.cgImage else { fatalError("Could not render settings") }
-            try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!
+            let bitmap = try await capture(view, size: layout.expandedSize)
+            try bitmap.representation(using: .png, properties: [:])!
                 .write(to: output.appendingPathComponent("settings-\(section.rawValue.lowercased()).png"))
         }
 
         print("Passed: 0–3 front applets, 11-app header, compact/full width and camera exclusion.")
+    }
+
+    @MainActor private static func capture(_ content: some View, size: CGSize) async throws -> NSBitmapImageRep {
+        let host = NSHostingView(rootView: content)
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.close() }
+        // Home enters with a one-second glow animation after a 0.1-second delay.
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(1_300))
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        // View caching omits GPU-composited glass content. Capture only this
+        // process's window; currentProcess does not request screen-recording access.
+        let shareable = try await SCShareableContent.currentProcess
+        guard let capturedWindow = shareable.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) else {
+            fatalError("The render window is unavailable for capture")
+        }
+        let filter = SCContentFilter(desktopIndependentWindow: capturedWindow)
+        let configuration = SCStreamConfiguration()
+        let scale = CGFloat(filter.pointPixelScale)
+        configuration.width = Int((size.width * scale).rounded())
+        configuration.height = Int((size.height * scale).rounded())
+        configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        configuration.colorSpaceName = CGColorSpace.sRGB
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        precondition(bitmap.pixelsWide == configuration.width)
+        precondition(bitmap.pixelsHigh == configuration.height)
+        return bitmap
     }
 }

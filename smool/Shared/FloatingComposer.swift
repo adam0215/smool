@@ -93,6 +93,7 @@ struct FloatingComposer: View {
     var isEditable = true
     var isSending = false
     var canSend = true
+    var focusRequest = 0
     var isEditing = true
     var onBeginEditing: (() -> Void)?
     var onSend: (() -> Void)? = nil
@@ -157,11 +158,11 @@ struct FloatingComposer: View {
         .onAppletFocusRestore {
             guard isEditing else { return }
             messageFocused = false
-            onClose()
         }
         .onChange(of: messageFocused) { _, focused in
             if focused { onBeginEditing?() }
         }
+        .onChange(of: focusRequest) { _, _ in messageFocused = isEditing && isEditable }
         .onChange(of: isEditing) { _, editing in messageFocused = editing && isEditable }
         .onKeyPress(.escape) {
             messageFocused = false

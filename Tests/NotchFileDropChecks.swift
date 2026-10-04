@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import AppKit
 
 @main

@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import SwiftUI
 
 @main
@@ -7,15 +8,15 @@ struct HomeLightingChecks {
         let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         let cardBounds = CGRect(x: 0, y: 0, width: 64, height: 104)
 
-        for app in [HomeApp.spotify, .codex] {
+        for leading in [true, false] {
             for inset in [0.0, 1.0] {
-                let path = HomeCardShape(edge: app == .spotify ? .leading : .trailing).inset(by: inset).path(in: cardBounds)
+                let path = HomeCardShape(edge: leading ? .leading : .trailing).inset(by: inset).path(in: cardBounds)
                 let radius = NotchLayout.bottomRadius - NotchLayout.contentInset - inset
-                let center = CGPoint(x: app == .spotify ? 56 : 8, y: 48)
+                let center = CGPoint(x: leading ? 56 : 8, y: 48)
 
                 for degrees in stride(from: 95.0, through: 175, by: 5) {
                     let angle = degrees * .pi / 180
-                    let direction = app == .spotify ? 1.0 : -1.0
+                    let direction = leading ? 1.0 : -1.0
                     let inside = CGPoint(x: center.x + direction * cos(angle) * (radius - 0.25),
                                          y: center.y + sin(angle) * (radius - 0.25))
                     let outside = CGPoint(x: center.x + direction * cos(angle) * (radius + 0.25),
@@ -26,8 +27,13 @@ struct HomeLightingChecks {
             }
         }
 
-        for (name, spotify, codex) in [("neutral", 0.0, 0.0), ("spotify", 1.0, 0.0), ("codex", 0.0, 1.0), ("transition", 0.45, 0.55)] {
-            let view = HomeGlow(spotify: spotify, codex: codex, darkHeight: 48)
+        let applets = [
+            AppletDestination(id: AppletID(rawValue: "spotify"), title: "Spotify", icon: .symbol("music.note"), tint: .green),
+            AppletDestination(id: AppletID(rawValue: "codex"), title: "Codex", icon: .symbol("terminal"), tint: .purple)
+        ]
+        for (name, card) in [("neutral", HomeCard.clock), ("spotify", .applet(applets[0].id)), ("codex", .applet(applets[1].id))] {
+            let glow = card.glow(applets: applets)
+            let view = BottomGlow(color: glow.color, horizontalPosition: glow.horizontalPosition, darkHeight: 48)
                 .frame(width: 480, height: 152)
                 .background(.black)
                 .environment(\.colorScheme, .dark)

@@ -1,9 +1,11 @@
+@testable import SmoolChecksSupport
 import Foundation
 import Observation
 
 @main
 struct CodexProtocolChecks {
     @MainActor static func main() async throws {
+        try checkResponseBoundaries()
         let projectThread = CodexThread(json: .object(["id": .string("fixture"), "cwd": .string("/tmp/fixture-project")]))!
         precondition(projectThread.projectPath == "/tmp/fixture-project")
         precondition(CodexThread(json: .object(["id": .string("no-project")]))?.projectPath == "")
@@ -89,6 +91,12 @@ struct CodexProtocolChecks {
         precondition(limits[0].resetAt == Date(timeIntervalSince1970: 1_800_000_000))
         precondition(limits[0].durationMinutes == 300)
         precondition(!limits[0].isCodexWeek)
+        for duration in ["1e99", "2.5"] {
+            let malformed = "{\"rateLimits\":{\"primary\":{\"usedPercent\":25,\"windowDurationMins\":\(duration)}}}"
+            let parsed = CodexLimit.parse(try JSONDecoder().decode(CodexJSON.self, from: Data(malformed.utf8)))
+            precondition(parsed.count == 1 && parsed[0].durationMinutes == nil && !parsed[0].isCodexWeek,
+                         "Out-of-range and fractional durations must stay unknown without trapping or rounding")
+        }
         let weeklyFixture = #"{"rateLimitsByLimitId":{"codex":{"secondary":{"usedPercent":22,"windowDurationMins":10080}},"gpt-reserve":{"secondary":{"usedPercent":7,"windowDurationMins":10080}}}}"#
         let weekly = CodexLimit.parse(try JSONDecoder().decode(CodexJSON.self, from: Data(weeklyFixture.utf8)))
         precondition(weekly.filter(\.isCodexWeek).map(\.id) == ["codex.secondary"], "Only Codex's seven-day window belongs in the ring.")
@@ -144,6 +152,47 @@ struct CodexProtocolChecks {
         service.stop()
         precondition(service.displayedThreads.first?.isActive == true, "Repeated cleanup must not overwrite the display snapshot.")
         print("Codex protocol checks passed")
+    }
+
+    private static func checkResponseBoundaries() throws {
+        let empty = try CodexThreadPage(.object(["data": .array([]), "nextCursor": .null]))
+        precondition(empty.threads.isEmpty && empty.nextCursor == nil)
+        let valid = try CodexThreadPage(.object([
+            "data": .array([.object(["id": .string("thread"), "title": .string("Title")])]),
+            "nextCursor": .string("next")
+        ]))
+        precondition(valid.threads.first?.id == "thread" && valid.nextCursor == "next")
+        let invalidPages: [CodexJSON] = [
+            .null, .object([:]), .object(["data": .object([:])]),
+            .object(["data": .array([.null])]),
+            .object(["data": .array([.object([:])])]),
+            .object(["data": .array([.object(["id": .string("")])])]),
+            .object(["data": .array([.object(["id": .string("thread"), "cwd": .number(3)])])]),
+            .object(["data": .array([.object(["id": .string("thread"), "updatedAt": .string("yesterday")])])]),
+            .object(["data": .array([]), "nextCursor": .bool(false)]),
+            .object(["data": .array([]), "nextCursor": .string("")]),
+            .object(["data": .array(Array(repeating: .object(["id": .string("thread")]), count: 101))])
+        ]
+        for page in invalidPages {
+            do {
+                _ = try CodexThreadPage(page)
+                preconditionFailure("Malformed catalog data must not masquerade as an empty page or silently drop entries")
+            } catch { }
+        }
+        let owner = try CodexDesktopProtocol.owner(in: .object([
+            "resultType": .string("success"), "handledByClientId": .string("desktop-owner")
+        ]))
+        precondition(owner == "desktop-owner")
+        for response: CodexJSON in [
+            .null, .object(["handledByClientId": .string("desktop-owner")]),
+            .object(["resultType": .string("success"), "handledByClientId": .string(" ")]),
+            .object(["resultType": .string("error"), "handledByClientId": .string("desktop-owner")])
+        ] {
+            do {
+                _ = try CodexDesktopProtocol.owner(in: response)
+                preconditionFailure("An owner must be confirmed by a successful nonempty response")
+            } catch { }
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import Foundation
 
 @main
@@ -41,7 +42,7 @@ struct CodexNavigationChecks {
         precondition(state.threadSelection(in: threads, projects: projects + [empty]).threads.isEmpty)
         state.selectProject(projects[0])
         state.openProjects()
-        precondition(state.showsProjects && state.page == .history && state.groupsByProject)
+        precondition(state.presentation == .projects && state.page == .history && state.groupsByProject)
 
         // A broad budget catches the former per-row full-catalog sort even on slower machines.
         let elapsed = ContinuousClock().measure {

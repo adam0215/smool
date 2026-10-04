@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import Foundation
 
 @main
@@ -13,7 +14,7 @@ struct FilesAppletChecks {
         let store = FileShelfStore(storageURL: directory.appending(path: "shelf.json"))
         let applet = FilesApplet(store: store)
 
-        applet.actions.first { $0.id == "Add files" }!.perform()
+        applet.actions.first { $0.id == "add-files" }!.perform()
         precondition(applet.showsPathEntry && applet.hasPresentedOverlay)
         applet.pathDraft = "An unfinished path"
         applet.dismissOverlay()

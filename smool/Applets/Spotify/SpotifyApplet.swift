@@ -6,13 +6,12 @@ final class SpotifyApplet: Applet {
     let title = "Spotify"
     let icon = AppletIcon.asset("Spotify")
     let tint = Color.green
-    let homeShortcut: HomeApp? = .spotify
     let contentHeight: CGFloat = 156
     let service = SpotifyService()
     let state = SpotifyAppletState()
 
     var background: AppletBackground? {
-        var background = AppletBackground(color: HomeGlow.color(for: .spotify), horizontalPosition: 0.25)
+        var background = AppletBackground(color: HomePalette.spotify, horizontalPosition: 0.25)
         if case .ready(let track) = service.state {
             background.isPlaying = track.playing
             background.artworkSource = track.artworkURL.map(AlbumArtwork.Source.spotify)
@@ -33,10 +32,10 @@ final class SpotifyApplet: Applet {
         let state = state
         let service = service
         return [
-            AppletAction(id: "Player", symbol: "play.circle", selected: state.page == .player) { state.page = .player },
-            AppletAction(id: "Playlists", symbol: "music.note.list", selected: state.page == .playlists) { state.page = .playlists },
-            AppletAction(id: "Open Spotify", symbol: "arrow.up.right") { service.openSpotify() },
-            AppletAction(id: "Refresh", symbol: "arrow.clockwise", shortcut: "⌘R") { Task { await service.retry(); await state.catalog.load(force: true) } }
+            AppletAction(id: "player", title: "Player", symbol: "play.circle", selected: state.page == .player) { state.page = .player },
+            AppletAction(id: "playlists", title: "Playlists", symbol: "music.note.list", selected: state.page == .playlists) { state.page = .playlists },
+            AppletAction(id: "open-spotify", title: "Open Spotify", symbol: "arrow.up.right") { service.openSpotify() },
+            AppletAction(id: "refresh", title: "Refresh", symbol: "arrow.clockwise", shortcut: AppletShortcut(key: "r")) { Task { await service.retry(); await state.catalog.load(force: true) } }
         ]
     }
 

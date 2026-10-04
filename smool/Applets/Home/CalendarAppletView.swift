@@ -2,14 +2,12 @@ import SwiftUI
 import EventKit
 
 struct CalendarAppletView: View {
-    let service: CalendarService
-    let close: () -> Void
+    let applet: HomeApplet
+    private var service: CalendarService { applet.calendar }
     @FocusState private var focused: Bool
-    @State private var selectedEvent = 0
-    @State private var showsDetails = false
 
     private var event: EKEvent? {
-        service.events.indices.contains(selectedEvent) ? service.events[selectedEvent] : service.events.first
+        service.events.indices.contains(applet.selectedEventIndex) ? service.events[applet.selectedEventIndex] : service.events.first
     }
 
     var body: some View {
@@ -48,24 +46,24 @@ struct CalendarAppletView: View {
                         Text(event.isAllDay ? "All day" : "\(event.startDate.formatted(date: .omitted, time: .shortened))–\(event.endDate.formatted(date: .omitted, time: .shortened))")
                             .monospacedDigit()
                         Spacer()
-                        Text("\(min(selectedEvent + 1, service.events.count)) / \(service.events.count)").foregroundStyle(.tertiary)
+                        Text("\(min(applet.selectedEventIndex + 1, service.events.count)) / \(service.events.count)").foregroundStyle(.tertiary)
                     }
                     .font(.system(size: 10)).foregroundStyle(.secondary)
                     Button {
-                        if showsDetails { service.openCalendar() }
-                        else { showsDetails = true }
+                        if applet.showsEventDetails { service.openCalendar() }
+                        else { applet.showsEventDetails = true }
                     } label: {
                         HStack(spacing: 8) {
                             Text(event.title ?? "Untitled event")
                                 .font(.system(size: 17, weight: .medium)).lineLimit(2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            Image(systemName: showsDetails ? "arrow.up.right" : "arrow.turn.down.left")
+                            Image(systemName: applet.showsEventDetails ? "arrow.up.right" : "arrow.turn.down.left")
                                 .font(.system(size: 12)).foregroundStyle(.tertiary)
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain).focusable(false)
-                    if showsDetails {
+                    if applet.showsEventDetails {
                         Text([event.location, event.calendar.title].compactMap { $0 }.first { !$0.isEmpty } ?? "")
                             .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
                     }
@@ -75,7 +73,7 @@ struct CalendarAppletView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(.white.opacity(showsDetails ? 0.07 : 0.025), in: .rect(cornerRadius: 16))
+            .background(.white.opacity(applet.showsEventDetails ? 0.07 : 0.025), in: .rect(cornerRadius: 16))
         }
         .modifier(AppletPadding())
         .padding(.horizontal, NotchLayout.contentInset)
@@ -86,8 +84,8 @@ struct CalendarAppletView: View {
         .focusEffectDisabled()
         .task { await Task.yield(); focused = true }
         .task(id: service.day) {
-            selectedEvent = 0
-            showsDetails = false
+            applet.selectedEventIndex = 0
+            applet.showsEventDetails = false
             await service.load()
         }
         .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
@@ -95,24 +93,22 @@ struct CalendarAppletView: View {
         }
         .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow], phases: [.down, .repeat]) { key in
             guard key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
-            showsDetails = false
+            applet.showsEventDetails = false
             if key.key == .leftArrow || key.key == .rightArrow {
                 service.moveDay(key.key == .leftArrow ? -1 : 1)
             } else {
-                selectedEvent = min(max(0, selectedEvent + (key.key == .upArrow ? -1 : 1)), max(0, service.events.count - 1))
+                applet.selectedEventIndex = min(max(0, applet.selectedEventIndex + (key.key == .upArrow ? -1 : 1)), max(0, service.events.count - 1))
             }
             return .handled
         }
         .onKeyPress(.return) {
             if service.needsPermission { connectCalendar() }
-            else if event != nil && !showsDetails { showsDetails = true }
+            else if event != nil && !applet.showsEventDetails { applet.showsEventDetails = true }
             else { service.openCalendar() }
             return .handled
         }
         .onKeyPress(.escape) {
-            if showsDetails { showsDetails = false }
-            else { close() }
-            return .handled
+            applet.handleBack() ? .handled : .ignored
         }
         .notchHelp("←→ Change day · ↑↓ Select event\n↵ Details, then open Calendar\n? Close help")
     }

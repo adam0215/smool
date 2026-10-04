@@ -40,12 +40,10 @@ private final class NotesDisk: @unchecked Sendable {
         return document
     }
 
-    func save(_ document: NotesDocument, completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
-        queue.async { completion(self.write(document)) }
-    }
-
-    func flush(_ document: NotesDocument) -> Result<Void, Error> {
-        queue.sync { write(document) }
+    func save(_ document: NotesDocument) async -> Result<Void, Error> {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: self.write(document)) }
+        }
     }
 
     private func write(_ document: NotesDocument) -> Result<Void, Error> {
@@ -69,6 +67,8 @@ final class NotesStore {
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var revision = 0
+    @ObservationIgnored private var pendingWrite: Task<Bool, Never>?
+    @ObservationIgnored private var pendingRevision: Int?
 
     var selectedNote: QuickNote? { notes.first { $0.id == selectedID } }
 
@@ -80,7 +80,7 @@ final class NotesStore {
     }
 
     func reload() {
-        guard !hasUnsavedChanges else { flush(); return }
+        guard !hasUnsavedChanges else { requestSave(); return }
         do {
             let document = try disk.load()
             notes = document.notes
@@ -125,15 +125,36 @@ final class NotesStore {
             selectedID = notes.isEmpty ? nil : notes[min(index, notes.count - 1)].id
         }
         changed()
-        flush()
+        requestSave()
     }
 
-    func flush() {
+    func requestSave() {
         saveTask?.cancel()
         saveTask = nil
-        guard hasUnsavedChanges, !isReadOnly else { return }
-        revision += 1
-        didSave(disk.flush(document), revision: revision)
+        guard hasUnsavedChanges, !isReadOnly, pendingRevision != revision else { return }
+        let savedRevision = revision
+        let snapshot = document
+        let previous = pendingWrite
+        pendingRevision = savedRevision
+        pendingWrite = Task {
+            _ = await previous?.value
+            let result = await disk.save(snapshot)
+            didSave(result, revision: savedRevision)
+            if pendingRevision == savedRevision { pendingRevision = nil }
+            if case .success = result { return true }
+            return false
+        }
+    }
+
+    @discardableResult
+    func flush() async -> Bool {
+        while hasUnsavedChanges, !isReadOnly {
+            requestSave()
+            let savedRevision = revision
+            let saved = await pendingWrite?.value ?? false
+            if savedRevision == revision, !saved { return false }
+        }
+        return !hasUnsavedChanges
     }
 
     private var document: NotesDocument { NotesDocument(notes: notes, selectedID: selectedID) }
@@ -145,10 +166,7 @@ final class NotesStore {
         saveTask = Task { [weak self, debounce] in
             do { try await Task.sleep(for: debounce) } catch { return }
             guard let self, !Task.isCancelled else { return }
-            let savedRevision = revision
-            disk.save(document) { [weak self] result in
-                Task { @MainActor in self?.didSave(result, revision: savedRevision) }
-            }
+            requestSave()
         }
     }
 

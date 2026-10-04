@@ -42,10 +42,39 @@ struct CodexConnectionError: LocalizedError {
     var errorDescription: String? { message }
 }
 
+/// Both app-server list endpoints use this envelope. Invalid pages must not look empty.
+struct CodexListPage {
+    let entries: [CodexJSON]
+    let nextCursor: String?
+
+    init(_ response: CodexJSON, limit: Int) throws {
+        guard case .array(let entries) = response["data"], entries.count <= limit,
+              entries.allSatisfy({ if case .object = $0 { true } else { false } }) else {
+            throw CodexConnectionError(message: "Codex returned an unsupported list page.")
+        }
+        switch response["nextCursor"] {
+        case .null: nextCursor = nil
+        case .string(let cursor) where !cursor.isEmpty: nextCursor = cursor
+        default: throw CodexConnectionError(message: "Codex returned an invalid page cursor.")
+        }
+        self.entries = entries
+    }
+}
+
 /// The desktop IPC is versioned separately from the public app-server API.
 /// Keep its small, verified surface here so incompatibilities fail explicitly.
 enum CodexDesktopProtocol {
     static let snapshotVersion = 11
+
+    // Installed desktop follower routing checks this same success envelope before using the owner.
+    static func owner(in response: CodexJSON) throws -> String {
+        guard response["resultType"].string == "success",
+              let owner = response["handledByClientId"].string,
+              !owner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CodexConnectionError(message: "Codex did not confirm the thread's owner.")
+        }
+        return owner
+    }
 
     static func threadURL(_ threadID: String) -> URL? {
         guard UUID(uuidString: threadID) != nil else { return nil }

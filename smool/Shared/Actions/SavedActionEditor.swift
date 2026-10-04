@@ -1,44 +1,14 @@
 import SwiftUI
 
-@MainActor @Observable
-final class ActionEditorRequest: Identifiable {
-    let id = UUID()
-    let action: SavedAction?
-    var name: String
-    var input: String
-    var destination: ActionDestination?
-    var usesShortcut: Bool
-
-    init(action: SavedAction? = nil) {
-        self.action = action
-        name = action?.name ?? ""
-        input = action?.destination.detail ?? ""
-        destination = action?.destination
-        usesShortcut = action?.destination.kind == .shortcut
-    }
-
-    func savedAction() throws -> SavedAction {
-        let resolved: ActionDestination
-        if let destination, destination.detail == input, (destination.kind == .shortcut) == usesShortcut {
-            resolved = destination
-        } else if usesShortcut {
-            throw ActionFailure(message: "Choose a shortcut first.")
-        } else {
-            resolved = try .inferred(input)
-        }
-        let enteredName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return SavedAction(id: action?.id ?? id, name: enteredName.isEmpty ? resolved.suggestedName : enteredName, destination: resolved)
-    }
-}
-
 struct SavedActionEditor: View {
     @Bindable var draft: ActionEditorRequest
     var allowsShortcuts: Bool
-    var onSave: (SavedAction) -> Bool
+    var onSave: (SavedAction) async -> Bool
     var onClose: () -> Void
     @State private var shortcuts: [AvailableShortcut] = []
     @State private var loading = false
     @State private var error: String?
+    @State private var presentationID = UUID()
     @FocusState private var field: Field?
 
     private enum Field: Hashable { case navigation, destination, name }
@@ -54,12 +24,13 @@ struct SavedActionEditor: View {
             }
 
             if draft.usesShortcut {
-                shortcutFields
+                shortcutFields.disabled(draft.isSaving)
             } else {
                 TextField("App name, folder path, website or Codex thread", text: $draft.input)
                     .focused($field, equals: .destination)
                     .accessibilityLabel("Resource")
                     .onSubmit(save)
+                    .disabled(draft.isSaving)
                 HStack {
                     Text("Examples: Safari, ~/Documents, example.com")
                         .foregroundStyle(.secondary)
@@ -70,6 +41,7 @@ struct SavedActionEditor: View {
                             field = .navigation
                             Task { await loadShortcuts() }
                         }.keyboardShortcut("j", modifiers: .command)
+                            .disabled(draft.isSaving)
                     }
                 }
                 .buttonStyle(.plain)
@@ -80,6 +52,7 @@ struct SavedActionEditor: View {
                 .focused($field, equals: .name)
                 .accessibilityLabel("Optional name")
                 .onSubmit(save)
+                .disabled(draft.isSaving)
 
             if let error {
                 Text(error).font(.system(size: 11)).foregroundStyle(.red)
@@ -94,6 +67,7 @@ struct SavedActionEditor: View {
                     .buttonStyle(FloatingControlStyle())
                     .font(.system(size: 12, weight: .semibold))
                     .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(draft.isSaving)
             }
         }
         .font(.system(size: 12))
@@ -101,6 +75,8 @@ struct SavedActionEditor: View {
         .padding(20)
         .focusable(interactions: .edit).focused($field, equals: .navigation).focusEffectDisabled()
         .onAppletFocusRestore { field = .navigation }
+        .onDisappear { presentationID = UUID() }
+        .onChange(of: draft.id) { presentationID = UUID() }
         .task {
             await Task.yield()
             field = draft.usesShortcut ? .navigation : .destination
@@ -175,11 +151,20 @@ struct SavedActionEditor: View {
     }
 
     private func save() {
+        guard !draft.isSaving else { return }
         do {
             let action = try draft.savedAction()
             try validateActions([action], allowShortcuts: allowsShortcuts)
-            if onSave(action) { onClose() }
-            else { error = "Could not save. Your changes are still here." }
+            let request = draft
+            let presentation = presentationID
+            request.isSaving = true
+            Task {
+                defer { request.isSaving = false }
+                let saved = await onSave(action)
+                guard presentation == presentationID else { return }
+                if saved { onClose() }
+                else { error = "Could not save. Your changes are still here." }
+            }
         } catch { self.error = error.localizedDescription }
     }
 }

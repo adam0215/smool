@@ -21,11 +21,11 @@ final class AudioApplet: Applet {
 
     var actions: [AppletAction] {
         var actions = [
-            AppletAction(id: "Choose output", symbol: "speaker.wave.2") { self.openPicker(.output) },
-            AppletAction(id: "Choose microphone", symbol: "mic") { self.openPicker(.input) }
+            AppletAction(id: "choose-output", title: "Choose output", symbol: "speaker.wave.2") { self.openPicker(.output) },
+            AppletAction(id: "choose-microphone", title: "Choose microphone", symbol: "mic") { self.openPicker(.input) }
         ]
         if service.state.volume.isAdjustable {
-            actions.append(AppletAction(id: service.state.volume.value == 0 ? "Unmute" : "Mute", symbol: "speaker.slash", shortcut: "M") {
+            actions.append(AppletAction(id: "toggle-mute", title: service.state.volume.value == 0 ? "Unmute" : "Mute", symbol: "speaker.slash", shortcut: AppletShortcut(key: "m", modifiers: [])) {
                 self.service.toggleMute()
             })
         }

@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import SwiftUI
 
 @MainActor @Observable
@@ -29,9 +30,9 @@ struct AppletChecks {
         let presentation = NotchPresentation(registry: registry, settings: settings)
 
         precondition(registry.applets.map(\.title) == ["Home", "Spotify", "Codex", "Music", "Sample"])
-        precondition(registry.applet(for: HomeApp.spotify) === spotify)
-        precondition(registry.applet(for: HomeApp.codex) === codex)
-        precondition(registry.shortcutNumber(for: .spotify) == 2)
+        precondition(registry.applet(for: spotify.id) === spotify)
+        precondition(registry.applet(for: codex.id) === codex)
+        precondition(registry.shortcutNumber(for: spotify.id) == 2)
         precondition(registry.applet(number: 3) === codex)
         precondition(registry.applet(number: 0) == nil && registry.applet(number: 6) == nil)
         for applet in registry.applets {
@@ -59,32 +60,32 @@ struct AppletChecks {
         presentation.select(codex.id)
         codex.pages.first { $0.id == CodexPage.usage.rawValue }!.select()
         precondition(presentation.contentHeight == 176 && codex.state.page == .usage)
-        codex.state.scope = .search
+        codex.state.presentation = .search
         precondition(!codex.handleArrow(.down, command: false), "Search retains native arrow keys")
         let thread = CodexThread(json: .object(["id": .string("fixture"), "title": .string("Fixture")]))!
         codex.state.page = .active
-        codex.state.scope = .composer(thread)
+        codex.state.presentation = .composer(thread)
         codex.service.drafts[thread.id] = "Keep this draft"
         precondition(presentation.contentHeight == 256)
         precondition(!codex.handleArrow(.up, command: false), "Composer retains native arrow keys")
-        codex.state.showsProjects = true
+        codex.state.presentation = .projects
         precondition(codex.hasPresentedOverlay)
         presentation.select(music.id)
-        precondition(!codex.state.showsProjects && presentation.contentHeight == 144)
+        precondition(codex.state.presentation != .projects && presentation.contentHeight == 144)
         presentation.select(codex.id)
-        precondition(codex.state.scope == .deck && presentation.contentHeight == 256)
+        precondition(codex.state.presentation == .deck && presentation.contentHeight == 256)
         precondition(codex.service.drafts[thread.id] == "Keep this draft")
         codex.pages[0].select()
-        precondition(codex.state.scope == .deck)
+        precondition(codex.state.presentation == .deck)
         precondition(codex.handleArrow(.up, command: false) && codex.state.page == .usage)
 
         codex.pages.first { $0.id == CodexPage.newThread.rawValue }!.select()
         precondition(presentation.contentHeight == 200)
-        codex.state.scope = .newThread
+        codex.state.presentation = .newThread
         codex.state.newThread.text = "Keep the initial prompt"
         precondition(codex.hasPresentedOverlay && !codex.handleArrow(.down, command: false))
         codex.dismissOverlay()
-        precondition(codex.state.scope == .deck && codex.state.newThread.text == "Keep the initial prompt")
+        precondition(codex.state.presentation == .deck && codex.state.newThread.text == "Keep the initial prompt")
         codex.state.openProjects()
         let project = CodexProject(id: "new-project", name: "Project", roots: ["/tmp/project"])
         codex.state.selectProject(project)
@@ -94,14 +95,14 @@ struct AppletChecks {
         precondition(!codex.hasPresentedOverlay && codex.state.newThread.text == "Keep the initial prompt")
 
         codex.state.page = .active
-        codex.state.scope = .request
+        codex.state.presentation = .request
         codex.state.requestAnswers["fixture:1"] = ["question": "Keep this answer"]
         precondition(codex.hasPresentedOverlay && presentation.contentHeight == 340)
         precondition(!codex.handleArrow(.down, command: false), "Request controls retain their arrow keys")
         codex.dismissOverlay()
-        precondition(codex.state.scope == .deck && presentation.contentHeight == 256)
+        precondition(codex.state.presentation == .deck && presentation.contentHeight == 256)
         precondition(codex.state.requestAnswers["fixture:1"] == ["question": "Keep this answer"])
-        codex.state.scope = .request
+        codex.state.presentation = .request
         presentation.select(music.id)
         precondition(!codex.hasPresentedOverlay && codex.state.requestAnswers["fixture:1"] != nil)
 
@@ -112,7 +113,7 @@ struct AppletChecks {
         presentation.select(sample.id)
         presentation.select(AppletID(rawValue: "removed"))
         precondition(presentation.selection == sample.id && sample.deactivations == 0)
-        presentation.showsActions = true
+        presentation.showTool(.actions)
         presentation.select(home.id)
         precondition(sample.deactivations == 1 && !presentation.showsActions)
         presentation.select(spotify.id)
@@ -120,14 +121,14 @@ struct AppletChecks {
 
         // Removing and reordering registrations changes all host navigation together.
         let reduced = AppletRegistry([home, sample, music])
-        precondition(reduced.applet(for: HomeApp.spotify) == nil)
-        precondition(reduced.applet(for: HomeApp.codex) == nil)
-        precondition(reduced.shortcutNumber(for: .spotify) == nil)
+        precondition(reduced.applet(for: spotify.id) == nil)
+        precondition(reduced.applet(for: codex.id) == nil)
+        precondition(reduced.shortcutNumber(for: spotify.id) == nil)
         precondition(reduced.applet(number: 2) === sample)
         precondition(reduced.neighbor(of: home.id, offset: -1) == music.id)
         let reordered = AppletRegistry([home, codex, spotify])
-        precondition(reordered.shortcutNumber(for: .codex) == 2)
-        precondition(reordered.shortcutNumber(for: .spotify) == 3)
+        precondition(reordered.shortcutNumber(for: codex.id) == 2)
+        precondition(reordered.shortcutNumber(for: spotify.id) == 3)
         let only = NotchPresentation(registry: AppletRegistry([sample]))
         precondition(only.selection == sample.id)
         precondition(only.registry.neighbor(of: sample.id, offset: -1) == sample.id)

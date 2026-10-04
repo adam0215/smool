@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import SwiftUI
 
 @MainActor @Observable
@@ -7,6 +8,7 @@ private final class ComposerFixture {
     var sends = 0
     var closes = 0
     var focusGeneration = 0
+    var focusRequest = 0
 }
 
 private struct ComposerFixtureView: View {
@@ -16,6 +18,7 @@ private struct ComposerFixtureView: View {
         FloatingComposer(
             text: Binding(get: { fixture.text }, set: { fixture.text = $0 }),
             recipient: "Selected thread",
+            focusRequest: fixture.focusRequest,
             isEditing: fixture.editing,
             onSend: { fixture.sends += 1 },
             onClose: { fixture.closes += 1; fixture.editing = false }
@@ -55,6 +58,11 @@ struct CodexComposerChecks {
             RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         }
         precondition(window.firstResponder is NSTextView, "The composer should initially focus its text input")
+        window.makeFirstResponder(nil)
+        fixture.focusRequest += 1
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        precondition(window.firstResponder is NSTextView && fixture.text == "A saved draft",
+                     "Connection completion must restore the composer input without replacing its draft")
         key(36, characters: "\r")
         precondition(fixture.sends == 1 && fixture.text == "A saved draft", "Return sends without inserting a newline or clearing the draft")
         key(36, characters: "\r", modifiers: .shift)
@@ -66,7 +74,14 @@ struct CodexComposerChecks {
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         fixture.focusGeneration += 1
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        precondition(fixture.closes == 2 && !fixture.editing && fixture.text == saved, "Host focus restoration exits editing without losing the draft")
+        precondition(fixture.closes == 1 && fixture.editing && fixture.text == saved && !(window.firstResponder is NSTextView),
+                     "Host focus restoration releases input without dismissing the composer")
+        fixture.focusRequest += 1
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        precondition(window.firstResponder is NSTextView)
+        key(53, characters: "\u{1b}")
+        precondition(fixture.closes == 2 && !fixture.editing && fixture.text == saved,
+                     "Explicit Escape still closes the composer and preserves its draft")
         window.close()
         print("Passed: narrow composer render, input focus, Return sends, Shift-Return newline, Escape retains draft.")
     }

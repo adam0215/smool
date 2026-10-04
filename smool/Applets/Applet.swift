@@ -8,12 +8,52 @@ struct AppletID: RawRepresentable, Hashable, Codable, Sendable {
     var isHostTool: Bool { rawValue == "quick-actions" || rawValue == "workspaces" }
 }
 
+struct AppletShortcut: Equatable {
+    let key: KeyEquivalent
+    var modifiers: EventModifiers = .command
+
+    var keyboardShortcut: KeyboardShortcut { KeyboardShortcut(key, modifiers: modifiers) }
+
+    /// Return activates the highlighted row; Command-arrows are handled by the host.
+    var paletteShortcut: KeyboardShortcut? {
+        if key == .return && modifiers.isEmpty { return nil }
+        if modifiers == .command && (key == .leftArrow || key == .rightArrow) { return nil }
+        return keyboardShortcut
+    }
+
+    var label: String {
+        var result = ""
+        if modifiers.contains(.control) { result += "⌃" }
+        if modifiers.contains(.option) { result += "⌥" }
+        if modifiers.contains(.shift) { result += "⇧" }
+        if modifiers.contains(.command) { result += "⌘" }
+        switch key {
+        case .return: result += "↵"
+        case .delete: result += "⌫"
+        case .space: result += "Space"
+        case .leftArrow: result += "←"
+        case .rightArrow: result += "→"
+        default: result += String(key.character).uppercased()
+        }
+        return result
+    }
+}
+
 struct AppletAction: Identifiable {
     let id: String
+    let title: String
     let symbol: String
-    var shortcut = ""
+    var shortcut: AppletShortcut?
     var selected = false
+    var detail = ""
     let perform: () -> Void
+}
+
+/// Installed at composition. Providers read current host state without depending on rendering.
+@MainActor
+struct AppletCommandContext {
+    var hostActions: () -> [AppletAction] = { [] }
+    var composeInCodex: () -> ((String) -> Void)? = { nil }
 }
 
 enum AppletIcon {
@@ -78,14 +118,8 @@ struct AppletContext {
     let layout: NotchLayout
     var restoreFocus: () -> Void = {}
     var frontApplets: [AppletDestination] = []
-    var hostActions: [AppletAction] = []
     var openApplet: (AppletID) -> Void = { _ in }
-    /// Opens the destination with editable text. This capability must never send it.
-    var composeInCodex: ((String) -> Void)?
     var openSettings: () -> Void = {}
-    var openShortcut: (HomeApp) -> Void = { _ in }
-    var canOpenShortcut: (HomeApp) -> Bool = { _ in true }
-    var shortcutNumber: (HomeApp) -> Int? = { _ in nil }
 }
 
 @MainActor
@@ -94,7 +128,6 @@ protocol Applet: AnyObject {
     var title: String { get }
     var icon: AppletIcon { get }
     var tint: Color { get }
-    var homeShortcut: HomeApp? { get }
     var contentHeight: CGFloat { get }
     var pages: [AppletPage] { get }
     var actions: [AppletAction] { get }
@@ -105,13 +138,13 @@ protocol Applet: AnyObject {
     func makeView(context: AppletContext, artwork: NSImage?) -> AnyView
     func handleArrow(_ arrow: AppletArrow, command: Bool) -> Bool
     func handleEditingArrow(_ arrow: AppletArrow) -> Bool
+    func handleBack() -> Bool
     func deactivate()
     func dismissOverlay()
     func activateStatus()
 }
 
 extension Applet {
-    var homeShortcut: HomeApp? { nil }
     var pages: [AppletPage] { [] }
     var actions: [AppletAction] { [] }
     var background: AppletBackground? { nil }
@@ -120,6 +153,11 @@ extension Applet {
 
     func handleArrow(_ arrow: AppletArrow, command: Bool) -> Bool { false }
     func handleEditingArrow(_ arrow: AppletArrow) -> Bool { false }
+    func handleBack() -> Bool {
+        guard hasPresentedOverlay else { return false }
+        dismissOverlay()
+        return true
+    }
     func deactivate() { dismissOverlay() }
     func dismissOverlay() {}
     func activateStatus() {}

@@ -9,13 +9,11 @@ final class NotesApplet: Applet {
     let store: NotesStore
     var isEditing = false
     var pendingDeletion: QuickNote?
-    private let onSendToCodex: ((String) -> Void)?
-    @ObservationIgnored private var composeInCodex: ((String) -> Void)?
+    var commandContext = AppletCommandContext()
 
     init(store: NotesStore? = nil, onSendToCodex: ((String) -> Void)? = nil) {
         self.store = store ?? NotesStore()
-        self.onSendToCodex = onSendToCodex
-        composeInCodex = onSendToCodex
+        commandContext.composeInCodex = { onSendToCodex }
         isEditing = self.store.selectedNote != nil
     }
 
@@ -28,17 +26,17 @@ final class NotesApplet: Applet {
     var actions: [AppletAction] {
         var actions: [AppletAction] = []
         if !store.isReadOnly {
-            actions.append(AppletAction(id: "New note", symbol: "square.and.pencil", shortcut: "⌘N") { self.createNote() })
+            actions.append(AppletAction(id: "new-note", title: "New note", symbol: "square.and.pencil", shortcut: AppletShortcut(key: "n")) { self.createNote() })
         }
         if let note = store.selectedNote {
-            if composeInCodex != nil, !note.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                actions.append(AppletAction(id: "Open in Codex", symbol: "arrow.up.right") {
-                    self.store.flush()
-                    self.composeInCodex?(note.text)
+            if let composeInCodex = commandContext.composeInCodex(), !note.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                actions.append(AppletAction(id: "open-in-codex", title: "Open in Codex", symbol: "arrow.up.right") {
+                    self.store.requestSave()
+                    composeInCodex(note.text)
                 })
             }
             if !store.isReadOnly {
-                actions.append(AppletAction(id: "Delete note", symbol: "trash", shortcut: "⌘⌫") { self.requestDeletion() })
+                actions.append(AppletAction(id: "delete-note", title: "Delete note", symbol: "trash", shortcut: AppletShortcut(key: .delete)) { self.requestDeletion() })
             }
         }
         return actions
@@ -52,18 +50,17 @@ final class NotesApplet: Applet {
     }
 
     func makeView(context: AppletContext, artwork: NSImage?) -> AnyView {
-        composeInCodex = onSendToCodex ?? context.composeInCodex
-        return AnyView(NotesAppletView(applet: self, restoreFocus: context.restoreFocus))
+        AnyView(NotesAppletView(applet: self, restoreFocus: context.restoreFocus))
     }
 
     func finishEditing() {
-        store.flush()
+        store.requestSave()
         isEditing = false
     }
 
     func requestDeletion() {
         guard !store.isReadOnly else { return }
-        store.flush()
+        store.requestSave()
         pendingDeletion = store.selectedNote
     }
 
@@ -82,7 +79,7 @@ final class NotesApplet: Applet {
     }
 
     func deactivate() {
-        store.flush()
+        store.requestSave()
         pendingDeletion = nil
     }
 

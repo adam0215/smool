@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import Foundation
 import Observation
 
@@ -13,7 +14,7 @@ struct CodexServiceActivityChecks {
         precondition(service.activities.isEmpty, "Activity publication must be coalesced.")
         precondition(service.attentionByThread["status-only"] == .working)
         await service.publishActivities()
-        precondition(service.activities["selected"]?.items.last?.text == "Pågår")
+        precondition(service.activities["selected"]?.latestMessage?.text == "Pågår")
         precondition(service.activities["status-only"] == nil, "Status subscriptions must not retain full timelines.")
 
         let approval: CodexJSON = .object([
@@ -65,22 +66,22 @@ struct CodexServiceActivityChecks {
             patch("replace", [.string("turns"), .number(0), .string("items"), .number(1), .string("text")], .string("Nytt svar"))
         ])))
         await service.publishActivities()
-        precondition(service.activities["selected"]?.items.last?.text == "Nytt svar")
+        precondition(service.activities["selected"]?.latestMessage?.text == "Nytt svar")
 
         service.receive(event("selected", patches(base: 8, revision: 9, [])))
         precondition(service.threads.first { $0.id == "selected" }?.isConnected == false)
-        precondition(service.activities["selected"]?.items.last?.text == "Nytt svar", "A revision gap preserves the last complete presentation.")
+        precondition(service.activities["selected"]?.latestMessage?.text == "Nytt svar", "A revision gap preserves the last complete presentation.")
         service.receive(event("selected", patches(base: 2, revision: 3, [
             patch("replace", [.string("title")], .string("Untrusted patch after gap"))
         ])))
         precondition(service.threads.first { $0.id == "selected" }?.isConnected == false, "A patch cannot reconnect without a snapshot.")
         service.receive(event("selected", snapshot("selected", revision: 10, active: false, text: "Slutsvar")))
         await service.publishActivities()
-        precondition(service.activities["selected"]?.items.last?.text == "Slutsvar")
+        precondition(service.activities["selected"]?.latestMessage?.text == "Slutsvar")
         precondition(service.attentionByThread["selected"] == .idle)
         service.receive(event("selected", snapshot("selected", revision: 9, text: "Äldre svar")))
         await service.publishActivities()
-        precondition(service.activities["selected"]?.items.last?.text == "Slutsvar", "An older snapshot cannot undo a completed answer.")
+        precondition(service.activities["selected"]?.latestMessage?.text == "Slutsvar", "An older snapshot cannot undo a completed answer.")
 
         let state = CodexAppletState()
         state.page = .active
@@ -91,10 +92,10 @@ struct CodexServiceActivityChecks {
 
         service.receive(event("selected", snapshot("selected", revision: 1, text: "Ny ägare"), owner: "owner-b"))
         await service.publishActivities()
-        precondition(service.activities["selected"]?.items.last?.text == "Ny ägare")
+        precondition(service.activities["selected"]?.latestMessage?.text == "Ny ägare")
         service.receive(event("selected", snapshot("selected", revision: 50, text: "Pensionerad ägare")))
         await service.publishActivities()
-        precondition(service.activities["selected"]?.items.last?.text == "Ny ägare", "A retired owner cannot overwrite the new owner's snapshot.")
+        precondition(service.activities["selected"]?.latestMessage?.text == "Ny ägare", "A retired owner cannot overwrite the new owner's snapshot.")
 
         for id in ["second", "third", "fourth"] {
             service.selectThread(id)
@@ -116,14 +117,14 @@ struct CodexServiceActivityChecks {
             patch("replace", [.string("turns"), .number(0), .string("items"), .number(1), .string("text")], .string("Sista uppdateringen"))
         ])))
         service.stop()
-        precondition(service.activities["fifth"]?.items.last?.text == "Pågår", "Closing keeps the last presentation without projecting hidden content.")
+        precondition(service.activities["fifth"]?.latestMessage?.text == "Pågår", "Closing keeps the last presentation without projecting hidden content.")
         precondition(service.threads.allSatisfy { !$0.isConnected })
         precondition(service.activities.count == 4 && service.drafts.count == 2, "Closing preserves presentations and drafts.")
         await service.publishActivities()
-        precondition(service.activities["fifth"]?.items.last?.text == "Sista uppdateringen", "Reopening can publish the update retained before disconnection.")
+        precondition(service.activities["fifth"]?.latestMessage?.text == "Sista uppdateringen", "Reopening can publish the update retained before disconnection.")
         precondition(service.activities["fifth"]?.revision == 2, "Disconnecting must not reset the retained content's revision.")
         service.stop()
-        precondition(service.activities["fifth"]?.items.last?.text == "Sista uppdateringen")
+        precondition(service.activities["fifth"]?.latestMessage?.text == "Sista uppdateringen")
 
         await checkProjectionIsolation()
         await checkImmediateToolCompletion()
@@ -248,6 +249,16 @@ struct CodexServiceActivityChecks {
         precondition(empty.historyPreviews["empty"]?.isLoading == false && empty.historyPreviews["empty"]?.error == nil)
         precondition(empty.historyPreviews["empty"]?.message == nil)
 
+        for response: CodexJSON in [
+            .object([:]), .object(["data": .array([]), "nextCursor": .number(3)]),
+            .object(["data": .array([.object(["item": .object(["type": .string("agentMessage")])])])])
+        ] {
+            let malformed = CodexService(historyRequest: { _, _ in response })
+            await malformed.loadHistoryPreview(thread("malformed"))
+            precondition(malformed.historyPreviews["malformed"]?.error != nil,
+                         "Malformed history must show an error, rather than an empty preview")
+        }
+
         let started = AsyncStream<Void>.makeStream()
         var starts = started.stream.makeAsyncIterator()
         var pending: CheckedContinuation<CodexJSON, any Error>?
@@ -338,19 +349,19 @@ struct CodexServiceActivityChecks {
         release.signal()
         await reopened.value
         precondition(service.activities["isolated"]?.revision == 2, "Cancelled projection work remains dirty for reopening.")
-        precondition(service.activities["isolated"]?.items.last?.text == "Klart")
+        precondition(service.activities["isolated"]?.latestMessage?.text == "Klart")
         service.receive(event("isolated", snapshot("isolated", revision: 3, text: "Old owner")))
         let staleOwner = Task { await service.publishActivities() }
         await starts.next()
         service.receive(event("isolated", snapshot("isolated", revision: 1, text: "New owner"), owner: "owner-b"))
         release.signal()
         await staleOwner.value
-        precondition(service.activities["isolated"]?.items.last?.text == "Klart", "A replaced owner cannot publish stale content.")
+        precondition(service.activities["isolated"]?.latestMessage?.text == "Klart", "A replaced owner cannot publish stale content.")
         let newOwner = Task { await service.publishActivities() }
         await starts.next()
         release.signal()
         await newOwner.value
-        precondition(service.activities["isolated"]?.items.last?.text == "New owner")
+        precondition(service.activities["isolated"]?.latestMessage?.text == "New owner")
         service.receive(event("isolated", snapshot("isolated", revision: 2, active: false, text: "Final answer before disconnect"), owner: "owner-b"))
         let disconnected = Task { await service.publishActivities() }
         await starts.next()
@@ -361,11 +372,11 @@ struct CodexServiceActivityChecks {
         release.signal()
         await disconnected.value
         precondition(service.threads.first { $0.id == "isolated" }?.isConnected == false)
-        precondition(service.activities["isolated"]?.items.last?.text == "New owner", "The invalidated worker cannot publish directly.")
+        precondition(service.activities["isolated"]?.latestMessage?.text == "New owner", "The invalidated worker cannot publish directly.")
         // No replacement snapshot arrives. Reopening must project the retained final answer.
         release.signal()
         await service.publishActivities()
-        precondition(service.activities["isolated"]?.items.last?.text == "Final answer before disconnect",
+        precondition(service.activities["isolated"]?.latestMessage?.text == "Final answer before disconnect",
                      "A disconnected in-flight projection must stay dirty until its retained content is published.")
         precondition(service.activities["isolated"]?.revision == 2)
         started.continuation.finish()
@@ -374,18 +385,17 @@ struct CodexServiceActivityChecks {
     @MainActor private static func checkCancelledHandoff() {
         let state = CodexAppletState()
         state.pendingText = "Text från anteckningen"
-        state.choosesPendingRecipient = true
-        state.showsRecipientPicker = true
+        state.presentation = .recipientPicker
         precondition(state.pendingText == "Text från anteckningen")
-        state.showsRecipientPicker = false
-        precondition(!state.choosesPendingRecipient, "A normal recipient switch must not attach a saved handoff.")
+        state.presentation = .deck
+        precondition(state.presentation == .deck, "Dismissing the recipient picker restores applet navigation.")
         precondition(state.pendingText == "Text från anteckningen", "Dismissing the picker preserves the text handoff for a later recipient.")
-        state.showsRecipientPicker = true
+        state.presentation = .recipientPicker
         precondition(state.pendingText == "Text från anteckningen", "Reopening the picker resumes its draft.")
         state.pendingText = "Ny överföring"
         let chosenText = state.pendingText
         state.pendingText = nil
-        state.showsRecipientPicker = false
+        state.presentation = .deck
         precondition(chosenText == "Ny överföring" && state.pendingText == nil)
     }
 

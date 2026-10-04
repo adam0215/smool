@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import Foundation
 
 @main
@@ -15,6 +16,24 @@ struct CodexSessionChecks {
         try await wait { !service.localRequests(for: thread.id).isEmpty }
         precondition(service.threads.first?.isActive == true)
         precondition(service.attentionByThread[thread.id] == .approval)
+        service.receive(.object([
+            "type": .string("broadcast"), "method": .string("thread-stream-state-changed"),
+            "sourceClientId": .string("desktop-owner"), "version": .number(11),
+            "params": .object([
+                "hostId": .string("local"), "conversationId": .string("desktop-thread"),
+                "change": .object(["type": .string("snapshot"), "revision": .number(1), "conversationState": .object([
+                    "id": .string("desktop-thread"), "threadRuntimeStatus": .object(["type": .string("active")])
+                ])])
+            ])
+        ]))
+        precondition(service.threads.first { $0.id == "desktop-thread" }?.isActive == true)
+        service.receive(.object(["type": .string("broadcast"), "method": .string("ipc-connection-reset")]))
+        precondition(service.isLocallyOwned(thread.id) && service.threads.first?.isActive == true,
+                     "A desktop reset must preserve the local app-server owner's connection and runtime status")
+        precondition(service.threads.first { $0.id == "desktop-thread" }?.isConnected == false,
+                     "The same reset must still disconnect desktop-owned threads")
+        precondition(service.localRequests(for: thread.id).count == 1 && service.attentionByThread[thread.id] == .approval,
+                     "The local approval remains actionable after a desktop reset")
         service.stop()
         precondition(service.isLocallyOwned(thread.id) && service.threads.first?.isConnected == true,
                      "Closing the notch must not kill its first-turn owner or pending approval")

@@ -11,7 +11,17 @@ final class CalendarService {
     private(set) var isRequestingAccess = false
     private(set) var message: String?
     private(set) var needsPermission = false
-    var day = Calendar.current.startOfDay(for: .now)
+    private let calendar: Calendar
+    private(set) var day: Date
+
+    init(calendar: Calendar = .current, date: Date = .now) {
+        self.calendar = calendar
+        day = calendar.startOfDay(for: date)
+    }
+
+    func showDay(containing date: Date) {
+        day = calendar.startOfDay(for: date)
+    }
 
     func load(requestAccess: Bool = false) async {
         guard !isRequestingAccess else { return }
@@ -36,7 +46,7 @@ final class CalendarService {
                 message = "Allow calendar access for smool in System Settings."
                 return
             }
-            guard let end = Calendar.current.date(byAdding: .day, value: 1, to: day) else { return }
+            guard let end = calendar.date(byAdding: .day, value: 1, to: day) else { return }
             events = store.events(matching: store.predicateForEvents(withStart: day, end: end, calendars: nil))
                 .sorted { $0.startDate < $1.startDate }
             loadedDay = day
@@ -49,7 +59,7 @@ final class CalendarService {
     }
 
     func moveDay(_ offset: Int) {
-        day = Calendar.current.date(byAdding: .day, value: offset, to: day) ?? day
+        day = calendar.date(byAdding: .day, value: offset, to: day) ?? day
     }
 
     func openCalendar() {

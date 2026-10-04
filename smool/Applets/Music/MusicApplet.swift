@@ -13,16 +13,16 @@ final class MusicApplet: Applet {
         let source: AlbumArtwork.Source?
         if let data = service.media?.artworkData { source = .embedded(data) }
         else { source = service.artworkURL.map(AlbumArtwork.Source.spotify) }
-        return AppletBackground(color: HomeGlow.color(for: nil), artworkSource: source,
+        return AppletBackground(color: HomePalette.clock, artworkSource: source,
                                 isPlaying: service.media?.track.playing == true)
     }
 
     var actions: [AppletAction] {
         let service = service
         return [
-            AppletAction(id: "Play or pause", symbol: "playpause", shortcut: "␣") { Task { await service.perform(.togglePlayback) } },
-            AppletAction(id: "Previous track", symbol: "backward.end") { Task { await service.perform(.previousTrack) } },
-            AppletAction(id: "Next track", symbol: "forward.end") { Task { await service.perform(.nextTrack) } }
+            AppletAction(id: "play-or-pause", title: "Play or pause", symbol: "playpause", shortcut: AppletShortcut(key: .space, modifiers: [])) { Task { await service.perform(.togglePlayback) } },
+            AppletAction(id: "previous-track", title: "Previous track", symbol: "backward.end") { Task { await service.perform(.previousTrack) } },
+            AppletAction(id: "next-track", title: "Next track", symbol: "forward.end") { Task { await service.perform(.nextTrack) } }
         ]
     }
 

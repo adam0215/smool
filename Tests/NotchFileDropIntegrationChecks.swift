@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import SwiftUI
 
 @main
@@ -25,7 +26,7 @@ struct NotchFileDropIntegrationChecks {
         precondition(FileManager.default.fileExists(atPath: file.path))
 
         presentation.select(home.id)
-        presentation.capturedSelection = .text(SelectedText(text: "Preserve this captured draft", applicationName: "Drag check"))
+        presentation.presentCapturedSelection(.text(SelectedText(text: "Preserve this captured draft", applicationName: "Drag check")))
         controller.open()
         let panel = NSApplication.shared.windows.compactMap { $0 as? NotchPanel }.first!
         let editor = NSTextView(frame: CGRect(x: 0, y: 0, width: 120, height: 40))

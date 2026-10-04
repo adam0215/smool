@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import Darwin
 import Foundation
 

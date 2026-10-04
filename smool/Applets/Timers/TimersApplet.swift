@@ -12,7 +12,6 @@ final class TimersApplet: Applet {
     var selectedID: UUID?
     var isCreating = false
     var durationInput = ""
-    var nameInput = ""
     var inputError: String?
 
     init(store: TimerStore = TimerStore()) { self.store = store }
@@ -35,15 +34,15 @@ final class TimersApplet: Applet {
     var actions: [AppletAction] {
         var actions: [AppletAction] = []
         if store.canAddTimer {
-            actions.append(AppletAction(id: "New timer", symbol: "plus", shortcut: "⌘N") {
+            actions.append(AppletAction(id: "new-timer", title: "New timer", symbol: "plus", shortcut: AppletShortcut(key: "n")) {
                 self.isCreating = true
             })
         }
         if !showsForm, let timer = selectedTimer {
-            actions.append(AppletAction(id: "Add one minute", symbol: "plus.circle") {
+            actions.append(AppletAction(id: "add-one-minute", title: "Add one minute", symbol: "plus.circle") {
                 self.store.extend(timer.id)
             })
-            actions.append(AppletAction(id: timer.isExpired ? "Dismiss timer" : "Stop timer", symbol: "stop") {
+            actions.append(AppletAction(id: "stop-timer", title: timer.isExpired ? "Dismiss timer" : "Stop timer", symbol: "stop") {
                 self.store.remove(timer.id)
             })
         }
@@ -103,9 +102,8 @@ final class TimersApplet: Applet {
 
     func startTimer() {
         do {
-            selectedID = try store.start(input: durationInput.isEmpty ? "25" : durationInput, name: nameInput)
+            selectedID = try store.start(input: durationInput.isEmpty ? "25" : durationInput, name: "")
             durationInput = ""
-            nameInput = ""
             inputError = nil
             isCreating = false
         } catch {

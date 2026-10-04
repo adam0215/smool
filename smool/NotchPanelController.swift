@@ -124,9 +124,7 @@ final class NotchPanelController: NSObject {
         panel?.allowsKeyboardFocus = false
         panel?.makeFirstResponder(nil)
         panel?.resignKey()
-        presentation.capturedSelection = nil
-        presentation.dismissTool()
-        presentation.showsSettings = false
+        presentation.dismissPresentation()
         presentation.activeApplet.dismissOverlay()
         isClosing = true
         transition += 1
@@ -232,10 +230,7 @@ final class NotchPanelController: NSObject {
     }
 
     func showSettings() {
-        presentation.activeApplet.dismissOverlay()
-        presentation.dismissTool()
-        presentation.capturedSelection = nil
-        presentation.showsSettings = true
+        presentation.showSettings()
         if isOpen { resizeContent() }
         else { open() }
         restoreFocus()
@@ -244,15 +239,21 @@ final class NotchPanelController: NSObject {
     func goBackOrClose() {
         if panel?.firstResponder is NSTextView {
             restoreFocus()
+        } else if presentation.help.text != nil {
+            presentation.help.text = nil
+            restoreFocus()
+        } else if presentation.terminationError != nil {
+            presentation.terminationError = nil
+            restoreFocus()
         } else if presentation.capturedSelection != nil {
-            presentation.capturedSelection = nil
+            presentation.dismissPresentation()
             restoreFocus()
         } else if presentation.showsSettings {
-            presentation.showsSettings = false
+            presentation.dismissPresentation()
             resizeContent()
             restoreFocus()
-        } else if presentation.displayedApplet.hasPresentedOverlay {
-            presentation.displayedApplet.dismissOverlay()
+        } else if presentation.displayedApplet.handleBack() {
+            resizeContent()
             restoreFocus()
         } else if presentation.hostTool != nil {
             presentation.dismissTool(returnToSource: true)
@@ -271,10 +272,16 @@ final class NotchPanelController: NSObject {
     }
 
     func showTerminationFailure() {
-        presentation.terminationError = "Your notes could not be saved. Your text is still in smool. Try saving again before quitting."
-        let notesID = AppletID(rawValue: "notes")
-        presentation.settings.setEnabled(true, for: notesID)
-        selectApplet(notesID)
+        if let id = presentation.failedSaveAppletID {
+            if id == NotchHostTool.actions.appletID {
+                if presentation.hostTool != .actions { presentation.showTool(.actions) }
+            } else if id == NotchHostTool.workspaces.appletID {
+                if presentation.hostTool != .workspaces { presentation.showTool(.workspaces) }
+            } else {
+                presentation.settings.setEnabled(true, for: id)
+                selectApplet(id)
+            }
+        }
         open()
         resizeContent()
         restoreFocus()

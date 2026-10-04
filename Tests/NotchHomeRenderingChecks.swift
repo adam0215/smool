@@ -1,9 +1,17 @@
+@testable import SmoolChecksSupport
 import SwiftUI
+import ScreenCaptureKit
 
 @main
 struct NotchHomeRenderingChecks {
     @MainActor
-    static func main() throws {
+    static func main() async throws {
+        _ = NSApplication.shared
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+        let suite = "smool.home-rendering.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
         let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         let date = ISO8601DateFormatter().date(from: "2026-10-02T20:46:00+02:00")!
 
@@ -19,30 +27,24 @@ struct NotchHomeRenderingChecks {
             ("compact", 400.0, .none)
         ] {
             let layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: width, height: 982), notch: notch)
-            let presentation = NotchPresentation()
+            let presentation = NotchPresentation(settings: settings)
             presentation.layout = layout
-            let view = GlassEffectContainer(spacing: 0) {
-                VStack(spacing: 8) {
-                    NotchTabBar(presentation: presentation, select: { _ in })
-                    NotchHomeView(layout: layout, date: date, applets: presentation.frontApplets)
-                }
+            let view = VStack(spacing: 8) {
+                NotchTabBar(presentation: presentation, select: { _ in })
+                NotchHomeView(layout: layout, date: date, applets: presentation.frontApplets)
             }
             .frame(width: layout.expandedSize.width, height: layout.expandedSize.height)
             .background(.black)
             .clipShape(NotchShape(shoulderRadius: 0, bottomRadius: 64))
             .environment(\.colorScheme, .dark)
 
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
-            guard let image = renderer.cgImage else { fatalError("Could not render \(name)") }
-            let bitmap = NSBitmapImageRep(cgImage: image)
-            precondition(bitmap.pixelsWide == Int(layout.expandedSize.width * 2))
-            precondition(bitmap.pixelsHigh == Int(layout.expandedSize.height * 2))
+            let bitmap = try await capture(view, size: layout.expandedSize)
+            let scale = CGFloat(bitmap.pixelsWide) / layout.expandedSize.width
 
             // Header content and decorative light must leave the camera area black.
             let center = layout.headerRegions(in: layout.expandedSize.width).center
-            for x in Int(center.minX * 2)..<Int(center.maxX * 2) {
-                for y in 0..<Int((notch.obscuresCenter ? center.height : 0) * 2) {
+            for x in Int(center.minX * scale)..<Int(center.maxX * scale) {
+                for y in 0..<Int((notch.obscuresCenter ? center.height : 0) * scale) {
                     let pixel = bitmap.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
                     precondition(max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent) < 0.03)
                 }
@@ -52,16 +54,16 @@ struct NotchHomeRenderingChecks {
 
             var appletLayout = layout
             appletLayout.contentHeight = 300
-            let appletPresentation = NotchPresentation()
+            let appletPresentation = NotchPresentation(settings: settings)
             appletPresentation.layout = appletLayout
             appletPresentation.select(AppletID(rawValue: "spotify"))
             let pages = VStack(spacing: 8) {
                 NotchTabBar(presentation: appletPresentation, select: { _ in })
-                AppletPages(pages: ["Spelare", "Spellistor", "Kö"], selection: .constant("Spellistor"), title: { $0 }) { _ in
+                AppletPages(pages: ["Player", "Playlists", "Queue"], selection: .constant("Playlists"), title: { $0 }) { _ in
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Release Radar").font(.headline)
-                        Text("Ny musik för dig").foregroundStyle(.secondary)
-                        Button("Spela") {}
+                        Text("New music for you").foregroundStyle(.secondary)
+                        Button("Play") {}
                     }
                 }
             }
@@ -69,14 +71,10 @@ struct NotchHomeRenderingChecks {
             .background(.black)
             .clipShape(NotchShape(shoulderRadius: 0, bottomRadius: 64))
             .environment(\.colorScheme, .dark)
-            let pagesRenderer = ImageRenderer(content: pages)
-            pagesRenderer.scale = 2
-            guard let pagesImage = pagesRenderer.cgImage else { fatalError("Could not render the pages") }
-            let pagesBitmap = NSBitmapImageRep(cgImage: pagesImage)
-            precondition(pagesBitmap.pixelsWide == Int(appletLayout.expandedSize.width * 2))
-            precondition(pagesBitmap.pixelsHigh == Int(appletLayout.expandedSize.height * 2))
-            for x in Int(center.minX * 2)..<Int(center.maxX * 2) {
-                for y in 0..<Int((notch.obscuresCenter ? center.height : 0) * 2) {
+            let pagesBitmap = try await capture(pages, size: appletLayout.expandedSize)
+            let pagesScale = CGFloat(pagesBitmap.pixelsWide) / appletLayout.expandedSize.width
+            for x in Int(center.minX * pagesScale)..<Int(center.maxX * pagesScale) {
+                for y in 0..<Int((notch.obscuresCenter ? center.height : 0) * pagesScale) {
                     let pixel = pagesBitmap.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
                     precondition(max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent) < 0.03)
                 }
@@ -85,5 +83,39 @@ struct NotchHomeRenderingChecks {
         }
 
         print("Passed: bundled logo dimensions, home rendering, compact displays, and camera exclusion.")
+    }
+
+    @MainActor private static func capture(_ content: some View, size: CGSize) async throws -> NSBitmapImageRep {
+        let host = NSHostingView(rootView: content)
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.close() }
+        // Home enters with a one-second glow animation after a 0.1-second delay.
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(1_300))
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        // View caching omits GPU-composited glass content. Capture only this
+        // process's window; currentProcess does not request screen-recording access.
+        let shareable = try await SCShareableContent.currentProcess
+        guard let capturedWindow = shareable.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) else {
+            fatalError("The render window is unavailable for capture")
+        }
+        let filter = SCContentFilter(desktopIndependentWindow: capturedWindow)
+        let configuration = SCStreamConfiguration()
+        let scale = CGFloat(filter.pointPixelScale)
+        configuration.width = Int((size.width * scale).rounded())
+        configuration.height = Int((size.height * scale).rounded())
+        configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        configuration.colorSpaceName = CGColorSpace.sRGB
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        precondition(bitmap.pixelsWide == configuration.width)
+        precondition(bitmap.pixelsHigh == configuration.height)
+        return bitmap
     }
 }

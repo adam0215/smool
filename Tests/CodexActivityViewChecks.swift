@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import SwiftUI
 
 @main
@@ -11,7 +12,7 @@ struct CodexActivityViewChecks {
         precondition(running.latestMessage?.text == "The keyboard paths are connected. I’m checking Escape and Return next.")
         precondition(running.runningTools.map(\.title) == ["Terminal"])
         precondition(running.workingSummary?.text == "Checking focus restoration before running the regression suite.")
-        precondition(!running.items.contains { $0.text.contains("PRIVATE_CONTENT") })
+        precondition(![running.latestMessage, running.workingSummary, running.currentNote].compactMap { $0 }.contains { $0.text.contains("PRIVATE_CONTENT") })
         precondition(toolsCompleted.runningTools.isEmpty, "A completed tool disappears before the turn ends.")
         precondition(completed.runningTools.isEmpty && completed.workingSummary == nil)
         precondition(completed.latestMessage?.text == "Escape and Return now work throughout the applet.")

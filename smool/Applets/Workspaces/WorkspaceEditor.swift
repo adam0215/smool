@@ -5,6 +5,7 @@ final class WorkspaceDraft: Identifiable {
     var workspace: SavedWorkspace
     var selectedResourceID: UUID?
     var resourceEditor: ActionEditorRequest?
+    var isSaving = false
     private var resourceDrafts: [UUID: ActionEditorRequest] = [:]
     private var newResource: ActionEditorRequest?
     let id: UUID
@@ -17,6 +18,7 @@ final class WorkspaceDraft: Identifiable {
     }
 
     func editResource(_ resource: SavedAction? = nil) {
+        guard !isSaving else { return }
         if let resource {
             let draft = resourceDrafts[resource.id] ?? ActionEditorRequest(action: resource)
             resourceDrafts[resource.id] = draft
@@ -29,6 +31,7 @@ final class WorkspaceDraft: Identifiable {
     }
 
     func saveResource(_ action: SavedAction) -> Bool {
+        guard !isSaving else { return false }
         if let index = workspace.resources.firstIndex(where: { $0.id == action.id }) {
             workspace.resources[index] = action
         } else {
@@ -49,12 +52,12 @@ final class WorkspaceDraft: Identifiable {
     }
 
     func toggleSelected() {
-        guard let id = selectedResourceID else { return }
+        guard !isSaving, let id = selectedResourceID else { return }
         if !workspace.selectedResourceIDs.insert(id).inserted { workspace.selectedResourceIDs.remove(id) }
     }
 
     func removeSelected() {
-        guard let id = selectedResourceID else { return }
+        guard !isSaving, let id = selectedResourceID else { return }
         let index = workspace.resources.firstIndex { $0.id == id } ?? 0
         workspace.resources.removeAll { $0.id == id }
         workspace.selectedResourceIDs.remove(id)
@@ -66,7 +69,7 @@ final class WorkspaceDraft: Identifiable {
 struct WorkspaceEditor: View {
     @Bindable var draft: WorkspaceDraft
     let store: WorkspaceStore
-    var onSave: () -> Void
+    var onSave: () async -> Bool
     var onClose: () -> Void
     var restoreFocus: () -> Void
     @FocusState private var nameFocused: Bool
@@ -95,6 +98,7 @@ struct WorkspaceEditor: View {
                     .focused($nameFocused)
                     .accessibilityLabel("Workspace name")
                     .onSubmit { nameFocused = false; listFocused = true }
+                    .disabled(draft.isSaving)
                 Spacer(minLength: 12)
                 Button("Back", action: onClose).buttonStyle(.plain)
             }
@@ -117,6 +121,7 @@ struct WorkspaceEditor: View {
                                 .background(.white.opacity(draft.selectedResourceID == resource.id ? 0.09 : 0), in: .rect(cornerRadius: 12))
                             }
                             .buttonStyle(.plain).focusable(false)
+                            .disabled(draft.isSaving)
                             .accessibilityLabel("\(resource.name), \(draft.workspace.selectedResourceIDs.contains(resource.id) ? "included" : "excluded")")
                             .id(resource.id)
                         }
@@ -140,11 +145,13 @@ struct WorkspaceEditor: View {
             }
             .onKeyPress(keys: [.space], phases: .down) { key in
                 guard key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
+                guard !draft.isSaving else { return .ignored }
                 draft.toggleSelected()
                 return .handled
             }
             .onKeyPress(keys: [.return], phases: .down) { key in
                 guard key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else { return .ignored }
+                guard !draft.isSaving else { return .ignored }
                 guard let resource = draft.selectedResource else { draft.editResource(); return .handled }
                 draft.editResource(resource)
                 return .handled
@@ -152,11 +159,12 @@ struct WorkspaceEditor: View {
             HStack {
                 Button("Add resource  ⌘N") { draft.editResource() }
                     .keyboardShortcut("n", modifiers: .command)
+                    .disabled(draft.isSaving)
                 Spacer()
-                Button("Save  ⌘↵", action: onSave)
+                Button("Save  ⌘↵", action: save)
                     .buttonStyle(FloatingControlStyle())
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(!store.canSave)
+                    .disabled(!store.canSave || draft.isSaving)
             }.buttonStyle(.plain)
             ActionFeedback(error: store.error, result: nil)
             Text("Space Include · ⌘K Actions")
@@ -179,10 +187,20 @@ struct WorkspaceEditor: View {
             return .handled
         }
         .onKeyPress(keys: ["e", .delete], phases: .down) { key in
-            guard key.modifiers.contains(.command), let resource = draft.selectedResource else { return .ignored }
+            guard !draft.isSaving, key.modifiers.contains(.command), let resource = draft.selectedResource else { return .ignored }
             if key.key == "e" { draft.editResource(resource) }
             else { draft.removeSelected() }
             return .handled
+        }
+    }
+
+    private func save() {
+        guard !draft.isSaving else { return }
+        let request = draft
+        request.isSaving = true
+        Task {
+            defer { request.isSaving = false }
+            _ = await onSave()
         }
     }
 }

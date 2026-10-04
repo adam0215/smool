@@ -15,24 +15,20 @@ struct ActionLauncher {
         })
     }
 
-    func perform(_ action: SavedAction) async throws {
+    @discardableResult
+    func perform(_ action: SavedAction) async throws -> ActionDestination {
         try action.destination.validate()
         switch action.destination {
-        case .application(_, let data), .folder(_, let data):
-            var stale = false
-            let url: URL
-            do {
-                url = try URL(resolvingBookmarkData: data, options: [.withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale)
-                try ActionDestination.validateLocal(url, kind: action.destination.kind)
-            } catch {
-                throw ActionFailure(message: "The resource could not be found. Edit it to choose the app or folder again.")
-            }
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-            try await openURL(url)
+        case .application, .folder:
+            let resolved = try action.destination.resolvedLocal()
+            let accessing = resolved.url.startAccessingSecurityScopedResource()
+            defer { if accessing { resolved.url.stopAccessingSecurityScopedResource() } }
+            try await openURL(resolved.url)
+            return resolved.destination
         case .website(let url), .codexThread(let url): try await openURL(url)
         case .shortcut(let id, _): try await runShortcut(id)
         }
+        return action.destination
     }
 }
 

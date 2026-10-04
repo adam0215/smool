@@ -1,21 +1,29 @@
+@testable import SmoolChecksSupport
 import Foundation
 
 @main
 struct NotesAppletChecks {
     @MainActor
-    static func main() throws {
+    static func main() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "smool-notes-applet-checks-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "notes.json")
         let store = NotesStore(fileURL: url)
         var codexDraft: String?
-        let applet = NotesApplet(store: store, onSendToCodex: { codexDraft = $0 })
+        let applet = NotesApplet(store: store)
+        var canCompose = true
+        applet.commandContext = AppletCommandContext(composeInCodex: {
+            canCompose ? { codexDraft = $0 } : nil
+        })
         precondition(applet.id.rawValue == "notes" && applet.title == "Notes")
         precondition(!applet.handleArrow(.down, command: false))
         let first = applet.createNote(text: "Selected text")!
         precondition(applet.isEditing && store.selectedNote?.text == "Selected text")
-        applet.actions.first { $0.id == "Open in Codex" }!.perform()
-        precondition(codexDraft == "Selected text", "Codex receives the note as a draft")
+        applet.actions.first { $0.id == "open-in-codex" }!.perform()
+        precondition(codexDraft == "Selected text", "Codex receives the note as a draft before any rendering")
+        canCompose = false
+        precondition(!applet.actions.contains { $0.id == "open-in-codex" }, "Capabilities are read from current host state")
+        canCompose = true
         precondition(!applet.handleArrow(.down, command: false), "Editor keeps arrow keys for caret navigation")
         let second = applet.createNote(text: "Second")!
         applet.isEditing = false
@@ -23,13 +31,14 @@ struct NotesAppletChecks {
         precondition(applet.handleArrow(.down, command: false) && store.selectedID == first)
         precondition(applet.handleArrow(.down, command: false) && store.selectedID == first)
         precondition(applet.handleArrow(.up, command: false) && store.selectedID == second)
-        applet.actions.first { $0.id == "Delete note" }!.perform()
+        applet.actions.first { $0.id == "delete-note" }!.perform()
         precondition(applet.hasPresentedOverlay && !applet.handleArrow(.down, command: false))
         applet.dismissOverlay()
         precondition(!applet.hasPresentedOverlay && store.notes.count == 2, "Cancelling deletion keeps both notes")
         store.update(second, text: "Flush on leaving")
         applet.finishEditing()
-        precondition(!applet.isEditing && !store.hasUnsavedChanges)
+        let savedOnExit = await store.flush()
+        precondition(savedOnExit && !applet.isEditing && !store.hasUnsavedChanges)
         precondition(NotesStore(fileURL: url).selectedNote?.text == "Flush on leaving", "Leaving the editor preserves its text on disk")
         applet.deactivate()
         let restored = NotesApplet(store: NotesStore(fileURL: url))
@@ -47,7 +56,9 @@ struct NotesAppletChecks {
         restored.requestDeletion()
         restored.confirmDeletion()
         precondition(restored.store.notes.isEmpty && !restored.isEditing)
-        precondition(!restored.actions.contains { $0.id == "Delete note" || $0.id == "Open in Codex" })
+        precondition(!restored.actions.contains { $0.id == "delete-note" || $0.id == "open-in-codex" })
+        let savedDeletion = await restored.store.flush()
+        precondition(savedDeletion)
         print("Notes applet checks passed")
     }
 }

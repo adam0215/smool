@@ -8,7 +8,11 @@ final class WorkspacesApplet: Applet {
     let tint = Color.teal
     let store: WorkspaceStore
     var selectedID: UUID?
-    var editor: WorkspaceDraft?
+    var editor: WorkspaceDraft? {
+        didSet { editorGeneration += 1 }
+    }
+    private var editorGeneration = 0
+    private(set) var isPersisting = false
     var deletingWorkspace: SavedWorkspace?
     private var drafts: [UUID: WorkspaceDraft] = [:]
     private var newDraft: WorkspaceDraft?
@@ -34,28 +38,28 @@ final class WorkspacesApplet: Applet {
     }
 
     var actions: [AppletAction] {
-        guard store.canSave else { return [AppletAction(id: "Reload workspaces", symbol: "arrow.clockwise") { [weak self] in self?.store.reload() }] }
+        guard store.canSave else { return [AppletAction(id: "reload-workspaces", title: "Reload workspaces", symbol: "arrow.clockwise") { [weak self] in self?.store.reload() }] }
         if let editor {
-            guard editor.resourceEditor == nil else { return [] }
+            guard editor.resourceEditor == nil, !editor.isSaving else { return [] }
             var actions = [
-                AppletAction(id: "Add resource", symbol: "plus", shortcut: "⌘N") { editor.editResource() },
-                AppletAction(id: "Save workspace", symbol: "checkmark", shortcut: "⌘↵") { [weak self] in self?.saveEditor() }
+                AppletAction(id: "add-resource", title: "Add resource", symbol: "plus", shortcut: AppletShortcut(key: "n")) { editor.editResource() },
+                AppletAction(id: "save-workspace", title: "Save workspace", symbol: "checkmark", shortcut: AppletShortcut(key: .return)) { [weak self] in Task { await self?.saveEditor() } }
             ]
             if let resource = editor.selectedResource {
                 actions += [
-                    AppletAction(id: "Edit \(resource.name)", symbol: "pencil", shortcut: "↵") { editor.editResource(resource) },
-                    AppletAction(id: "Include in workspace", symbol: "checkmark.circle", shortcut: "Space", selected: editor.workspace.selectedResourceIDs.contains(resource.id)) { editor.toggleSelected() },
-                    AppletAction(id: "Remove \(resource.name)", symbol: "minus.circle", shortcut: "⌘⌫") { editor.removeSelected() }
+                    AppletAction(id: "edit-resource", title: "Edit \(resource.name)", symbol: "pencil", shortcut: AppletShortcut(key: .return, modifiers: [])) { editor.editResource(resource) },
+                    AppletAction(id: "include-in-workspace", title: "Include in workspace", symbol: "checkmark.circle", shortcut: AppletShortcut(key: .space, modifiers: []), selected: editor.workspace.selectedResourceIDs.contains(resource.id)) { editor.toggleSelected() },
+                    AppletAction(id: "remove-resource", title: "Remove \(resource.name)", symbol: "minus.circle", shortcut: AppletShortcut(key: .delete)) { editor.removeSelected() }
                 ]
             }
             return actions
         }
-        var actions = [AppletAction(id: newDraft == nil ? "New workspace" : "Resume new workspace", symbol: "plus", shortcut: "⌘N") { [weak self] in self?.edit() }]
+        var actions = [AppletAction(id: "new-workspace", title: newDraft == nil ? "New workspace" : "Resume new workspace", symbol: "plus", shortcut: AppletShortcut(key: "n")) { [weak self] in self?.edit() }]
         if let selected {
             actions += [
-                AppletAction(id: "Open \(selected.name)", symbol: "arrow.up.right", shortcut: "↵") { [weak self] in self?.openSelected() },
-                AppletAction(id: "Edit \(selected.name)", symbol: "pencil", shortcut: "⌘E") { [weak self] in self?.edit(selected) },
-                AppletAction(id: "Delete \(selected.name)", symbol: "trash", shortcut: "⌘⌫") { [weak self] in self?.deletingWorkspace = selected }
+                AppletAction(id: "open-workspace", title: "Open \(selected.name)", symbol: "arrow.up.right", shortcut: AppletShortcut(key: .return, modifiers: [])) { [weak self] in self?.openSelected() },
+                AppletAction(id: "edit-workspace", title: "Edit \(selected.name)", symbol: "pencil", shortcut: AppletShortcut(key: "e")) { [weak self] in self?.edit(selected) },
+                AppletAction(id: "delete-workspace", title: "Delete \(selected.name)", symbol: "trash", shortcut: AppletShortcut(key: .delete)) { [weak self] in self?.deletingWorkspace = selected }
             ]
         }
         return actions
@@ -78,18 +82,38 @@ final class WorkspacesApplet: Applet {
         }
     }
 
-    func saveEditor() {
-        guard let editor else { return }
-        var workspace = editor.workspace
+    @discardableResult
+    func saveEditor() async -> Bool {
+        guard !isPersisting, let editor, editor.resourceEditor == nil else { return false }
+        let generation = editorGeneration
+        let original = editor.workspace
+        isPersisting = true
+        editor.isSaving = true
+        defer { isPersisting = false; editor.isSaving = false }
+        var workspace = original
         if workspace.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             workspace.name = workspace.resources.first.map { "\($0.name) workspace" } ?? "Workspace"
         }
-        guard store.save(workspace) else { return }
+        guard await store.save(workspace) else { return false }
+        guard editorGeneration == generation, self.editor === editor,
+              editor.workspace == original, editor.resourceEditor == nil else { return false }
         selectedID = workspace.id
         editor.workspace = workspace
         drafts[workspace.id] = editor
         if newDraft?.id == workspace.id { newDraft = nil }
         self.editor = nil
+        return true
+    }
+
+    func confirmDeletion() async -> Bool {
+        guard !isPersisting, let workspace = deletingWorkspace else { return false }
+        isPersisting = true
+        defer { isPersisting = false }
+        guard await store.delete(workspace.id) else { return false }
+        guard deletingWorkspace?.id == workspace.id, editor == nil else { return false }
+        if selectedID == workspace.id { selectedID = store.workspaces.first?.id }
+        deletingWorkspace = nil
+        return true
     }
 
     func openSelected() {
@@ -131,13 +155,17 @@ private struct WorkspacesAppletView: View {
                     Text("Delete \(workspace.name)?").font(.system(size: 14, weight: .semibold))
                     Text("Your apps, folders and links stay where they are.")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
+                    ActionFeedback(error: applet.store.error, result: nil)
                     HStack {
                         Button("Keep workspace", action: closeEditor).keyboardShortcut(.cancelAction)
                         Spacer()
                         Button("Delete", role: .destructive) {
-                            if applet.store.delete(workspace.id) { applet.selectedID = applet.store.workspaces.first?.id }
-                            closeEditor()
-                        }.keyboardShortcut(.defaultAction)
+                            Task {
+                                if await applet.confirmDeletion() { restoreFocus(); listFocused = true }
+                            }
+                        }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(applet.isPersisting)
                     }
                 }.padding(24).modifier(FloatingGlass(cornerRadius: NotchLayout.bottomRadius - NotchLayout.contentInset, cornerStyle: .circular))
             } else {

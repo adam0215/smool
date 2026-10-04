@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import SwiftUI
 
 @main
@@ -36,12 +37,11 @@ struct TimerAppletChecks {
         applet.startTimer()
         precondition(applet.inputError != nil && applet.showsForm)
         applet.durationInput = "25 min"
-        applet.nameInput = "Te"
         applet.startTimer()
         precondition(applet.inputError == nil && !applet.showsForm && store.timers.count == 1)
         let first = applet.selectedTimer!.id
         precondition(applet.background != nil, "A running timer lights its view")
-        precondition(applet.actions.map(\.id) == ["New timer", "Add one minute", "Stop timer"])
+        precondition(applet.actions.map(\.id) == ["new-timer", "add-one-minute", "stop-timer"])
         precondition(applet.status?.countdownDeadline == store.timers[0].deadline)
         try render(applet, name: "timer-running", output: output)
         applet.toggleSelectedTimer()

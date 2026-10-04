@@ -12,7 +12,7 @@ struct NotchTabBar: View {
         NotchHeader(layout: presentation.layout, sideInset: 16) {
             if presentation.showsSettings {
                 Button {
-                    presentation.showsSettings = false
+                    presentation.dismissPresentation()
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))

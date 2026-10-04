@@ -15,7 +15,6 @@ final class NotchPresentation {
     let settings: AppSettings
     var openSettings: () -> Void = {}
     var composeInCodex: ((String) -> Void)?
-    var capturedSelection: SelectionPreview?
 
     var registry: AppletRegistry {
         let ids = settings.orderedIDs(in: registeredApplets.applets.map(\.id))
@@ -37,21 +36,48 @@ final class NotchPresentation {
     var isExpanded = false
     var usesExpandedFrame = false
     var focusGeneration = 0
-    var hostTool: NotchHostTool?
-    private enum ActionsSource { case applet, workspaces, settings }
-    private var actionsSource = ActionsSource.applet
-    var showsActions: Bool {
-        get { hostTool == .actions }
-        set {
-            guard newValue != showsActions else { return }
-            if newValue { showTool(.actions) }
-            else { dismissTool() }
+    enum ActionsSource { case applet, workspaces, settings }
+    enum Destination {
+        case applet, workspaces, settings
+        case actions(source: ActionsSource)
+        case capture(CapturedSelection)
+    }
+
+    private(set) var destination = Destination.applet
+    let help = NotchHelpState()
+
+    var hostTool: NotchHostTool? {
+        switch destination {
+        case .actions: .actions
+        case .workspaces: .workspaces
+        default: nil
         }
     }
-    var showsSettings = false
+
+    var showsActions: Bool { hostTool == .actions }
+    var showsSettings: Bool {
+        if case .settings = destination { return true }
+        return false
+    }
+
+    var capture: CapturedSelection? {
+        if case .capture(let capture) = destination { return capture }
+        return nil
+    }
+    var capturedSelection: SelectionPreview? { capture?.preview }
+
+    private var actionsSource: ActionsSource {
+        switch destination {
+        case .actions(let source): source
+        case .workspaces: .workspaces
+        case .settings: .settings
+        default: .applet
+        }
+    }
     var settingsSection = SettingsSection.general
     var settingsRow = 0
     var terminationError: String?
+    var failedSaveAppletID: AppletID?
     let audio = SystemAudioLevel()
     var layout = NotchLayout(screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900))
 
@@ -59,6 +85,7 @@ final class NotchPresentation {
         self.registeredApplets = registry
         self.settings = settings
         selection = registry.applets[0].id
+        connectAppletCommands()
     }
 
     var activeApplet: any Applet { registeredApplets.applet(for: selection)! }
@@ -70,20 +97,20 @@ final class NotchPresentation {
         let actions: [AppletAction]
         if actionsSource == .settings {
             actions = [
-                AppletAction(id: "General settings", symbol: "gearshape") { [weak self] in self?.changeSettingsSection(.general) },
-                AppletAction(id: "Applet settings", symbol: "square.grid.2x2") { [weak self] in self?.changeSettingsSection(.applets) },
-                AppletAction(id: "Back to \(activeApplet.title)", symbol: "arrow.left") { [weak self] in self?.showsSettings = false }
+                AppletAction(id: "general-settings", title: "General settings", symbol: "gearshape") { [weak self] in self?.changeSettingsSection(.general) },
+                AppletAction(id: "applet-settings", title: "Applet settings", symbol: "square.grid.2x2") { [weak self] in self?.changeSettingsSection(.applets) },
+                AppletAction(id: "back-to-applet", title: "Back to \(activeApplet.title)", symbol: "arrow.left") { [weak self] in self?.dismissPresentation() }
             ]
         } else {
             let source = actionsSource == .workspaces
                 ? registeredApplets.applet(for: NotchHostTool.workspaces.appletID) ?? activeApplet
                 : activeApplet
             actions = source.actions + [
-                AppletAction(id: "Settings…", symbol: "gearshape", shortcut: "⌘,") { [weak self] in self?.openSettings() }
+                AppletAction(id: "settings", title: "Settings…", symbol: "gearshape", shortcut: AppletShortcut(key: ",")) { [weak self] in self?.openSettings() }
             ]
         }
         return actions.map { action in
-            AppletAction(id: action.id, symbol: action.symbol, shortcut: action.shortcut, selected: action.selected) { [weak self] in
+            AppletAction(id: action.id, title: action.title, symbol: action.symbol, shortcut: action.shortcut, selected: action.selected, detail: action.detail) { [weak self] in
                 guard let self else { return }
                 self.restoreActionsSource()
                 action.perform()
@@ -94,36 +121,45 @@ final class NotchPresentation {
     func showTool(_ tool: NotchHostTool) {
         guard registeredApplets.applet(for: tool.appletID) != nil else { return }
         if hostTool == tool { dismissTool(returnToSource: true); return }
-        if tool == .actions {
-            actionsSource = showsSettings ? .settings : hostTool == .workspaces ? .workspaces : .applet
-        }
-        hostTool = tool
-        showsSettings = false
-        capturedSelection = nil
+        let source = actionsSource
+        help.text = nil
+        destination = tool == .actions ? .actions(source: source) : .workspaces
     }
 
     func dismissTool(returnToSource: Bool = false) {
-        guard let hostTool else { return }
+        guard hostTool != nil else { return }
         displayedApplet.dismissOverlay()
-        if returnToSource, hostTool == .actions {
-            restoreActionsSource()
-        } else {
-            self.hostTool = nil
-            actionsSource = .applet
-        }
+        if returnToSource, showsActions { restoreActionsSource() }
+        else { destination = .applet }
+        help.text = nil
     }
 
     private func restoreActionsSource() {
-        hostTool = actionsSource == .workspaces ? .workspaces : nil
-        showsSettings = actionsSource == .settings
-        actionsSource = .applet
+        guard case .actions(let source) = destination else { return }
+        switch source {
+        case .applet: destination = .applet
+        case .workspaces: destination = .workspaces
+        case .settings: destination = .settings
+        }
+        help.text = nil
+    }
+
+    func showSettings() {
+        activeApplet.dismissOverlay()
+        dismissPresentation()
+        destination = .settings
+    }
+
+    func dismissPresentation() {
+        dismissTool()
+        destination = .applet
+        help.text = nil
     }
 
     func reconcileSettings() {
         if registry.applet(for: selection) == nil {
-            let wasShowingSettings = showsSettings
-            select(registry.applets[0].id)
-            showsSettings = wasShowingSettings
+            activeApplet.deactivate()
+            selection = registry.applets[0].id
         }
     }
     var contentHeight: CGFloat {
@@ -134,17 +170,14 @@ final class NotchPresentation {
     var collapsedSize: CGSize { layout.collapsedSize(statusCount: statusItems.count) }
 
     func presentCapturedSelection(_ preview: SelectionPreview) {
-        showsSettings = false
-        dismissTool()
+        dismissPresentation()
         activeApplet.dismissOverlay()
-        capturedSelection = preview
+        destination = .capture(CapturedSelection(preview: preview))
     }
 
     func select(_ id: AppletID) {
         guard registry.applet(for: id) != nil else { return }
-        showsSettings = false
-        dismissTool()
-        capturedSelection = nil
+        dismissPresentation()
         guard selection != id else { return }
         activeApplet.deactivate()
         selection = id

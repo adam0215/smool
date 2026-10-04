@@ -1,35 +1,9 @@
 import SwiftUI
 
-nonisolated struct HomeGlow: View, Animatable {
-    var spotify: Double
-    var codex: Double
-    let darkHeight: CGFloat
-
-    var animatableData: AnimatablePair<Double, Double> {
-        get { AnimatablePair(spotify, codex) }
-        set {
-            spotify = newValue.first
-            codex = newValue.second
-        }
-    }
-
-    static func color(for app: HomeApp?) -> Color {
-        switch app {
-        case .spotify: Color(nsColor: .systemGreen)
-        case .codex: Color(nsColor: .systemPurple).mix(with: .black, by: 0.46)
-        case nil: Color(nsColor: .systemBlue)
-        }
-    }
-
-    var body: some View {
-        BottomGlow(
-            color: Self.color(for: nil)
-                .mix(with: Self.color(for: .spotify), by: spotify)
-                .mix(with: Self.color(for: .codex), by: codex),
-            horizontalPosition: 0.5 + 0.25 * (codex - spotify),
-            darkHeight: darkHeight
-        )
-    }
+nonisolated enum HomePalette {
+    static let clock = Color(nsColor: .systemBlue)
+    static let spotify = Color(nsColor: .systemGreen)
+    static let codex = Color(nsColor: .systemPurple).mix(with: .black, by: 0.46)
 }
 
 nonisolated struct BottomGlow: View {

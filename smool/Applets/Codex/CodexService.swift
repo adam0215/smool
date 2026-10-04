@@ -15,7 +15,18 @@ struct CodexThread: Identifiable, Equatable {
     var isActive: Bool { isConnected && status == "active" }
 
     init?(json: CodexJSON) {
-        guard let id = json["id"].string else { return nil }
+        guard let id = json["id"].string, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        for field in ["cwd", "preview", "name", "title"] {
+            switch json[field] {
+            case .null, .string: break
+            default: return nil
+            }
+        }
+        switch json["updatedAt"] {
+        case .null: break
+        case .number(let value) where value.isFinite: break
+        default: return nil
+        }
         self.id = id
         projectPath = json["cwd"].string ?? ""
         preview = json["preview"].string ?? ""
@@ -24,6 +35,22 @@ struct CodexThread: Identifiable, Equatable {
         if title.isEmpty { title = "Untitled thread" }
         let timestamp = json["updatedAt"].number ?? 0
         updatedAt = Date(timeIntervalSince1970: timestamp > 100_000_000_000 ? timestamp / 1_000 : timestamp)
+    }
+}
+
+struct CodexThreadPage {
+    let threads: [CodexThread]
+    let nextCursor: String?
+
+    init(_ response: CodexJSON) throws {
+        let page = try CodexListPage(response, limit: 100)
+        threads = try page.entries.map {
+            guard let thread = CodexThread(json: $0) else {
+                throw CodexConnectionError(message: "Codex returned an unsupported thread.")
+            }
+            return thread
+        }
+        nextCursor = page.nextCursor
     }
 }
 
@@ -45,7 +72,7 @@ struct CodexLimit: Identifiable {
             ["primary", "secondary"].compactMap { window -> CodexLimit? in
                 let data = snapshot[window]
                 guard let used = data["usedPercent"].number else { return nil }
-                let minutes = data["windowDurationMins"].number.map(Int.init)
+                let minutes = data["windowDurationMins"].number.flatMap(Int.init(exactly:))
                 let period: String
                 if let minutes, minutes >= 1_440 { period = "\(minutes / 1_440) days" }
                 else if let minutes, minutes >= 60 { period = "\(minutes / 60) hours" }
@@ -57,15 +84,6 @@ struct CodexLimit: Identifiable {
             }
         }
     }
-}
-
-struct CodexHistoryPreview: Equatable {
-    var message: CodexActivityItem?
-    var isLoading = false
-    var error: String?
-    let updatedAt: Date
-    var status: String?
-    var isActive = false
 }
 
 @MainActor @Observable
@@ -86,7 +104,7 @@ final class CodexService {
     var includesArchived = false
     var selectedThreadID: String?
     private(set) var activities: [String: CodexActivityPresentation] = [:]
-    private(set) var historyPreviews: [String: CodexHistoryPreview] = [:]
+    var historyPreviews: [String: CodexHistoryPreview] { history.previews }
     private(set) var activityErrors: [String: String] = [:]
     private(set) var unreadThreadIDs: Set<String> = []
     private(set) var attentionByThread: [String: CodexAttention] = [:]
@@ -94,41 +112,53 @@ final class CodexService {
     private(set) var monitorsStatus = false
     private(set) var sessionRequests: [String: [CodexSessionRequest]] = [:]
     private(set) var sessionErrors: [String: String] = [:]
-    private(set) var localThreadIDs: Set<String> = []
-    @ObservationIgnored private var localSessions: [String: CodexSession] = [:]
+    private var localSessions: [String: CodexSession] = [:]
     @ObservationIgnored private var localPublicationTask: Task<Void, Never>?
 
-    @ObservationIgnored private var unavailableActivityIDs: Set<String> = []
-    @ObservationIgnored private var statusStreams: [String: CodexActivityStream] = [:]
-    @ObservationIgnored private var streams: [String: CodexActivityStream] = [:]
+    // Desktop subscriptions and locally owned sessions have independent lifetimes.
+    private struct DesktopThread {
+        var status = CodexActivityStream(maximumBytes: 512 * 1_024)
+        var activity: CodexActivityStream?
+        var publicationToken = UUID()
+        var activityUnavailable = false
+        var owner: String? { status.owner }
+
+        mutating func disconnect() {
+            publicationToken = UUID()
+            status.disconnect()
+            activity?.disconnect()
+        }
+    }
+
+    @ObservationIgnored private var desktopThreads: [String: DesktopThread] = [:]
     @ObservationIgnored private var streamAccess: [String] = []
     @ObservationIgnored private var dirtyStreams: Set<String> = []
     @ObservationIgnored private var publicationTask: Task<Void, Never>?
     @ObservationIgnored private var projectionTask: Task<[String: CodexActivityPresentation], Never>?
-    @ObservationIgnored private var streamTokens: [String: UUID] = [:]
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
     @ObservationIgnored private var retryDelay: Duration = .seconds(1)
     @ObservationIgnored private let projectActivity: @Sendable (CodexActivityStream) -> CodexActivityPresentation
-    @ObservationIgnored private let historyRequest: (@MainActor (String, CodexJSON) async throws -> CodexJSON)?
+    @ObservationIgnored private let history: CodexHistoryReader
     @ObservationIgnored private let makeSessionClient: @MainActor () -> CodexClient
-    @ObservationIgnored private var historyTask: Task<Void, Never>?
-    @ObservationIgnored private var historyToken = UUID()
-    @ObservationIgnored private var historyLoadingID: String?
-    @ObservationIgnored private var historyAccess: [String] = []
-
     @ObservationIgnored private var projectCatalog = CodexProjects(json: .null)
-    @ObservationIgnored private let catalog = CodexClient(desktop: false)
-    @ObservationIgnored private let desktop = CodexClient(desktop: true)
+    @ObservationIgnored private let catalog: CodexClient
+    @ObservationIgnored private let desktop: CodexClient
     @ObservationIgnored private var followed: Set<String> = []
-    @ObservationIgnored private var owners: [String: String] = [:]
     @ObservationIgnored private var session = UUID()
     @ObservationIgnored private var refreshing = false
 
-    init(historyRequest: (@MainActor (String, CodexJSON) async throws -> CodexJSON)? = nil,
+    init(catalog: CodexClient = CodexClient(desktop: false),
+         desktop: CodexClient = CodexClient(desktop: true),
+         historyRequest: (@MainActor (String, CodexJSON) async throws -> CodexJSON)? = nil,
          makeSessionClient: @escaping @MainActor () -> CodexClient = { CodexClient(desktop: false) },
          projectActivity: @escaping @Sendable (CodexActivityStream) -> CodexActivityPresentation = { $0.presentation }) {
         self.projectActivity = projectActivity
-        self.historyRequest = historyRequest
+        self.catalog = catalog
+        self.desktop = desktop
+        self.history = CodexHistoryReader(request: historyRequest ?? { method, params in
+            try await catalog.connect()
+            return try await catalog.request(method, params: params, timeout: .seconds(8))
+        })
         self.makeSessionClient = makeSessionClient
         desktop.onMessage = { [weak self] in self?.receive($0) }
         desktop.onDisconnect = { [weak self] in self?.lostLiveConnection() }
@@ -141,7 +171,7 @@ final class CodexService {
             publishLocalActivities()
         }
         else {
-            cancelHistoryPreview()
+            history.cancel()
             publicationTask?.cancel()
             projectionTask?.cancel()
         }
@@ -189,28 +219,28 @@ final class CodexService {
         guard let id else {
             publicationTask?.cancel()
             projectionTask?.cancel()
-            streams.removeAll()
-            streamTokens.removeAll()
+            for id in desktopThreads.keys { desktopThreads[id]?.activity = nil }
             dirtyStreams.removeAll()
             return
         }
-        cancelHistoryPreview()
+        history.cancel()
         markRead(id)
         streamAccess.removeAll { $0 == id }
         streamAccess.append(id)
         if let local = localSessions[id] {
             activities[id] = local.presentation
-        } else if streams[id] == nil || unavailableActivityIDs.remove(id) != nil {
-            streams[id] = CodexActivityStream()
+        } else if desktopThreads[id]?.activity == nil || desktopThreads[id]?.activityUnavailable == true {
+            desktopThreads[id, default: DesktopThread()].activity = CodexActivityStream()
+            desktopThreads[id]?.activityUnavailable = false
             resubscribe(id)
         }
         while streamAccess.count > 4 {
             let removed = streamAccess.removeFirst()
-            streams[removed] = nil
-            streamTokens[removed] = nil
+            desktopThreads[removed]?.activity = nil
+            desktopThreads[removed]?.publicationToken = UUID()
             activities[removed] = nil
             activityErrors[removed] = nil
-            unavailableActivityIDs.remove(removed)
+            desktopThreads[removed]?.activityUnavailable = false
         }
     }
 
@@ -219,123 +249,22 @@ final class CodexService {
     }
 
     func stop() {
-        cancelHistoryPreview()
+        history.cancel()
         lifecycleTask?.cancel()
         lifecycleTask = nil
         publicationTask?.cancel()
         projectionTask?.cancel()
-        for id in Array(streams.keys) { streams[id]?.disconnect() }
-        for id in Array(statusStreams.keys) { statusStreams[id]?.disconnect() }
         if cachedThreads == nil { cachedThreads = threads }
         session = UUID()
         for id in followed { desktop.follow(id, following: false) }
         desktop.disconnect()
         catalog.disconnect()
         followed.removeAll()
-        owners.removeAll()
-        var disconnected = threads
-        for index in disconnected.indices where !localThreadIDs.contains(disconnected[index].id) {
-            disconnected[index].isConnected = false
-            disconnected[index].status = nil
-        }
-        if disconnected != threads { threads = disconnected }
+        disconnectDesktopThreads()
     }
 
-    /// Read a bounded newest-first slice without resuming or following the thread.
     func loadHistoryPreview(_ thread: CodexThread, force: Bool = false) async {
-        historyAccess.removeAll { $0 == thread.id }
-        historyAccess.append(thread.id)
-        while historyAccess.count > 12 {
-            historyPreviews[historyAccess.removeFirst()] = nil
-        }
-        if !force, let cached = historyPreviews[thread.id], !cached.isLoading,
-           cached.updatedAt == thread.updatedAt, cached.status == thread.status, cached.isActive == thread.isActive {
-            if historyLoadingID != thread.id { cancelHistoryPreview() }
-            return
-        }
-
-        cancelHistoryPreview()
-        let token = UUID()
-        historyToken = token
-        historyLoadingID = thread.id
-        historyPreviews[thread.id] = CodexHistoryPreview(isLoading: true, updatedAt: thread.updatedAt,
-                                                       status: thread.status, isActive: thread.isActive)
-        let session = session
-        let task = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                if historyToken == token {
-                    historyTask = nil
-                    historyLoadingID = nil
-                }
-            }
-            do {
-                var cursor: String?
-                var seenCursors: Set<String> = []
-                var message: CodexActivityItem?
-                var exhausted = false
-                // Installed app-server schema: thread/items/list returns { turnId, item }
-                // entries. Metadata thread.preview is the opening prompt, not the latest reply.
-                for _ in 0..<4 {
-                    try Task.checkCancellation()
-                    var params: [String: CodexJSON] = [
-                        "threadId": .string(thread.id), "limit": .number(50), "sortDirection": .string("desc")
-                    ]
-                    if let cursor { params["cursor"] = .string(cursor) }
-                    let page: CodexJSON
-                    if let historyRequest {
-                        page = try await historyRequest("thread/items/list", .object(params))
-                    } else {
-                        try await catalog.connect()
-                        page = try await catalog.request("thread/items/list", params: .object(params), timeout: .seconds(8))
-                    }
-                    try Task.checkCancellation()
-                    guard historyToken == token, self.session == session else { return }
-                    guard case .array(let entries) = page["data"], entries.count <= 50 else {
-                        throw CodexConnectionError(message: "Codex returned an unsupported history page.")
-                    }
-                    for entry in entries {
-                        let item = entry["item"]
-                        let id = "turn:\(entry["turnId"].string ?? "unknown")/\(item["id"].string ?? "message")"
-                        if let latest = CodexActivityPresentation.message(item, id: id) {
-                            message = latest
-                            break
-                        }
-                    }
-                    if message != nil { break }
-                    cursor = page["nextCursor"].string
-                    if cursor == nil { exhausted = true; break }
-                    if let cursor, !seenCursors.insert(cursor).inserted { break }
-                }
-                historyPreviews[thread.id] = CodexHistoryPreview(
-                    message: message,
-                    error: message == nil && !exhausted ? "No recent message found in the preview window. Open the thread in Codex." : nil,
-                    updatedAt: thread.updatedAt, status: thread.status, isActive: thread.isActive
-                )
-            } catch {
-                guard historyToken == token, self.session == session else { return }
-                if Task.isCancelled || error is CancellationError {
-                    historyPreviews[thread.id] = nil
-                } else {
-                    historyPreviews[thread.id] = CodexHistoryPreview(error: error.localizedDescription, updatedAt: thread.updatedAt,
-                                                                   status: thread.status, isActive: thread.isActive)
-                }
-            }
-        }
-        historyTask = task
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: { task.cancel() }
-    }
-
-    private func cancelHistoryPreview() {
-        historyToken = UUID()
-        historyTask?.cancel()
-        historyTask = nil
-        if let historyLoadingID, historyPreviews[historyLoadingID]?.isLoading == true {
-            historyPreviews[historyLoadingID] = nil
-        }
-        historyLoadingID = nil
+        await history.load(thread, force: force)
     }
 
     func refresh() async {
@@ -384,10 +313,10 @@ final class CodexService {
                     if let cursor { params["cursor"] = .string(cursor) }
                     let result = try await catalog.request("thread/list", params: .object(params))
                     guard self.session == session, !Task.isCancelled else { return }
+                    let page = try CodexThreadPage(result)
                     var updated = threads
                     var indices = Dictionary(uniqueKeysWithValues: updated.enumerated().map { ($0.element.id, $0.offset) })
-                    for value in result["data"].array {
-                        guard var thread = CodexThread(json: value) else { continue }
+                    for var thread in page.threads {
                         thread.isArchived = archived
                         thread.project = projectCatalog.project(for: thread.id, cwd: thread.projectPath)
                         catalogIDs.insert(thread.id)
@@ -403,12 +332,14 @@ final class CodexService {
                     }
                     if updated != threads { threads = updated }
                     updateProjects()
-                    cursor = result["nextCursor"].string
-                    if let cursor, !seenCursors.insert(cursor).inserted { break }
+                    cursor = page.nextCursor
+                    if let cursor, !seenCursors.insert(cursor).inserted {
+                        throw CodexConnectionError(message: "Codex returned a repeated page cursor.")
+                    }
                     try Task.checkCancellation()
                 } while cursor != nil
             }
-            let removed = Set(threads.filter { !catalogIDs.contains($0.id) && !$0.isConnected && $0.id != selectedThreadID && streams[$0.id] == nil }.map(\.id))
+            let removed = Set(threads.filter { !catalogIDs.contains($0.id) && !$0.isConnected && $0.id != selectedThreadID && desktopThreads[$0.id]?.activity == nil }.map(\.id))
             for id in removed { desktop.follow(id, following: false); followed.remove(id) }
             let sorted = threads.filter { !removed.contains($0.id) }.sorted { $0.updatedAt > $1.updatedAt }
             if sorted != threads { threads = sorted }
@@ -436,7 +367,7 @@ final class CodexService {
     /// This explicit action only connects; sending always remains a separate user action.
     func ensureConnected(to thread: CodexThread) async -> Bool {
         if let local = localSessions[thread.id] { return local.client.isConnected }
-        if desktop.isConnected, owners[thread.id] != nil,
+        if desktop.isConnected, desktopThreads[thread.id]?.owner != nil,
            threads.contains(where: { $0.id == thread.id && $0.isConnected }) {
             error = nil
             return true
@@ -482,15 +413,12 @@ final class CodexService {
         let response = try await desktop.request("thread-owner-discovery", params: .object([
             "hostId": .string("local"), "conversationId": .string(threadID)
         ]), timeout: timeout)
-        guard let owner = response["handledByClientId"].string else {
-            throw CodexConnectionError(message: "This thread has not connected in Codex yet.")
-        }
-        return owner
+        return try CodexDesktopProtocol.owner(in: response)
     }
 
     private func awaitSnapshot(threadID: String, owner: String) async throws -> Bool {
         try Task.checkCancellation()
-        if owners[threadID] == owner, threads.contains(where: { $0.id == threadID && $0.isConnected }) {
+        if desktopThreads[threadID]?.owner == owner, threads.contains(where: { $0.id == threadID && $0.isConnected }) {
             error = nil
             return true
         }
@@ -499,7 +427,7 @@ final class CodexService {
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         repeat {
             try Task.checkCancellation()
-            if owners[threadID] == owner, threads.contains(where: { $0.id == threadID && $0.isConnected }) {
+            if desktopThreads[threadID]?.owner == owner, threads.contains(where: { $0.id == threadID && $0.isConnected }) {
                 error = nil
                 return true
             }
@@ -577,7 +505,6 @@ final class CodexService {
             Task { await self.releaseLocalSession(local) }
         }
         localSessions[thread.id] = local
-        localThreadIDs.insert(thread.id)
         threads.insert(thread, at: 0)
         cachedThreads = nil
         return thread
@@ -595,7 +522,7 @@ final class CodexService {
         }
     }
 
-    func isLocallyOwned(_ threadID: String) -> Bool { localThreadIDs.contains(threadID) }
+    func isLocallyOwned(_ threadID: String) -> Bool { localSessions[threadID] != nil }
 
     func localRequests(for threadID: String) -> [CodexSessionRequest] { sessionRequests[threadID] ?? [] }
 
@@ -660,7 +587,6 @@ final class CodexService {
         }
         local.client.disconnect()
         localSessions[id] = nil
-        localThreadIDs.remove(id)
         sessionRequests[id] = nil
         sessionErrors[id] = nil
         if let index = threads.firstIndex(where: { $0.id == id }) { threads[index].isConnected = false }
@@ -674,7 +600,7 @@ final class CodexService {
     }
 
     private func follow(_ id: String) {
-        guard !localThreadIDs.contains(id), !followed.contains(id), followed.count < 512 || id == selectedThreadID,
+        guard localSessions[id] == nil, !followed.contains(id), followed.count < 512 || id == selectedThreadID,
               desktop.follow(id) else { return }
         followed.insert(id)
     }
@@ -689,11 +615,11 @@ final class CodexService {
             return
         }
         if method == "client-status-changed", params["status"].string == "disconnected", let client = params["clientId"].string {
-            for id in owners.keys.filter({ owners[$0] == client }) { invalidate(id) }
+            for id in desktopThreads.keys.filter({ desktopThreads[$0]?.owner == client }) { invalidate(id) }
             return
         }
         guard params["hostId"].string == "local", let id = params["conversationId"].string else { return }
-        guard !localThreadIDs.contains(id) else { return }
+        guard localSessions[id] == nil else { return }
         if method == "thread-stream-following-changed" { follow(id); return }
         if method == "thread-stream-following-status-requested" {
             if followed.contains(id) { desktop.follow(id) }
@@ -707,17 +633,17 @@ final class CodexService {
         }
         let change = params["change"]
         guard let source = message["sourceClientId"].string else { return }
-        let hadStatus = statusStreams[id]?.revision != nil
-        if statusStreams[id] == nil, statusStreams.count >= 512,
-           let removed = statusStreams.keys.first(where: { $0 != selectedThreadID }) {
-            statusStreams[removed] = nil
+        let hadStatus = desktopThreads[id]?.status.revision != nil
+        if desktopThreads[id] == nil, desktopThreads.count >= 512,
+           let removed = desktopThreads.keys.first(where: { $0 != selectedThreadID }) {
             attentionByThread[removed] = nil
             unreadThreadIDs.remove(removed)
             invalidate(removed)
             desktop.follow(removed, following: false)
             followed.remove(removed)
+            desktopThreads[removed] = nil
         }
-        var statusStream = statusStreams[id] ?? CodexActivityStream(maximumBytes: 512 * 1_024)
+        var statusStream = desktopThreads[id]?.status ?? CodexActivityStream(maximumBytes: 512 * 1_024)
         switch statusStream.apply(CodexActivityStream.statusChange(change), owner: source) {
         case .ignored: return
         case .unavailable(let reason):
@@ -727,13 +653,13 @@ final class CodexService {
         case .resync:
             resubscribe(id)
             return
-        case .applied: statusStreams[id] = statusStream
+        case .applied: desktopThreads[id, default: DesktopThread()].status = statusStream
         }
-        if streams[id] != nil, !unavailableActivityIDs.contains(id) {
-            switch streams[id]!.apply(change, owner: source) {
+        if desktopThreads[id]?.activity != nil, desktopThreads[id]?.activityUnavailable == false {
+            switch desktopThreads[id]!.activity!.apply(change, owner: source) {
             case .applied:
                 if activityErrors[id] != nil { activityErrors[id] = nil }
-                if isVisible || projectionTask != nil, var presentation = activities[id], let state = streams[id]?.state {
+                if isVisible || projectionTask != nil, var presentation = activities[id], let state = desktopThreads[id]?.activity?.state {
                     presentation.reconcileActivity(state: state)
                     if activities[id] != presentation { activities[id] = presentation }
                 }
@@ -742,10 +668,10 @@ final class CodexService {
             case .ignored: break
             case .unavailable(let reason):
                 activityErrors[id] = reason
-                unavailableActivityIDs.insert(id)
+                desktopThreads[id]?.activityUnavailable = true
                 dirtyStreams.remove(id)
-                streams[id] = CodexActivityStream()
-                streamTokens[id] = UUID()
+                desktopThreads[id]?.activity = CodexActivityStream()
+                desktopThreads[id]?.publicationToken = UUID()
             case .resync(let reason):
                 activityErrors[id] = reason
                 resubscribe(id)
@@ -769,7 +695,6 @@ final class CodexService {
         }
         let attention = CodexAttention.from(state: state)
         if attentionByThread[id] != attention { attentionByThread[id] = attention }
-        owners[id] = source
         if hadStatus, (!isVisible || selectedThreadID != id), !unreadThreadIDs.contains(id) {
             unreadThreadIDs.insert(id)
         }
@@ -792,9 +717,9 @@ final class CodexService {
     /// Snapshot on the UI actor, format on a worker, then publish only to the same stream lifetime.
     func publishActivities() async {
         guard projectionTask == nil, !dirtyStreams.isEmpty else { return }
-        let snapshots = streams.filter { dirtyStreams.contains($0.key) }
+        let snapshots = desktopThreads.filter { dirtyStreams.contains($0.key) }.compactMapValues(\.activity)
         dirtyStreams.removeAll()
-        let tokens = streamTokens
+        let tokens = desktopThreads.mapValues(\.publicationToken)
         let session = session
         guard !snapshots.isEmpty else { return }
         let projectActivity = projectActivity
@@ -812,12 +737,12 @@ final class CodexService {
         } onCancel: { worker.cancel() }
         projectionTask = nil
         guard !Task.isCancelled, !worker.isCancelled, self.session == session else {
-            dirtyStreams.formUnion(snapshots.keys.filter { streams[$0]?.state != nil })
+            dirtyStreams.formUnion(snapshots.keys.filter { desktopThreads[$0]?.activity?.state != nil })
             return
         }
         for (id, var presentation) in presentations {
-            guard let current = streams[id], current.state != nil else { continue }
-            guard streamTokens[id] == tokens[id], current.owner == snapshots[id]?.owner else {
+            guard let current = desktopThreads[id]?.activity, current.state != nil else { continue }
+            guard desktopThreads[id]?.publicationToken == tokens[id], current.owner == snapshots[id]?.owner else {
                 // Disconnect invalidates the worker, not the last received transcript.
                 dirtyStreams.insert(id)
                 continue
@@ -834,28 +759,31 @@ final class CodexService {
     }
 
     private func invalidate(_ id: String) {
-        if streams[id] != nil { streamTokens[id] = UUID() }
-        owners[id] = nil
-        streams[id]?.disconnect()
-        statusStreams[id]?.disconnect()
+        guard localSessions[id] == nil else { return }
+        desktopThreads[id]?.disconnect()
         if let index = threads.firstIndex(where: { $0.id == id }) {
             threads[index].isConnected = false
             threads[index].status = nil
         }
     }
 
+    private func disconnectDesktopThreads() {
+        for id in desktopThreads.keys { desktopThreads[id]?.disconnect() }
+        var disconnected = threads
+        for index in disconnected.indices where localSessions[disconnected[index].id] == nil {
+            disconnected[index].isConnected = false
+            disconnected[index].status = nil
+        }
+        if disconnected != threads { threads = disconnected }
+    }
+
     private func lostLiveConnection() {
         followed.removeAll()
-        unavailableActivityIDs.removeAll()
-        for id in streams.keys { streamTokens[id] = UUID() }
-        for id in Array(streams.keys) { streams[id]?.disconnect() }
-        for id in Array(statusStreams.keys) { statusStreams[id]?.disconnect() }
-        owners.removeAll()
-        var disconnected = threads
-        for index in disconnected.indices { disconnected[index].isConnected = false; disconnected[index].status = nil }
-        if disconnected != threads { threads = disconnected }
+        for id in desktopThreads.keys { desktopThreads[id]?.activityUnavailable = false }
+        disconnectDesktopThreads()
         liveError = "Disconnected from Codex. Reconnecting…"
     }
+
 }
 
 struct CodexNewThreadError: LocalizedError {

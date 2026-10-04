@@ -6,33 +6,34 @@ final class CodexApplet: Applet {
     let title = "Codex"
     let icon = AppletIcon.asset("Codex")
     let tint = Color.purple
-    let homeShortcut: HomeApp? = .codex
-    let state = CodexAppletState()
-    let service = CodexService()
+    let state: CodexAppletState
+    let service: CodexService
+    private var connectionTask: Task<Void, Never>?
+
+    init(service: CodexService = CodexService(), state: CodexAppletState = CodexAppletState()) {
+        self.service = service
+        self.state = state
+    }
 
     var contentHeight: CGFloat {
-        if state.scope == .request { return 340 }
+        if state.presentation == .request { return 340 }
         if state.page == .usage { return 176 }
         if state.page == .newThread { return state.newThread.error == nil ? 200 : 256 }
         return 256
     }
 
     var background: AppletBackground? {
-        AppletBackground(color: HomeGlow.color(for: .codex), horizontalPosition: 0.75)
+        AppletBackground(color: HomePalette.codex, horizontalPosition: 0.75)
     }
 
-    var hasPresentedOverlay: Bool {
-        if state.scope != .deck { return true }
-        return state.showsProjects || state.showsRecipientPicker
-    }
+    var hasPresentedOverlay: Bool { state.presentation != .deck }
 
     /// Presents a recipient picker. This never sends or connects a thread by itself.
     func beginComposing(_ text: String) {
         state.pendingText = text
-        state.choosesPendingRecipient = true
-        state.scope = .deck
+        cancelConnection()
         state.page = .history
-        state.showsRecipientPicker = true
+        state.presentation = .recipientPicker
     }
 
     var attention: [CodexThreadAttention] {
@@ -68,7 +69,7 @@ final class CodexApplet: Applet {
         state.searches[.active] = ""
         state.selection[.active] = item.threadID
         state.retainedActiveThreadIDs = [item.threadID]
-        state.scope = .deck
+        state.presentation = .deck
         service.selectThread(item.threadID)
     }
 
@@ -77,18 +78,18 @@ final class CodexApplet: Applet {
     var pages: [AppletPage] {
         CodexPage.allCases.map { page in
             AppletPage(id: page.rawValue, isSelected: state.page == page) {
-                self.state.scope = .deck
+                self.state.presentation = .deck
                 self.state.page = page
             }
         }
     }
 
     func makeView(context: AppletContext, artwork: NSImage?) -> AnyView {
-        AnyView(CodexAppletView(service: service, state: state, restoreFocus: context.restoreFocus))
+        AnyView(CodexAppletView(applet: self, restoreFocus: context.restoreFocus))
     }
 
     func handleArrow(_ arrow: AppletArrow, command: Bool) -> Bool {
-        guard !state.showsProjects, state.scope == .deck else { return false }
+        guard state.presentation == .deck else { return false }
         if command {
             guard !arrow.isVertical, state.groupsByProject, state.page == .history else { return false }
             state.moveProject(arrow.offset, in: service.projects)
@@ -99,82 +100,129 @@ final class CodexApplet: Applet {
         return true
     }
 
-    func deactivate() {
-        state.showsProjects = false
-        state.showsRecipientPicker = false
-        state.scope = .deck
-    }
+    func deactivate() { dismissOverlay() }
 
     func dismissOverlay() {
-        if state.showsProjects || state.showsRecipientPicker {
-            state.showsProjects = false
-            state.showsRecipientPicker = false
+        cancelConnection()
+        state.presentation = .deck
+    }
+
+    func cancelConnection() {
+        connectionTask?.cancel()
+        connectionTask = nil
+    }
+
+    func compose(_ thread: CodexThread) {
+        cancelConnection()
+        state.selection[state.page] = thread.id
+        state.presentation = .composer(thread)
+    }
+
+    func beginSearch() {
+        cancelConnection()
+        if state.page == .usage || state.page == .newThread { state.page = .history }
+        state.presentation = .search
+        state.searchFocusRequest += 1
+    }
+
+    func refreshOrConnect() {
+        if case .composer(let thread) = state.presentation {
+            guard connectionTask == nil, service.isConnectingThreadID == nil else { return }
+            connectionTask = Task {
+                defer { if !Task.isCancelled { connectionTask = nil } }
+                state.sendErrors[thread.id] = nil
+                let connected = await service.ensureConnected(to: thread)
+                guard !Task.isCancelled, case .composer(let recipient) = state.presentation,
+                      recipient.id == thread.id else { return }
+                if connected { state.composerFocusRequest += 1 }
+                else { state.sendErrors[thread.id] = service.error }
+            }
         } else {
-            state.scope = .deck
+            Task {
+                await service.refresh()
+                guard !Task.isCancelled, let thread = previewThread else { return }
+                await service.loadHistoryPreview(thread, force: true)
+            }
         }
+    }
+
+    var previewThread: CodexThread? {
+        guard let thread = state.threadSelection(in: service.displayedThreads, projects: service.projects).selectedThread else { return nil }
+        if state.page == .history { return thread }
+        guard state.page == .active, service.activities[thread.id]?.latestMessage == nil,
+              activityIssue(for: thread.id) != nil else { return nil }
+        return service.threads.first { $0.id == thread.id } ?? thread
+    }
+
+    func activityIssue(for id: String) -> String? {
+        service.sessionErrors[id] ?? service.activityErrors[id]
+            ?? (service.threads.first { $0.id == id }?.isConnected != true
+                ? service.liveError ?? "Live activity is unavailable." : nil)
     }
 
     var actions: [AppletAction] {
         let state = state
         let service = service
         var actions = [
-            AppletAction(id: "Search threads", symbol: "magnifyingglass", shortcut: "⌘F") {
-                if state.page == .usage || state.page == .newThread { state.page = .history }
-                state.scope = .search
-            },
-            AppletAction(id: "Show archived", symbol: "archivebox", shortcut: "⇧⌘A", selected: service.includesArchived) {
+            AppletAction(id: "search-threads", title: "Search threads", symbol: "magnifyingglass", shortcut: AppletShortcut(key: "f")) { self.beginSearch() },
+            AppletAction(id: "show-archived", title: "Show archived", symbol: "archivebox", shortcut: AppletShortcut(key: "a", modifiers: [.command, .shift]), selected: service.includesArchived) {
                 state.page = .history
-                state.scope = .deck
+                state.presentation = .deck
                 Task { await service.setIncludesArchived(!service.includesArchived) }
             },
-            AppletAction(id: "Choose project", symbol: "folder", shortcut: "⌘P") { state.openProjects() },
-            AppletAction(id: "Group by project", symbol: "folder", shortcut: "⇧⌘P", selected: state.groupsByProject) {
+            AppletAction(id: "choose-project", title: "Choose project", symbol: "folder", shortcut: AppletShortcut(key: "p")) { state.openProjects() },
+            AppletAction(id: "group-by-project", title: "Group by project", symbol: "folder", shortcut: AppletShortcut(key: "p", modifiers: [.command, .shift]), selected: state.groupsByProject) {
                 state.groupsByProject.toggle()
                 state.page = .history
-                state.scope = .deck
+                state.presentation = .deck
             },
-            AppletAction(id: "Active threads", symbol: "waveform", selected: state.page == .active) { state.scope = .deck; state.page = .active },
-            AppletAction(id: "Previous threads", symbol: "clock", selected: state.page == .history) { state.scope = .deck; state.page = .history },
-            AppletAction(id: "New thread", symbol: "plus", selected: state.page == .newThread) { state.page = .newThread; state.scope = .newThread },
-            AppletAction(id: "Usage", symbol: "chart.pie", selected: state.page == .usage) { state.scope = .deck; state.page = .usage }
+            AppletAction(id: "active-threads", title: "Active threads", symbol: "waveform", selected: state.page == .active) { state.presentation = .deck; state.page = .active },
+            AppletAction(id: "previous-threads", title: "Previous threads", symbol: "clock", selected: state.page == .history) { state.presentation = .deck; state.page = .history },
+            AppletAction(id: "new-thread", title: "New thread", symbol: "plus", selected: state.page == .newThread) { state.page = .newThread; state.presentation = .newThread },
+            AppletAction(id: "usage", title: "Usage", symbol: "chart.pie", selected: state.page == .usage) { state.presentation = .deck; state.page = .usage }
         ]
+        if state.page == .newThread {
+            actions.insert(AppletAction(id: "write-new-thread", title: "Write new thread", symbol: "square.and.pencil", shortcut: AppletShortcut(key: "n")) {
+                state.presentation = .newThread
+            }, at: 0)
+        }
         if let thread = state.threadSelection(in: service.displayedThreads, projects: service.projects).selectedThread,
            state.page != .usage {
             actions.insert(contentsOf: [
-                AppletAction(id: "Write to thread", symbol: "square.and.pencil", shortcut: "⌘N") { state.scope = .composer(thread) }
+                AppletAction(id: "write-to-thread", title: "Write to thread", symbol: "square.and.pencil", shortcut: AppletShortcut(key: "n")) { self.compose(thread) }
             ], at: 0)
             if service.isLocallyOwned(thread.id) {
                 if let request = service.localRequests(for: thread.id).first {
-                    actions.insert(AppletAction(id: "Review request", symbol: "bubble.left.and.exclamationmark.bubble.right") {
+                    actions.insert(AppletAction(id: "review-request", title: "Review request", symbol: "bubble.left.and.exclamationmark.bubble.right") {
                         state.requestID = request.id
-                        state.scope = .request
+                        state.presentation = .request
                     }, at: 0)
                 }
-                actions.append(AppletAction(id: "Stop turn", symbol: "stop.fill", shortcut: "⌘.") {
+                actions.append(AppletAction(id: "stop-turn", title: "Stop turn", symbol: "stop.fill", shortcut: AppletShortcut(key: ".")) {
                     Task { await service.cancelLocalTurn(thread.id) }
                 })
             } else if let url = CodexDesktopProtocol.threadURL(thread.id) {
-                actions.append(AppletAction(id: "Open in Codex", symbol: "arrow.up.right", shortcut: "↵") { NSWorkspace.shared.open(url) })
+                actions.append(AppletAction(id: "open-in-codex", title: "Open in Codex", symbol: "arrow.up.right", shortcut: AppletShortcut(key: .return, modifiers: [])) { NSWorkspace.shared.open(url) })
             }
         }
         if state.pendingText != nil {
-            actions.append(AppletAction(id: "Choose recipient for saved draft", symbol: "square.and.pencil") {
-                state.choosesPendingRecipient = true
-                state.showsRecipientPicker = true
+            actions.append(AppletAction(id: "choose-recipient-for-saved-draft", title: "Choose recipient for saved draft", symbol: "square.and.pencil") {
+                state.presentation = .recipientPicker
             })
         }
-        if case .composer(let thread) = state.scope {
-            actions.append(AppletAction(id: "Connect thread", symbol: "arrow.triangle.2.circlepath", shortcut: "⌘R") {
-                Task { _ = await service.ensureConnected(to: thread) }
-            })
+        if case .composer = state.presentation {
+            actions.append(AppletAction(id: "connect-thread", title: "Connect thread", symbol: "arrow.triangle.2.circlepath", shortcut: AppletShortcut(key: "r")) { self.refreshOrConnect() })
         } else {
-            actions.append(AppletAction(id: "Refresh", symbol: "arrow.clockwise", shortcut: "⌘R") { Task { await service.refresh() } })
+            actions.append(AppletAction(id: "refresh", title: "Refresh", symbol: "arrow.clockwise", shortcut: AppletShortcut(key: "r")) { self.refreshOrConnect() })
         }
-        if state.groupsByProject, state.page == .history, state.scope == .deck {
+        if state.groupsByProject, state.page == .history, state.presentation == .deck {
             actions.insert(contentsOf: [
-                AppletAction(id: "Previous project", symbol: "chevron.left", shortcut: "⌘←") { state.moveProject(-1, in: service.projects) },
-                AppletAction(id: "Next project", symbol: "chevron.right", shortcut: "⌘→") { state.moveProject(1, in: service.projects) }
+                AppletAction(id: "previous-project", title: "Previous project", symbol: "chevron.left", shortcut: AppletShortcut(key: .leftArrow)) { state.moveProject(-1, in: service.projects) },
+                AppletAction(id: "next-project", title: "Next project", symbol: "chevron.right", shortcut: AppletShortcut(key: .rightArrow)) { state.moveProject(1, in: service.projects) }
             ], at: 3)
+        }
+        if state.presentation == .projects || state.presentation == .recipientPicker {
+            actions.removeAll { ["search-threads", "write-to-thread", "write-new-thread"].contains($0.id) }
         }
         return actions
     }

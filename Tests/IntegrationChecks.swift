@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import SwiftUI
 
 @main
@@ -19,12 +20,14 @@ struct IntegrationChecks {
         let presentation = NotchPresentation(registry: AppletRegistry([HomeApplet(), notes, files, timers, codex]), settings: settings)
 
         let text = "En idé från markerad text\n  med indrag"
-        precondition(presentation.saveCapturedNote(text) == notes.id)
+        presentation.presentCapturedSelection(.text(SelectedText(text: text, applicationName: "Fixture")))
+        let capturedNote = await presentation.saveCapturedNote()
+        precondition(capturedNote == notes.id)
         precondition(notes.store.selectedNote?.text == text && notes.isEditing)
         let restored = NotesStore(fileURL: directory.appending(path: "notes.json"))
         precondition(restored.selectedNote?.text == text)
         precondition(presentation.prepareCodexDraft(text) == codex.id)
-        precondition(codex.state.showsRecipientPicker && codex.state.pendingText == text)
+        precondition(codex.state.presentation == .recipientPicker && codex.state.pendingText == text)
         precondition(!codex.service.isSending && codex.service.drafts.isEmpty, "A handoff must never submit or pick a recipient")
         settings.setEnabled(false, for: codex.id)
         precondition(presentation.prepareCodexDraft("Do not send") == nil)

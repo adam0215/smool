@@ -2,67 +2,192 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-checks=".build/Checks"
-mkdir -p "$checks/ModuleCache" "$checks/renders"
+export LC_ALL=C
 
-swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -parse-as-library)
-"${swiftc[@]}" smool/AudioEnvelope.swift Tests/AudioEnvelopeChecks.swift -o "$checks/audio-envelope"
-"$checks/audio-envelope"
-"${swiftc[@]}" smool/AudioEnvelope.swift smool/AudioSpectrumAnalyzer.swift Tests/AudioSpectrumChecks.swift -o "$checks/audio-spectrum"
-"$checks/audio-spectrum"
-"${swiftc[@]}" smool/AudioEnvelope.swift smool/MusicGlow.swift Tests/MusicGlowChecks.swift -o "$checks/music-glow"
-"$checks/music-glow" "$checks/renders"
-"${swiftc[@]}" smool/PageNavigation.swift Tests/NotchNavigationChecks.swift -o "$checks/navigation"
-"$checks/navigation"
-"${swiftc[@]}" smool/ScreenNotch.swift smool/NotchLayout.swift Tests/NotchLayoutChecks.swift -o "$checks/layout"
-"$checks/layout"
-"${swiftc[@]}" smool/Shared/Media/MediaBridge.swift smool/Applets/Spotify/SpotifyService.swift smool/Shared/Media/MediaTrack.swift smool/Shared/Media/SpotifyBridge.swift smool/Shared/Media/SpotifyPlaylist.swift Tests/SpotifyChecks.swift -o "$checks/spotify"
-"$checks/spotify"
-"${swiftc[@]}" smool/Applets/Codex/CodexProtocol.swift smool/Applets/Codex/CodexActivity.swift smool/Applets/Codex/CodexTransport.swift smool/Applets/Codex/CodexClient.swift smool/Applets/Codex/CodexService.swift smool/Applets/Codex/CodexSession.swift smool/Applets/Codex/CodexProjects.swift Tests/CodexProtocolChecks.swift -o "$checks/codex"
-"$checks/codex"
-"${swiftc[@]}" smool/HomeApp.swift smool/Applets/Home/HomeGlass.swift smool/HomeGlow.swift smool/NotchLayout.swift smool/ScreenNotch.swift Tests/HomeLightingChecks.swift -o "$checks/lighting"
-"$checks/lighting" "$checks/renders"
-"${swiftc[@]}" smool/NotchHeader.swift smool/NotchLayout.swift smool/ScreenNotch.swift Tests/NotchHeaderRenderingChecks.swift -o "$checks/header"
-"$checks/header" "$checks/renders"
+usage() {
+    cat <<'USAGE'
+Usage: Tests/run-checks.sh [CheckName ...] [-- test-arguments ...]
+       Tests/run-checks.sh --list
 
-"${swiftc[@]}" smool/Shared/Media/MediaBridge.swift smool/Applets/Spotify/SpotifyService.swift smool/Shared/Media/MediaTrack.swift smool/Shared/Media/SpotifyBridge.swift smool/Shared/Media/SpotifyPlaylist.swift smool/Shared/Media/AlbumArtwork.swift smool/ArtworkGlow.swift Tests/ArtworkGlowChecks.swift -o "$checks/artwork-glow"
-"$checks/artwork-glow" "$checks/renders"
+With no names, run every Tests/*Checks.swift in a separate process.
+Names accept an optional Checks suffix. Extra arguments require exactly one check.
 
-"${swiftc[@]}" smool/Applets/Codex/ProjectIcon.swift Tests/ProjectIconChecks.swift -o "$checks/project-icons"
-"$checks/project-icons"
+Examples:
+  Tests/run-checks.sh FilesApplet ActionFlows
+  Tests/run-checks.sh NotchSizing -- --automatic-sizing
 
-"${swiftc[@]}" smool/Applets/Codex/CodexProtocol.swift smool/Applets/Codex/CodexProjects.swift Tests/CodexProjectsChecks.swift -o "$checks/codex-projects"
-"$checks/codex-projects"
+SMOOL_CHECKS_DIR overrides the build, resource and rendering directory.
+USAGE
+}
 
-sources=()
-while IFS= read -r source; do
-    sources+=("$source")
-done < <(find smool -name '*.swift' ! -name 'SmoolApp.swift' | sort)
-"${swiftc[@]}" "${sources[@]}" Tests/AppletChecks.swift -o "$checks/applets"
-"$checks/applets"
-
-# Feature models run without changing devices, executing shortcuts or sending prompts.
-"${swiftc[@]}" smool/Shared/Capture/SelectedTextCapture.swift Tests/SelectedTextChecks.swift -o "$checks/selected-text"
-"$checks/selected-text"
-"${swiftc[@]}" smool/Applets/Audio/AudioDevice.swift smool/Applets/Audio/AudioService.swift smool/Applets/Audio/CoreAudioDevices.swift Tests/AudioDeviceChecks.swift -o "$checks/audio-devices"
-"$checks/audio-devices"
-"${swiftc[@]}" smool/Applets/Notes/NotesStore.swift Tests/NotesStoreChecks.swift -o "$checks/notes-store"
-"$checks/notes-store"
-"${swiftc[@]}" smool/Applets/Files/FileShelfRepository.swift Tests/FileShelfChecks.swift -o "$checks/file-shelf"
-"$checks/file-shelf"
-"${swiftc[@]}" smool/Applets/Files/FileShelfRepository.swift smool/Applets/Files/FileShelfStore.swift Tests/FileShelfStoreChecks.swift -o "$checks/file-shelf-store"
-"$checks/file-shelf-store"
-"${swiftc[@]}" smool/Shared/Actions/SavedAction.swift smool/Shared/Actions/ActionLauncher.swift smool/Applets/QuickActions/QuickActionStore.swift smool/Applets/Workspaces/WorkspaceStore.swift Tests/SavedActionsChecks.swift -o "$checks/saved-actions"
-"$checks/saved-actions"
-bash Tests/run-codex-activity-checks.sh
-bash Tests/run-codex-new-thread-checks.sh
-bash Tests/run-codex-session-checks.sh
-bash Tests/run-codex-composer-checks.sh
-bash Tests/run-notch-file-drop-checks.sh
-bash Tests/run-notch-sizing-checks.sh
-bash Tests/run-timer-checks.sh
-
-for name in HostSettings HostRendering NotesApplet AudioAppletRendering ActionApplets Integration Termination; do
-    "${swiftc[@]}" "${sources[@]}" "Tests/${name}Checks.swift" -o "$checks/$name"
-    "$checks/$name" "$checks/renders"
+available=()
+for source in Tests/*Checks.swift; do
+    [[ -f "$source" ]] || continue
+    name="${source##*/}"
+    available+=("${name%Checks.swift}")
 done
+if [[ ${#available[@]} -eq 0 ]]; then
+    echo "No Tests/*Checks.swift sources found." >&2
+    exit 1
+fi
+
+selected=()
+extra=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --help|-h) usage; exit 0 ;;
+        --list) printf '%s\n' "${available[@]}"; exit 0 ;;
+        --) shift; extra=("$@"); break ;;
+        -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+        *)
+            name="${1%Checks}"
+            if [[ ! -f "Tests/${name}Checks.swift" || "$name" == */* ]]; then
+                echo "Unknown check: $1. Use --list to see available checks." >&2
+                exit 2
+            fi
+            for previous in "${selected[@]+${selected[@]}}"; do
+                if [[ "$previous" == "$name" ]]; then
+                    echo "Duplicate check: $name" >&2
+                    exit 2
+                fi
+            done
+            selected+=("$name")
+            shift
+            ;;
+    esac
+done
+if [[ ${#extra[@]} -gt 0 && ${#selected[@]} -ne 1 ]]; then
+    echo "Arguments after -- require exactly one named check." >&2
+    exit 2
+fi
+if [[ ${#selected[@]} -eq 0 ]]; then selected=("${available[@]}"); fi
+
+checks="${SMOOL_CHECKS_DIR:-.build/Checks/Runner}"
+mkdir -p "$checks"
+checks="$(cd "$checks" && pwd)"
+if ! mkdir "$checks/.lock" 2>/dev/null; then
+    echo "Checks directory is already in use: $checks" >&2
+    echo "Use another SMOOL_CHECKS_DIR for a concurrent run. Remove .lock only if its runner has stopped." >&2
+    exit 1
+fi
+printf '%s\n' "$$" > "$checks/.lock/pid"
+staging=""
+cleanup() {
+    if [[ -n "$staging" ]]; then rm -rf "$staging"; fi
+    rm -rf "$checks/.lock"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+staging="$(mktemp -d "$checks/.staging.XXXXXX")"
+mkdir -p "$checks/ModuleCache" "$checks/tests" "$checks/renders"
+
+sdk="$(xcrun --sdk macosx --show-sdk-path)"
+# Keep the test target aligned with MACOSX_DEPLOYMENT_TARGET in smool.xcodeproj.
+target="$(uname -m)-apple-macosx26.0"
+swiftc=(xcrun --sdk macosx swiftc -sdk "$sdk" -target "$target" -swift-version 6
+        -Onone -g -parse-as-library -module-cache-path "$checks/ModuleCache")
+
+# Hash contents and paths, including the toolchain and this runner. A removed or
+# renamed source invalidates the cache, even when modification times are preserved.
+fingerprint() { shasum -a 256 | cut -d ' ' -f 1; }
+toolchain="$({
+    xcrun --sdk macosx --find swiftc
+    xcrun --sdk macosx swiftc --version
+    xcrun --sdk macosx --show-sdk-build-version
+    printf '%s\n' "$sdk" "$target"
+    shasum -a 256 Tests/run-checks.sh
+} | fingerprint)"
+sources=()
+while IFS= read -r source; do sources+=("$source"); done < <(find smool -name '*.swift' ! -path 'smool/SmoolApp.swift' | sort)
+module_key="$({ printf '%s\n' "$toolchain"; shasum -a 256 "${sources[@]}"; } | fingerprint)"
+if [[ ! -f "$checks/support/libSmoolChecksSupport.dylib" || ! -f "$checks/support/SmoolChecksSupport.swiftmodule" ||
+      ! -f "$checks/support/key" || "$(cat "$checks/support/key")" != "$module_key" ]]; then
+    echo "Building shared app code (${#sources[@]} files)"
+    mkdir "$staging/support"
+    "${swiftc[@]}" -enable-testing -emit-library -emit-module -module-name SmoolChecksSupport \
+        -emit-module-path "$staging/support/SmoolChecksSupport.swiftmodule" \
+        -Xlinker -install_name -Xlinker @rpath/libSmoolChecksSupport.dylib \
+        "${sources[@]}" -o "$staging/support/libSmoolChecksSupport.dylib"
+    current_sources=()
+    while IFS= read -r source; do current_sources+=("$source"); done < <(find smool -name '*.swift' ! -path 'smool/SmoolApp.swift' | sort)
+    current_key="$({ printf '%s\n' "$toolchain"; shasum -a 256 "${current_sources[@]}"; } | fingerprint)"
+    if [[ "$current_key" != "$module_key" ]]; then
+        echo "App sources changed during compilation. Rerun after edits finish." >&2
+        exit 1
+    fi
+    printf '%s\n' "$module_key" > "$staging/support/key"
+    rm -rf "$checks/support"
+    mv "$staging/support" "$checks/support"
+fi
+
+assets=()
+while IFS= read -r asset; do assets+=("$asset"); done < <(find smool/Assets.xcassets -type f | sort)
+resource_key="$({ printf '%s\n' "$toolchain"; shasum -a 256 "${assets[@]}"; } | fingerprint)"
+if [[ ! -f "$checks/resources/Assets.car" || ! -f "$checks/resources/key" ||
+      "$(cat "$checks/resources/key")" != "$resource_key" ]]; then
+    echo "Building bundled images"
+    mkdir "$staging/resources"
+    xcrun --sdk macosx actool smool/Assets.xcassets --compile "$staging/resources" \
+        --platform macosx --minimum-deployment-target 26.0 --target-device mac \
+        --output-format human-readable-text
+    current_assets=()
+    while IFS= read -r asset; do current_assets+=("$asset"); done < <(find smool/Assets.xcassets -type f | sort)
+    current_key="$({ printf '%s\n' "$toolchain"; shasum -a 256 "${current_assets[@]}"; } | fingerprint)"
+    if [[ "$current_key" != "$resource_key" ]]; then
+        echo "Images changed during compilation. Rerun after edits finish." >&2
+        exit 1
+    fi
+    printf '%s\n' "$resource_key" > "$staging/resources/key"
+    rm -rf "$checks/resources"
+    mv "$staging/resources" "$checks/resources"
+fi
+
+# The first-turn fixture remains a separate Python peer, with no installed Codex
+# process involved. Bash's %q protects paths containing spaces or shell characters.
+printf '#!/bin/bash\nexec /usr/bin/python3 %q\n' "$PWD/Tests/CodexSessionFixture.py" > "$staging/session-peer"
+chmod +x "$staging/session-peer"
+
+for name in "${selected[@]}"; do
+    source="Tests/${name}Checks.swift"
+    app="$checks/tests/$name.app"
+    test_key="$({ printf '%s\n' "$module_key" "$resource_key"; shasum -a 256 "$source"; } | fingerprint)"
+    if [[ ! -x "$app/Contents/MacOS/checks" || ! -f "$app/key" || "$(cat "$app/key")" != "$test_key" ]]; then
+        echo "Building $name"
+        bundle="$staging/$name.app"
+        mkdir -p "$bundle/Contents/MacOS"
+        ln -s "$checks/resources" "$bundle/Contents/Resources"
+        cat > "$bundle/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>checks</string>
+<key>CFBundleIdentifier</key><string>se.smool.checks.$name</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSUIElement</key><true/>
+</dict></plist>
+PLIST
+        "${swiftc[@]}" -I "$checks/support" -L "$checks/support" -lSmoolChecksSupport \
+            -Xlinker -rpath -Xlinker @executable_path/../../../../support \
+            "$source" -o "$bundle/Contents/MacOS/checks"
+        current_key="$({ printf '%s\n' "$module_key" "$resource_key"; shasum -a 256 "$source"; } | fingerprint)"
+        if [[ "$current_key" != "$test_key" ]]; then
+            echo "$source changed during compilation. Rerun after edits finish." >&2
+            exit 1
+        fi
+        printf '%s\n' "$test_key" > "$bundle/key"
+        rm -rf "$app"
+        mv "$bundle" "$app"
+    fi
+
+    echo "Running $name"
+    if [[ "$name" == CodexSession ]]; then
+        arguments=("$staging/session-peer")
+    else
+        arguments=("$checks/renders")
+    fi
+    # Execute directly so failures, signals and the transport fixture's self-launch
+    # retain their normal process semantics. set -e preserves a failing exit code.
+    "$app/Contents/MacOS/checks" "${arguments[@]}" "${extra[@]+${extra[@]}}"
+done
+printf 'Passed: %s checks. Renders: %s\n' "${#selected[@]}" "$checks/renders"

@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import Foundation
 
 @main
@@ -19,12 +20,7 @@ struct CodexActivityChecks {
         var stream = CodexActivityStream()
         precondition(stream.apply(snapshot, owner: "owner-a") == .applied)
         let presentation = stream.presentation
-        precondition(presentation.items.map(\.kind) == [.user, .assistant, .tool, .tool])
-        precondition(presentation.items[2].isRunning)
-        precondition(!presentation.items[1].isRunning)
-        precondition(presentation.items[2].details == "första raden\n")
-        precondition(presentation.items[3].details.contains("andra raden"))
-        precondition(presentation.items[3].links.isEmpty, "Tool path arguments do not become artifact links.")
+        precondition(presentation.runningTools.first?.details == "första raden")
         precondition(presentation.attention == .working)
         precondition(presentation.latestMessage?.text == "Jag läser filen.")
         precondition(presentation.runningTools.map(\.id) == ["turn:t1/c1"])
@@ -42,11 +38,7 @@ struct CodexActivityChecks {
         precondition(stream.apply(complete, owner: "owner-a") == .applied, "Revision increments may skip numbers when baseRevision matches.")
         let completed = stream.presentation
         precondition(completed.attention == .idle)
-        precondition(completed.items.last?.text.hasPrefix("Klar.") == true)
-        precondition(completed.items.last?.links.map(\.url.absoluteString) == ["file:///tmp/report.md", "https://github.com/example/repo/pull/42"])
-        precondition(completed.items.allSatisfy { !$0.isRunning })
         precondition(completed.runningTools.isEmpty && completed.latestMessage?.text.hasPrefix("Klar.") == true)
-        precondition(completed.items.prefix(4).map(\.id) == presentation.items.map(\.id), "Stable item IDs preserve reading anchors across updates.")
         precondition(stream.apply(complete, owner: "owner-a") == .ignored)
         precondition(stream.apply(snapshot, owner: "owner-a") == .ignored, "A delayed snapshot must not erase a newer final answer.")
 
@@ -67,7 +59,7 @@ struct CodexActivityChecks {
         stream.disconnect()
         precondition(stream.owner == nil && stream.revision == nil)
         precondition(stream.presentation.revision == completed.revision, "Connection resets must not move the displayed revision backwards.")
-        precondition(stream.presentation.items == completed.items, "A disconnect keeps readable results.")
+        precondition(stream.presentation.latestMessage == completed.latestMessage, "A disconnect keeps readable results.")
         expectResync(stream.apply(complete, owner: "owner-a"))
         precondition(stream.apply(snapshot, owner: "owner-b") == .applied, "A new connection accepts the owner's reset revision.")
         precondition(stream.apply(complete, owner: "owner-b") == .applied)
@@ -83,7 +75,7 @@ struct CodexActivityChecks {
         ]}
         """#)
         precondition(stream.apply(splice, owner: "owner-c") == .applied)
-        precondition(stream.presentation.items[2].details == "Rätt kommando")
+        precondition(stream.presentation.runningTools.first?.details == "Rätt kommando")
         precondition(stream.presentation.attention == .approval)
         let inputRequest = json(#"{"requests":[{"method":"item/tool/requestUserInput"}]}"#)
         precondition(CodexAttention.from(state: inputRequest) == .waitingForUser)
@@ -101,17 +93,17 @@ struct CodexActivityChecks {
         }}}}
         """#)
         precondition(stream.apply(canonical, owner: "owner-c") == .applied)
-        precondition(stream.presentation.items.map(\.text) == ["Tidigare fråga", "Senaste svaret", "Verktyget misslyckades."])
+        precondition(stream.presentation.latestMessage?.text == "Senaste svaret")
         precondition(stream.presentation.attention == .failed("Verktyget misslyckades."))
         precondition(stream.apply(json(#"""
         {"type":"patches","baseRevision":20,"revision":21,"patches":[{"op":"replace","path":["turnHistory","history","entitiesByKey","turn:new","items",0,"text"],"value":"Uppdaterat 👋"}]}
         """#), owner: "owner-c") == .applied)
-        precondition(stream.presentation.items[1].text == "Uppdaterat 👋")
+        precondition(stream.presentation.latestMessage?.text == "Uppdaterat 👋")
 
         let root = json(#"{"type":"patches","baseRevision":21,"revision":22,"patches":[{"op":"replace","path":[],"value":{"id":"canonical","title":"Replaced","turns":[]}}]}"#)
         precondition(stream.apply(root, owner: "owner-c") == .applied)
         precondition(stream.state?["title"].string == "Replaced")
-        precondition(stream.presentation.items.isEmpty)
+        precondition(stream.presentation.latestMessage == nil && stream.presentation.runningTools.isEmpty)
         expectResync(stream.apply(json(#"{"type":"patches","baseRevision":22,"revision":23,"patches":[{"op":"replace","path":["turns",0.5],"value":{}}]}"#), owner: "owner-c"))
         expectResync(stream.apply(json(#"{"type":"snapshot","revision":1e100,"conversationState":{}}"#), owner: "owner-c"))
 
@@ -129,13 +121,12 @@ struct CodexActivityChecks {
             "turns": .array([.object(["turnId": .string("many"), "status": .string("completed"), "items": .array(manyItems)])])
         ])])
         precondition(stream.apply(many, owner: "owner-c") == .applied)
-        precondition(stream.presentation.items.count == 400 && stream.presentation.omittedItemCount == 5)
+        precondition(stream.presentation.latestMessage?.text == "Text 404")
         precondition(stream.state?["turns"].array[0]["items"].array.count == 405, "Window the presentation without corrupting patch indices.")
         precondition(stream.apply(json(#"{"type":"patches","baseRevision":30,"revision":31,"patches":[{"op":"replace","path":["turns",0,"items",404,"text"],"value":"Sista meddelandet"}]}"#), owner: "owner-c") == .applied)
-        precondition(stream.presentation.items.last?.text == "Sista meddelandet")
+        precondition(stream.presentation.latestMessage?.text == "Sista meddelandet")
         checkStatusProjection()
         checkProjectionBudget()
-        checkLinkBounds()
         checkCurrentActivity()
         checkInstalledProtocolActivity()
         print("Codex activity checks passed")
@@ -207,7 +198,7 @@ struct CodexActivityChecks {
         """#)
         precondition(stream.apply(summaryDelta, owner: "desktop") == .applied)
         precondition(stream.presentation.workingSummary?.text == "Verifying tool completion.")
-        precondition(!stream.presentation.items.contains { ($0.text + $0.details).contains("PRIVATE") })
+        precondition(!visibleItems(stream.presentation).contains { ($0.text + $0.details).contains("PRIVATE") })
         var restored = CodexActivityStream()
         precondition(restored.apply(snapshot(stream.state!, revision: 3), owner: "desktop") == .applied)
         precondition(restored.presentation == stream.presentation, "Snapshot and patched state must present identically")
@@ -249,7 +240,7 @@ struct CodexActivityChecks {
         precondition(current.latestMessage?.text == "New request")
         precondition(current.runningTools.map(\.id) == ["turn:current/running"])
         precondition(current.workingSummary?.text == "Checking the current file")
-        precondition(!current.items.contains { ($0.text + $0.details).contains("PRIVATE") })
+        precondition(!visibleItems(current).contains { ($0.text + $0.details).contains("PRIVATE") })
         var changed = state.object
         var turns = state["turns"].array
         var last = turns[1].object
@@ -280,105 +271,59 @@ struct CodexActivityChecks {
                      "A new turn cannot inherit an earlier public note")
     }
 
-    static func checkProjectionBudget() {
-        func state(_ entries: [CodexJSON]) -> CodexJSON {
-            .object(["turns": .array([.object([
-                "turnId": .string("budget"), "status": .string("completed"), "items": .array(entries)
-            ])])])
-        }
-
-        // Real MCP result/argument shapes from the review reproduction. Earlier results
-        // should not incur JSON serialization once the latest presentation window is full.
-        let entries: [CodexJSON] = (0..<3_000).map { index in
-            .object([
-                "id": .string("m\(index)"), "type": .string("mcpToolCall"), "tool": .string("read"),
-                "arguments": .object(["path": .string("/tmp/file\(index)"), "data": .string(String(repeating: "x", count: 500))]),
-                "result": .object(["content": .array([.object(["type": .string("text"), "text": .string(String(repeating: "y", count: 500))])])])
-            ])
-        }
-        let longState = state(entries)
-        let recentState = state(Array(entries.suffix(400)))
-        let long = CodexActivityPresentation(state: longState, revision: 1)
-        let recent = CodexActivityPresentation(state: recentState, revision: 1)
-        precondition(long.items == recent.items, "Old history must not change recent item order, IDs or content.")
-        precondition(long.items.count < 400, "This fixture should reach the byte budget before the item count.")
-        precondition(long.items.reduce(0) { $0 + $1.presentationBytes } <= 512 * 1_024)
-        precondition(long.omittedItemCount == 3_000 - long.items.count)
-
-        // Compare in-process medians with generous headroom, instead of a machine-specific
-        // frame deadline. Full-history formatting scales by 7.5x for this fixture.
-        func projectionTime(_ state: CodexJSON) -> Duration {
-            (0..<5).map { _ in
-                ContinuousClock().measure {
-                    precondition(CodexActivityPresentation(state: state, revision: 1).items.count == long.items.count)
-                }
-            }.sorted()[2]
-        }
-        let recentTime = projectionTime(recentState)
-        let longTime = projectionTime(longState)
-        precondition(longTime < recentTime * 3 + .milliseconds(5), "Projection work must stop at the display budget.")
-        print("Codex projection median: 3000 items \(longTime), recent 400 items \(recentTime)")
-
-        let hidden: [CodexJSON] = [
-            .object(["type": .string("futureItem")]),
-            .object(["type": .string("reasoning"), "summary": .array([])]),
-            .object(["type": .string("reasoning"), "summary": .array([.string("")])]),
-            .object(["type": .string("reasoning"), "summary": .array([.string("Earlier public summary")])])
-        ]
-        let withHidden = CodexActivityPresentation(state: state(hidden + entries), revision: 1)
-        precondition(withHidden.items == long.items)
-        precondition(withHidden.omittedItemCount == long.omittedItemCount + 1, "Unknown entries and empty reasoning summaries are not omitted visible items.")
-
-        let linkedOutput = (0..<32).map { index in
-            "[\(String(repeating: "t", count: 200))](https://example.test/\(index)/\(String(repeating: "p", count: 450)))"
-        }.joined(separator: "\n")
-        let linkedEntries: [CodexJSON] = (0..<100).map { index in
-            .object([
-                "id": .string("linked-\(index)"), "type": .string("mcpToolCall"), "tool": .string("read"),
-                "result": .object(["content": .array([.object(["type": .string("text"), "text": .string(linkedOutput)])])])
-            ])
-        }
-        let linked = CodexActivityPresentation(state: state(linkedEntries), revision: 1)
-        let bytes = linked.items.reduce(0) { $0 + $1.presentationBytes }
-        precondition(bytes <= 512 * 1_024)
-        precondition(linked.items.allSatisfy { $0.links.count == 32 })
-        precondition(bytes + linked.items.last!.presentationBytes > 512 * 1_024, "The next equally sized item must exceed the complete budget, including link targets/titles.")
-        precondition(linked.omittedItemCount == 100 - linked.items.count)
+    private static func visibleItems(_ presentation: CodexActivityPresentation) -> [CodexActivityItem] {
+        [presentation.latestMessage, presentation.workingSummary, presentation.currentNote].compactMap { $0 } + presentation.runningTools
     }
 
-    static func checkLinkBounds() {
-        func project(_ output: String, arguments: CodexJSON = .null) -> CodexActivityItem {
-            let state: CodexJSON = .object(["turns": .array([.object(["items": .array([.object([
-                "type": .string("mcpToolCall"), "tool": .string("read"), "arguments": arguments,
-                "result": .object(["content": .array([.object(["type": .string("text"), "text": .string(output)])])])
-            ])])])])])
-            return CodexActivityPresentation(state: state, revision: 1).items[0]
+    static func checkProjectionBudget() {
+        let historical: [CodexJSON] = (0..<3_000).map { index in
+            .object([
+                "id": .string("old-\(index)"), "type": .string("mcpToolCall"), "status": .string("completed"),
+                "arguments": .object(["data": .string(String(repeating: "x", count: 500))]),
+                "result": .object(["content": .array([.object(["type": .string("text"), "text": .string("Old result")])])])
+            ])
         }
+        let current: [CodexJSON] = [
+            .object(["id": .string("message"), "type": .string("agentMessage"), "text": .string("Latest reply")]),
+            .object(["id": .string("note"), "type": .string("todo-list"), "explanation": .string("Current plan")]),
+            .object(["id": .string("tool"), "type": .string("commandExecution"), "status": .string("inProgress"),
+                     "command": .string("verify"), "aggregatedOutput": .string(String(repeating: "old output\n", count: 10_000) + "penultimate\nlatest\n")])
+        ]
+        func project(_ entries: [CodexJSON]) -> CodexActivityPresentation {
+            CodexActivityPresentation(state: .object(["turns": .array([.object([
+                "turnId": .string("current"), "status": .string("inProgress"), "items": .array(entries)
+            ])])]), revision: 1)
+        }
+        let compact = project(current)
+        precondition(project(historical + current) == compact, "Completed history must never be retained in the compact presentation")
+        precondition(compact.latestMessage?.text == "Latest reply" && compact.currentNote?.text == "Current plan")
+        precondition(compact.runningTools.count == 1 && compact.runningTools[0].details == "penultimate\nlatest")
+        let unicode = CodexActivityPresentation.message(.object([
+            "type": .string("agentMessage"), "text": .string(String(repeating: "x", count: 32_767) + "🧭")
+        ]), id: "unicode")!
+        precondition(unicode.text.utf8.count < 33_000 && !unicode.text.contains("�"),
+                     "Byte clipping must preserve complete Unicode scalars")
 
-        let links = (0..<10_000).map { "[result\($0)](https://example.test/result/\($0))" }.joined(separator: "\n")
-        let item = project(links)
-        precondition(item.links.count == 32)
-        precondition(item.links.last?.url.absoluteString == "https://example.test/result/31")
-        precondition(item.text.utf8.count < 33_000 && item.details.utf8.count < 33_000)
-        precondition(project(String(repeating: "x", count: 33_000) + "\n[Hidden](https://example.test/hidden)").links.isEmpty,
-                     "Links outside clipped output must never be published.")
-
-        let tailURL = String(repeating: " ", count: 32_750) + "https://example.test/complete-path"
-        precondition(project(tailURL).links.isEmpty, "Clipping a bare URL must not fabricate a shorter target.")
-        let longTarget = "https://example.test/" + String(repeating: "p", count: 2_050)
-        precondition(project("[Too long](\(longTarget))").links.isEmpty)
-        let encodedTarget = "https://example.test/" + String(repeating: "å", count: 500)
-        precondition(project("[Encoded too long](\(encodedTarget))").links.isEmpty, "Bound the URL after percent encoding too.")
-
-        let title = String(repeating: "🧭", count: 100)
-        let titled = project("[\(title)](https://example.test/report)")
-        precondition(titled.links.first?.title == String(repeating: "🧭", count: 64))
-        precondition(titled.links.allSatisfy { $0.title.utf8.count <= 256 && $0.url.absoluteString.utf8.count <= 2_048 })
-        let unicode = project(String(repeating: "x", count: 32_767) + "🧭")
-        precondition(!unicode.text.contains("�"), "Byte clipping must preserve complete Unicode scalars.")
-
-        let arguments: CodexJSON = .object(["prompt": .string("[Not a result](https://example.test/argument)"), "path": .string("/tmp/input.swift")])
-        precondition(project("No artifacts", arguments: arguments).links.isEmpty, "Tool arguments must not masquerade as produced artifacts.")
+        for text in ["Short tool", String(repeating: "🧭", count: 10_000)] {
+            let tools: [CodexJSON] = (0..<1_000).map {
+                .object(["id": .string("active-\($0)"), "type": .string("commandExecution"),
+                         "status": .string("inProgress"), "command": .string(text), "aggregatedOutput": .string(text)])
+            }
+            let bounded = project(current + tools)
+            precondition(bounded.latestMessage == compact.latestMessage && bounded.currentNote == compact.currentNote)
+            precondition(!bounded.runningTools.isEmpty && bounded.runningTools.count <= CodexActivityPresentation.maximumRunningTools)
+            let bytes = visibleItems(bounded).reduce(0) {
+                $0 + $1.id.utf8.count + $1.title.utf8.count + $1.text.utf8.count + $1.details.utf8.count
+            }
+            precondition(bytes <= CodexActivityPresentation.maximumBytes,
+                         "Many active tools must obey the compact presentation's total byte budget")
+            if text == "Short tool" {
+                precondition(bounded.runningTools.count == CodexActivityPresentation.maximumRunningTools)
+            } else {
+                precondition(bounded.runningTools.count < CodexActivityPresentation.maximumRunningTools,
+                             "Large active payloads must hit the byte budget before the item limit")
+            }
+        }
     }
 
     static func checkStatusProjection() {

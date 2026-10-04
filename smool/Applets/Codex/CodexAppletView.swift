@@ -1,20 +1,21 @@
 import SwiftUI
 
 struct CodexAppletView: View {
-    @State private var service: CodexService
-    @State private var state: CodexAppletState
-    @State private var connectionTask: Task<Void, Never>?
+    private let applet: CodexApplet
+    private let service: CodexService
+    @Bindable private var state: CodexAppletState
     @State private var isVisible = false
     @State private var recipientQuery = ""
     @State private var recipientIndex = 0
     private let restoreFocus: () -> Void
 
-    private enum Focus: Hashable { case deck, search, composer, recipient, recipientList }
+    private enum Focus: Hashable { case deck, search, recipient, recipientList }
     @FocusState private var focus: Focus?
 
-    init(service: CodexService? = nil, state: CodexAppletState? = nil, restoreFocus: @escaping () -> Void = {}) {
-        _service = State(initialValue: service ?? CodexService())
-        _state = State(initialValue: state ?? CodexAppletState())
+    init(applet: CodexApplet, restoreFocus: @escaping () -> Void = {}) {
+        self.applet = applet
+        service = applet.service
+        state = applet.state
         self.restoreFocus = restoreFocus
     }
 
@@ -32,42 +33,30 @@ struct CodexAppletView: View {
     private var selectedRequest: CodexSessionRequest? {
         localRequests.first { $0.id == state.requestID } ?? localRequests.first
     }
-    private var previewThread: CodexThread? {
-        guard let thread = threadSelection.selectedThread else { return nil }
-        if state.page == .history { return thread }
-        guard state.page == .active, service.activities[thread.id]?.latestMessage == nil,
-              activityIssue(for: thread.id) != nil else { return nil }
-        return service.threads.first { $0.id == thread.id } ?? thread
-    }
-
-    private func activityIssue(for id: String) -> String? {
-        service.sessionErrors[id] ?? service.activityErrors[id]
-            ?? (service.threads.first { $0.id == id }?.isConnected != true
-                ? service.liveError ?? "Live activity is unavailable." : nil)
-    }
+    private var previewThread: CodexThread? { applet.previewThread }
 
     private var editingHint: String {
-        switch state.scope {
+        switch state.presentation {
         case .composer, .newThread: "⇧↵ New line"
         case .search: "Search titles or content"
-        case .deck, .request: ""
+        case .deck, .request, .projects, .recipientPicker: ""
         }
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if state.showsProjects {
+            if state.presentation == .projects {
                 projectPicker
-            } else if state.showsRecipientPicker {
+            } else if state.presentation == .recipientPicker {
                 recipientPicker
-            } else if state.scope == .request, let request = selectedRequest {
+            } else if state.presentation == .request, let request = selectedRequest {
                 sessionRequest(request)
             } else {
                 AppletPages(
                     pages: CodexPage.allCases,
                     selection: $state.page,
                     title: { $0.rawValue },
-                    isNavigating: state.scope == .deck && !state.showsProjects && !state.showsRecipientPicker,
+                    isNavigating: state.presentation == .deck,
                     editingHint: editingHint,
                     navigationHint: state.page == .usage ? "⌘K Actions" : "⌘N Write · ⌘F Search · ⌘P Choose project"
                 ) { page in
@@ -83,13 +72,13 @@ struct CodexAppletView: View {
                 .focused($focus, equals: .deck)
                 .focusEffectDisabled()
                 .onAppletFocusRestore {
-                    guard !state.showsProjects, !state.showsRecipientPicker else { return }
-                    if case .composer = state.scope { return }
-                    if state.scope == .newThread { return }
+                    guard state.presentation != .projects, state.presentation != .recipientPicker else { return }
+                    if case .composer = state.presentation { return }
+                    if state.presentation == .newThread { return }
                     focus = .deck
                 }
                 .overlay(alignment: .bottom) {
-                    if case .composer(let thread) = state.scope {
+                    if case .composer(let thread) = state.presentation {
                         composer(thread)
                             .id(thread.id)
                             .padding(.horizontal, 40)
@@ -107,7 +96,7 @@ struct CodexAppletView: View {
         }
         .onChange(of: liveThreadID, initial: true) { _, id in service.selectThread(id) }
         .onChange(of: selectedRequest?.id) { _, id in
-            if id == nil, state.scope == .request { returnToDeck() }
+            if id == nil, state.presentation == .request { returnToDeck() }
         }
         .task(id: previewThread) {
             guard let thread = previewThread else { return }
@@ -117,93 +106,77 @@ struct CodexAppletView: View {
             }
         }
         .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { key in
-            guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker, (state.page == .active || state.page == .history), unmodified(key) else { return .ignored }
+            guard state.presentation == .deck, (state.page == .active || state.page == .history), unmodified(key) else { return .ignored }
             moveThread(key.key == .leftArrow ? -1 : 1)
             return .handled
         }
         .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { key in
-            guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker else { return .ignored }
+            guard state.presentation == .deck else { return .ignored }
             guard unmodified(key) else { return .ignored }
             let offset = key.key == .upArrow ? -1 : 1
             state.page = cyclingPage(in: CodexPage.allCases, to: state.page, offset: offset)
             return .handled
         }
         .onKeyPress(.return, phases: .down) { key in
-            guard state.page != .usage, !state.showsProjects, !state.showsRecipientPicker, unmodified(key) else { return .ignored }
-            if state.page == .newThread, state.scope == .deck {
-                state.scope = .newThread
+            guard state.page != .usage, state.presentation != .projects, state.presentation != .recipientPicker, unmodified(key) else { return .ignored }
+            if state.page == .newThread, state.presentation == .deck {
+                state.presentation = .newThread
                 return .handled
             }
-            if state.scope == .search, focus == .deck {
+            if state.presentation == .search, focus == .deck {
                 focus = .search
                 return .handled
             }
-            if state.scope == .deck, let thread = threadSelection.selectedThread {
+            if state.presentation == .deck, let thread = threadSelection.selectedThread {
                 open(thread)
                 return .handled
             }
             return .ignored
         }
         .onKeyPress(.escape) {
-            switch state.scope {
+            switch state.presentation {
             case .deck: return .ignored
-            case .composer, .newThread, .request: returnToDeck()
+            case .composer, .newThread, .request, .projects, .recipientPicker: returnToDeck()
             case .search: returnToDeck()
             }
             return .handled
         }
         .background {
-            Button("Choose project") { state.openProjects() }.keyboardShortcut("p", modifiers: .command).hidden()
-            Button("Search threads", action: beginSearch)
-                .keyboardShortcut("f", modifiers: .command)
-                .disabled(state.showsProjects || state.showsRecipientPicker).hidden()
-            Button("Group by project") {
-                state.groupsByProject.toggle()
-                state.page = .history
-                state.scope = .deck
+            ForEach(applet.actions.filter { $0.shortcut?.paletteShortcut != nil }) { action in
+                Button(action.title, action: action.perform)
+                    .keyboardShortcut(action.shortcut?.paletteShortcut)
+                    .hidden()
             }
-                .keyboardShortcut("p", modifiers: [.command, .shift]).hidden()
-            Button("Show archived") {
-                state.page = .history
-                state.scope = .deck
-                Task { await service.setIncludesArchived(!service.includesArchived) }
-            }.keyboardShortcut("a", modifiers: [.command, .shift]).hidden()
-            Button("Write to thread") {
-                if state.page == .newThread { state.scope = .newThread }
-                else if let thread = threadSelection.selectedThread { compose(thread) }
-            }
-            .keyboardShortcut("n", modifiers: .command)
-            .disabled(state.page == .usage || (state.page != .newThread && threadSelection.selectedThread == nil) || state.showsProjects || state.showsRecipientPicker)
-            .hidden()
             Button("Next thread") { moveThread(1) }.keyboardShortcut("]", modifiers: .command).hidden()
             Button("Previous thread") { moveThread(-1) }.keyboardShortcut("[", modifiers: .command).hidden()
-            Button("Refresh", action: refreshOrConnect).keyboardShortcut("r", modifiers: .command).hidden()
             Button("Open in Codex") {
                 if let id = threadSelection.selectedThread?.id, !service.isLocallyOwned(id),
                    let url = CodexDesktopProtocol.threadURL(id) {
                     NSWorkspace.shared.open(url)
                 }
             }.keyboardShortcut("o", modifiers: [.command, .shift]).hidden()
-            Button("Stop turn") {
-                guard let thread = threadSelection.selectedThread else { return }
-                Task { await service.cancelLocalTurn(thread.id) }
-            }
-            .keyboardShortcut(".", modifiers: .command)
-            .disabled(threadSelection.selectedThread.map { !service.isLocallyOwned($0.id) } ?? true)
-            .hidden()
         }
-        .onChange(of: state.scope) { _, scope in
-            if scope == .search { Task { await Task.yield(); focus = .search } }
-            else if scope == .deck { focus = nil; restoreFocus() }
+        .onChange(of: state.presentation) { _, presentation in
+            applet.cancelConnection()
+            if presentation == .deck {
+                focus = nil
+                restoreFocus()
+            }
+        }
+        .task(id: state.searchFocusRequest) {
+            guard state.presentation == .search else { return }
+            focus = nil
+            await Task.yield()
+            guard !Task.isCancelled, state.presentation == .search else { return }
+            focus = .search
         }
         .onAppear {
             isVisible = true
-            restoreLocalFocus()
             service.setVisible(true)
         }
         .onDisappear {
             isVisible = false
-            connectionTask?.cancel()
+            applet.cancelConnection()
             service.selectThread(nil)
             service.setVisible(false)
         }
@@ -213,7 +186,7 @@ struct CodexAppletView: View {
         let selection = threadSelection
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                if state.scope == .search {
+                if state.presentation == .search {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField("Search threads", text: query)
                         .textFieldStyle(.plain)
@@ -227,7 +200,7 @@ struct CodexAppletView: View {
                         .onKeyPress(.escape) { returnToDeck(); return .handled }
                 } else {
                     if state.page == .history && state.groupsByProject {
-                        Button { state.showsProjects = true } label: {
+                        Button { state.presentation = .projects } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: "folder")
                                 Text(selection.project?.name ?? "Choose project").lineLimit(1)
@@ -273,7 +246,7 @@ struct CodexAppletView: View {
                             .font(.system(size: 17, weight: .medium))
                             .foregroundStyle(isWorking ? .secondary : .primary)
                             .lineLimit(1)
-                        let issue = activityIssue(for: thread.id)
+                        let issue = applet.activityIssue(for: thread.id)
                         if let presentation = service.activities[thread.id],
                            presentation.latestMessage != nil || issue == nil || service.isLocallyOwned(thread.id) {
                             CodexActivityView(
@@ -302,17 +275,17 @@ struct CodexAppletView: View {
                         }
                     }
 
-                    if state.scope == .deck, let request = localRequests.first {
+                    if state.presentation == .deck, let request = localRequests.first {
                         Button {
                             state.requestID = request.id
-                            state.scope = .request
+                            state.presentation = .request
                         } label: {
                             Label(request.title, systemImage: "bubble.left.and.exclamationmark.bubble.right")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.orange)
                         }
                         .buttonStyle(.plain)
-                    } else if state.scope == .deck {
+                    } else if state.presentation == .deck {
                         Text("⌘N Write")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
@@ -369,6 +342,7 @@ struct CodexAppletView: View {
                 placeholder: "Write to Codex…",
                 isSending: service.isSending,
                 canSend: connected,
+                focusRequest: state.composerFocusRequest,
                 onSend: {
                     let text = draft.wrappedValue
                     Task {
@@ -376,7 +350,7 @@ struct CodexAppletView: View {
                         if await service.send(text, to: thread) {
                             if draft.wrappedValue == text {
                                 draft.wrappedValue = ""
-                                if case .composer(let recipient) = state.scope, recipient.id == thread.id { returnToDeck() }
+                                if case .composer(let recipient) = state.presentation, recipient.id == thread.id { returnToDeck() }
                             }
                         } else {
                             state.sendErrors[thread.id] = service.error
@@ -431,8 +405,8 @@ struct CodexAppletView: View {
                 isEditable: !draft.isSubmitting,
                 isSending: draft.isSubmitting,
                 canSend: project != nil && !draft.needsReview,
-                isEditing: state.scope == .newThread,
-                onBeginEditing: { state.scope = .newThread },
+                isEditing: state.presentation == .newThread,
+                onBeginEditing: { state.presentation = .newThread },
                 onSend: {
                     Task {
                         let thread = await draft.submit(project: project, create: service.createThread, send: service.sendInitialMessage)
@@ -462,7 +436,7 @@ struct CodexAppletView: View {
                         ForEach(pickerProjects) { project in
                             Button {
                                 state.selectProject(project)
-                                state.showsProjects = false
+                                state.presentation = .deck
                                 restoreFocus()
                             } label: {
                                 HStack {
@@ -500,8 +474,8 @@ struct CodexAppletView: View {
             state.moveProject(key.key == .upArrow ? -1 : 1, in: pickerProjects)
             return .handled
         }
-        .onKeyPress(.return) { state.showsProjects = false; returnToDeck(); return .handled }
-        .onKeyPress(.escape) { state.showsProjects = false; returnToDeck(); return .handled }
+        .onKeyPress(.return) { returnToDeck(); return .handled }
+        .onKeyPress(.escape) { returnToDeck(); return .handled }
     }
 
     private var recipientPicker: some View {
@@ -512,7 +486,7 @@ struct CodexAppletView: View {
                 .padding(.vertical, 6)
                 .focused($focus, equals: .recipient)
                 .onSubmit { chooseHighlightedRecipient() }
-            if state.choosesPendingRecipient, let text = state.pendingText {
+            if state.presentation == .recipientPicker, let text = state.pendingText {
                 Text(text).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
             }
             ScrollViewReader { proxy in
@@ -566,7 +540,7 @@ struct CodexAppletView: View {
         .onKeyPress(.return) { chooseHighlightedRecipient(); return .handled }
         .task { await Task.yield(); focus = .recipient }
         .onKeyPress(.escape) {
-            state.showsRecipientPicker = false
+            state.presentation = .deck
             focus = nil
             restoreFocus()
             return .handled
@@ -585,12 +559,12 @@ struct CodexAppletView: View {
     }
 
     private func chooseRecipient(_ thread: CodexThread) {
-        if state.choosesPendingRecipient, let text = state.pendingText {
+        if state.presentation == .recipientPicker, let text = state.pendingText {
             let existing = service.drafts[thread.id] ?? ""
             service.drafts[thread.id] = existing.isEmpty ? text : existing + "\n\n" + text
             state.pendingText = nil
         }
-        state.showsRecipientPicker = false
+        state.presentation = .deck
         recipientQuery = ""
         state.page = .history
         state.groupsByProject = false
@@ -602,7 +576,7 @@ struct CodexAppletView: View {
         if service.isLocallyOwned(thread.id) {
             if let request = localRequests.first {
                 state.requestID = request.id
-                state.scope = .request
+                state.presentation = .request
             } else {
                 compose(thread)
             }
@@ -629,62 +603,23 @@ struct CodexAppletView: View {
         .id(key)
     }
 
-    private func beginSearch() {
-        connectionTask?.cancel()
-        if state.page == .usage || state.page == .newThread { state.page = .history }
-        state.scope = .search
-        Task { await Task.yield(); focus = .search }
-    }
-
     private func returnToDeck() {
-        guard state.scope != .deck else { return }
-        connectionTask?.cancel()
-        state.scope = .deck
+        guard state.presentation != .deck else { return }
+        applet.dismissOverlay()
         if let thread = threadSelection.selectedThread { state.selection[state.page] = thread.id }
         focus = nil
         restoreFocus()
     }
 
     private func moveThread(_ offset: Int) {
-        guard state.scope == .deck else { return }
+        guard state.presentation == .deck else { return }
         let selection = threadSelection
         guard let selectedThread = selection.selectedThread else { return }
         let ids = selection.threads.map(\.id)
         state.selection[state.page] = adjacentPage(in: ids, to: selectedThread.id, offset: offset)
     }
 
-    private func compose(_ thread: CodexThread) {
-        connectionTask?.cancel()
-        state.selection[state.page] = thread.id
-        state.scope = .composer(thread)
-    }
-
-    private func refreshOrConnect() {
-        if case .composer(let thread) = state.scope {
-            guard service.isConnectingThreadID == nil else { return }
-            connectionTask = Task {
-                state.sendErrors[thread.id] = nil
-                let connected = await service.ensureConnected(to: thread)
-                if !connected { state.sendErrors[thread.id] = service.error }
-                guard connected, !Task.isCancelled, isVisible,
-                      case .composer(let recipient) = state.scope, recipient.id == thread.id else { return }
-                focus = .composer
-            }
-        } else {
-            Task {
-                await service.refresh()
-                if let thread = previewThread { await service.loadHistoryPreview(thread, force: true) }
-            }
-        }
-    }
-
-    private func restoreLocalFocus() {
-        switch state.scope {
-        case .deck, .request: break
-        case .search: focus = .search
-        case .composer, .newThread: focus = .composer
-        }
-    }
+    private func compose(_ thread: CodexThread) { applet.compose(thread) }
 
     private func unmodified(_ key: KeyPress) -> Bool {
         key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty

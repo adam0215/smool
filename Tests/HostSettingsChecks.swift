@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import SwiftUI
 
 @MainActor
@@ -7,6 +8,9 @@ private final class FixtureApplet: Applet {
     let icon = AppletIcon.symbol("square")
     let tint = Color.blue
     let contentHeight: CGFloat = 120
+    var actions: [AppletAction] {
+        [AppletAction(id: "fixture-command", title: "Fixture command", symbol: "star", detail: "Fixture details") {}]
+    }
     var deactivations = 0
     var hasPresentedOverlay = false
 
@@ -49,14 +53,15 @@ struct HostSettingsChecks {
         precondition(toolPresentation.selection == .home)
         toolPresentation.showTool(.actions)
         precondition(toolPresentation.displayedApplet.id == tools[0].id)
+        precondition(toolPresentation.hostActions.first?.detail == "Fixture details", "Host wrapping must preserve command details.")
         toolPresentation.dismissTool(returnToSource: true)
         precondition(toolPresentation.hostTool == .workspaces)
         settings.setFront(true, for: tools[0].id, in: ids + tools.map(\.id))
         precondition(!settings.frontAppletIDs.contains(tools[0].id))
         toolPresentation.dismissTool()
-        toolPresentation.showsSettings = true
+        toolPresentation.showSettings()
         toolPresentation.showTool(.actions)
-        precondition(toolPresentation.hostActions.map(\.id) == ["General settings", "Applet settings", "Back to home"])
+        precondition(toolPresentation.hostActions.map(\.id) == ["general-settings", "applet-settings", "back-to-applet"])
         toolPresentation.hostActions[1].perform()
         precondition(toolPresentation.showsSettings && toolPresentation.settingsSection == .applets)
         toolPresentation.showTool(.actions)
@@ -72,7 +77,8 @@ struct HostSettingsChecks {
         isolatedController.goBackOrClose()
         precondition(toolPresentation.capturedSelection == nil && applets[1].hasPresentedOverlay,
                      "Capture Escape cannot dismiss hidden applet state.")
-        toolPresentation.showsSettings = true
+        toolPresentation.showSettings()
+        applets[1].hasPresentedOverlay = true
         isolatedController.goBackOrClose()
         precondition(!toolPresentation.showsSettings && applets[1].hasPresentedOverlay,
                      "Settings Escape cannot dismiss hidden applet state.")
@@ -154,7 +160,7 @@ struct HostSettingsChecks {
         precondition(!controller.isOpen, "A late popover dismissal cannot reopen the panel.")
         controller.stop()
 
-        presentation.showsSettings = true
+        presentation.showSettings()
         presentation.changeSettingsSection(.general)
         precondition(presentation.contentHeight == 360)
         precondition(presentation.handleSettingsKey(49, modifiers: [], characters: " "))
@@ -177,8 +183,8 @@ struct HostSettingsChecks {
         presentation.select(presentation.selection)
         precondition(!presentation.showsSettings, "Selecting the current applet returns from settings.")
 
-        presentation.showsSettings = true
-        presentation.showsActions = true
+        presentation.showSettings()
+        presentation.showTool(.actions)
         presentation.changeSettingsSection(.general)
         let demoBeforeCapture = settings.demoNotchEnabled
         presentation.presentCapturedSelection(.failure(.noSelection))
@@ -186,7 +192,7 @@ struct HostSettingsChecks {
         precondition(presentation.capturedSelection != nil)
         precondition(!presentation.handleSettingsKey(49, modifiers: [], characters: " "))
         precondition(settings.demoNotchEnabled == demoBeforeCapture, "A capture preview cannot change settings behind it")
-        presentation.capturedSelection = nil
+        presentation.dismissPresentation()
 
         defaults.set(["missing-1", "missing-2", "missing-3"], forKey: "frontAppletIDs")
         let missing = NotchPresentation(registry: AppletRegistry(applets), settings: AppSettings(defaults: defaults))

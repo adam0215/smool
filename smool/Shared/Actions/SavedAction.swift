@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Observation
 
 struct ActionFailure: LocalizedError {
     let message: String
@@ -174,9 +175,34 @@ enum ActionDestination: Codable, Equatable, Sendable {
     }
 
     static func local(_ url: URL, kind: ActionKind) throws -> Self {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         try validateLocal(url, kind: kind)
         let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
         return kind == .application ? .application(url, bookmark: bookmark) : .folder(url, bookmark: bookmark)
+    }
+
+    func resolvedLocal() throws -> (url: URL, destination: Self) {
+        let originalURL: URL
+        let data: Data
+        switch self {
+        case .application(let url, let bookmark), .folder(let url, let bookmark):
+            originalURL = url
+            data = bookmark
+        default:
+            throw ActionFailure(message: "Choose a local app or folder.")
+        }
+        do {
+            var stale = false
+            let url = try URL(resolvingBookmarkData: data, options: [.withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale)
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            try Self.validateLocal(url, kind: kind)
+            let destination = stale || url != originalURL ? try Self.local(url, kind: kind) : self
+            return (url, destination)
+        } catch {
+            throw ActionFailure(message: "The resource could not be found. Edit it to choose the app or folder again.")
+        }
     }
 
     static func validateLocal(_ url: URL, kind: ActionKind) throws {
@@ -204,8 +230,11 @@ enum ActionDestination: Codable, Equatable, Sendable {
     }
 }
 
-struct ActionFile<Value: Codable> {
+final class ActionFile<Value: Codable & Sendable>: Sendable {
     let url: URL
+    private let queue = DispatchQueue(label: "smool.actions.persistence", qos: .utility)
+
+    init(url: URL) { self.url = url }
 
     static func location(_ name: String) -> URL {
         URL.applicationSupportDirectory.appendingPathComponent("smool", isDirectory: true).appendingPathComponent(name)
@@ -216,10 +245,16 @@ struct ActionFile<Value: Codable> {
         return try JSONDecoder().decode(Value.self, from: Data(contentsOf: url))
     }
 
-    func save(_ value: Value) throws {
-        let data = try JSONEncoder().encode(value)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
+    func save(_ value: Value) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async {
+                continuation.resume(with: Result {
+                    let data = try JSONEncoder().encode(value)
+                    try FileManager.default.createDirectory(at: self.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try data.write(to: self.url, options: .atomic)
+                })
+            }
+        }
     }
 }
 
@@ -235,5 +270,41 @@ func validateActions(_ actions: [SavedAction], allowShortcuts: Bool) throws {
             throw ActionFailure(message: "Add shortcuts in Quick Actions.")
         }
         try action.destination.validate()
+    }
+}
+
+@MainActor @Observable
+final class ActionEditorRequest: Identifiable {
+    let id = UUID()
+    let action: SavedAction?
+    var name: String
+    var input: String {
+        didSet { hasEditedInput = true }
+    }
+    private var hasEditedInput = false
+    var destination: ActionDestination?
+    var usesShortcut: Bool
+    var isSaving = false
+
+    init(action: SavedAction? = nil) {
+        self.action = action
+        name = action?.name ?? ""
+        input = action?.destination.detail ?? ""
+        destination = action?.destination
+        usesShortcut = action?.destination.kind == .shortcut
+    }
+
+    func savedAction() throws -> SavedAction {
+        let resolved: ActionDestination
+        if let destination, !hasEditedInput || usesShortcut,
+           destination.detail == input, (destination.kind == .shortcut) == usesShortcut {
+            resolved = destination
+        } else if usesShortcut {
+            throw ActionFailure(message: "Choose a shortcut first.")
+        } else {
+            resolved = try .inferred(input)
+        }
+        let enteredName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SavedAction(id: action?.id ?? id, name: enteredName.isEmpty ? resolved.suggestedName : enteredName, destination: resolved)
     }
 }

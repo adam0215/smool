@@ -139,12 +139,12 @@ enum HomeCard: Hashable {
         let position = cards.count > 1 ? 0.25 + 0.5 * Double(index) / Double(cards.count - 1) : 0.5
         let color: Color
         switch self {
-        case .clock: color = HomeGlow.color(for: nil)
+        case .clock: color = HomePalette.clock
         case .applet(let id):
             switch id.rawValue {
-            case "spotify": color = HomeGlow.color(for: .spotify)
-            case "codex": color = HomeGlow.color(for: .codex)
-            default: color = applets.first { $0.id == id }?.tint ?? HomeGlow.color(for: nil)
+            case "spotify": color = HomePalette.spotify
+            case "codex": color = HomePalette.codex
+            default: color = applets.first { $0.id == id }?.tint ?? HomePalette.clock
             }
         }
         return BottomGlow(color: color, horizontalPosition: position, darkHeight: 16)

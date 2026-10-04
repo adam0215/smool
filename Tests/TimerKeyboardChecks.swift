@@ -1,3 +1,4 @@
+@testable import SmoolChecksSupport
 import SwiftUI
 
 @main
@@ -49,7 +50,7 @@ struct TimerKeyboardChecks {
         precondition(store.timers.count == 1 && !applet.showsForm, "Return starts the edited duration")
         precondition(!isEditing(), "Starting must restore navigation focus")
 
-        applet.actions.first { $0.id == "New timer" }!.perform()
+        applet.actions.first { $0.id == "new-timer" }!.perform()
         settle()
         precondition(applet.showsForm && !isEditing(), "Opening New timer must not focus its input")
         press(48, "\t")
@@ -58,7 +59,7 @@ struct TimerKeyboardChecks {
         press(53, "\u{1b}")
         precondition(!isEditing() && !applet.showsForm && applet.durationInput == "3")
 
-        applet.actions.first { $0.id == "New timer" }!.perform()
+        applet.actions.first { $0.id == "new-timer" }!.perform()
         settle()
         precondition(!isEditing())
         press(36, "\r")

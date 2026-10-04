@@ -9,9 +9,27 @@ struct AppletPadding: ViewModifier {
     }
 }
 
+@MainActor @Observable
+final class NotchHelpState {
+    var text: String?
+}
+
+private struct NotchHelpKey: EnvironmentKey {
+    static let defaultValue: NotchHelpState? = nil
+}
+
+extension EnvironmentValues {
+    var notchHelp: NotchHelpState? {
+        get { self[NotchHelpKey.self] }
+        set { self[NotchHelpKey.self] = newValue }
+    }
+}
+
 private struct NotchHelp: ViewModifier {
     let text: String
-    @State private var isVisible = false
+    @Environment(\.notchHelp) private var help
+
+    private var isVisible: Bool { help?.text == text }
 
     func body(content: Content) -> some View {
         content
@@ -22,13 +40,14 @@ private struct NotchHelp: ViewModifier {
                         .lineSpacing(7)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(.black.opacity(0.94), in: .rect(cornerRadius: 24))
-                        .onTapGesture { isVisible = false }
+                        .onTapGesture { help?.text = nil }
                 }
             }
-            .onKeyPress("?") { isVisible.toggle(); return .handled }
+            .onDisappear { if isVisible { help?.text = nil } }
+            .onKeyPress("?") { help?.text = isVisible ? nil : text; return .handled }
             .onKeyPress(.escape) {
                 guard isVisible else { return .ignored }
-                isVisible = false
+                help?.text = nil
                 return .handled
             }
     }
