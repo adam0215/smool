@@ -32,20 +32,22 @@ actor FileShelfRepository {
         try load()
         let previous = files
         let resolved = files.map(resolve)
-        files = resolved.map(\.reference)
-        if files != previous { try save() }
+        let updated = resolved.map(\.reference)
+        if updated != previous { try save(updated) }
+        files = updated
         return FileShelfSnapshot(files: resolved)
     }
 
     func add(urls: [URL]) throws -> FileShelfSnapshot {
         try load()
-        var updated = try refresh().files.map(\.reference)
+        var updated = files.map(resolve)
         var messages: [String] = []
         for url in urls {
             guard url.isFileURL else { continue }
             let url = url.standardizedFileURL
-            guard !updated.contains(where: { $0.lastKnownURL.resolvingSymlinksInPath() == url.resolvingSymlinksInPath() }) else { continue }
-            guard updated.count < Self.capacity else {
+            let existing = updated.firstIndex { $0.reference.lastKnownURL.resolvingSymlinksInPath() == url.resolvingSymlinksInPath() }
+            if let existing, updated[existing].url != nil { continue }
+            guard existing != nil || updated.count < Self.capacity else {
                 messages.append("The shelf holds up to \(Self.capacity) files. Remove a reference to add more.")
                 break
             }
@@ -54,7 +56,10 @@ actor FileShelfRepository {
             do {
                 guard try url.checkResourceIsReachable() else { throw CocoaError(.fileReadNoSuchFile) }
                 let bookmark = try Self.bookmark(for: url)
-                updated.insert(ShelfFile(id: UUID(), bookmark: bookmark, name: url.lastPathComponent, lastKnownURL: url), at: 0)
+                let reference = ShelfFile(id: existing.map { updated[$0].id } ?? UUID(), bookmark: bookmark, name: url.lastPathComponent, lastKnownURL: url)
+                let resolved = resolve(reference)
+                if let existing { updated[existing] = resolved }
+                else { updated.insert(resolved, at: 0) }
             } catch {
                 messages.append("\(url.lastPathComponent) could not be added. Select the file again.")
             }
@@ -62,19 +67,23 @@ actor FileShelfRepository {
         // Keep the order of each incoming batch while placing it before older files.
         let newIDs = Set(updated.map(\.id)).subtracting(files.map(\.id))
         updated = updated.filter { newIDs.contains($0.id) }.reversed() + updated.filter { !newIDs.contains($0.id) }
-        try save(updated)
-        files = updated
-        var snapshot = try refresh()
-        snapshot.message = messages.isEmpty ? nil : messages.joined(separator: "\n")
-        return snapshot
+        let references = updated.map(\.reference)
+        try save(references)
+        files = references
+        return FileShelfSnapshot(files: updated, message: messages.isEmpty ? nil : messages.joined(separator: "\n"))
     }
 
     func remove(id: UUID) throws -> FileShelfSnapshot {
+        try remove(ids: [id])
+    }
+
+    func remove(ids: Set<UUID>) throws -> FileShelfSnapshot {
         try load()
-        let updated = files.filter { $0.id != id }
+        let resolved = files.filter { !ids.contains($0.id) }.map(resolve)
+        let updated = resolved.map(\.reference)
         try save(updated)
         files = updated
-        return try refresh()
+        return FileShelfSnapshot(files: resolved)
     }
 
     private func load() throws {
@@ -88,9 +97,9 @@ actor FileShelfRepository {
         loaded = true
     }
 
-    private func save(_ updated: [ShelfFile]? = nil) throws {
+    private func save(_ updated: [ShelfFile]) throws {
         try FileManager.default.createDirectory(at: storageURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(updated ?? files).write(to: storageURL, options: .atomic)
+        try JSONEncoder().encode(updated).write(to: storageURL, options: .atomic)
     }
 
     private static func bookmark(for url: URL) throws -> Data {

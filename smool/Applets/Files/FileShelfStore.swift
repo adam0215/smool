@@ -56,8 +56,9 @@ final class FileShelfStore {
     }
 
     func removeSelected() {
-        let ids = files.filter { selectedIDs.contains($0.id) }.map(\.id)
-        for id in ids { remove(id: id) }
+        let ids = selectedIDs
+        guard !ids.isEmpty else { return }
+        enqueue { try await $0.remove(ids: ids) }
     }
 
     func refresh() { enqueue { try await $0.refresh() } }
