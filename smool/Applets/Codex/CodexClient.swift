@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class CodexClient {
     private let desktop: Bool
+    private let endpointOverride: CodexTransport.Endpoint?
     private var transport: CodexTransport?
     private var clientID = "initializing-client"
     private var pending: [String: CheckedContinuation<CodexJSON, any Error>] = [:]
@@ -14,7 +15,10 @@ final class CodexClient {
     var onDisconnect: (() -> Void)?
     private(set) var isConnected = false
 
-    init(desktop: Bool) { self.desktop = desktop }
+    init(desktop: Bool, endpoint: CodexTransport.Endpoint? = nil) {
+        self.desktop = desktop
+        endpointOverride = endpoint
+    }
 
     func connect() async throws {
         guard !isConnected else { return }
@@ -31,7 +35,9 @@ final class CodexClient {
 
     private func establishConnection() async throws {
         let endpoint: CodexTransport.Endpoint
-        if desktop {
+        if let endpointOverride {
+            endpoint = endpointOverride
+        } else if desktop {
             endpoint = .desktop(Self.codexHome.appendingPathComponent("ipc/ipc.sock").path)
         } else {
             guard let executable = Self.executable else {
@@ -129,6 +135,22 @@ final class CodexClient {
         for id in Array(pending.keys) {
             finish(id, result: .failure(CodexConnectionError(message: "Disconnected from Codex.")))
         }
+    }
+
+    func respond(to id: CodexJSON, result: CodexJSON) throws {
+        guard !desktop, isConnected, let transport else {
+            throw CodexConnectionError(message: "The connection to Codex is closed.")
+        }
+        try transport.send(.object(["id": id, "result": result]))
+    }
+
+    func reject(_ id: CodexJSON, message: String) throws {
+        guard !desktop, isConnected, let transport else {
+            throw CodexConnectionError(message: "The connection to Codex is closed.")
+        }
+        try transport.send(.object(["id": id, "error": .object([
+            "code": .number(-32601), "message": .string(message)
+        ])]))
     }
 
     private func receive(_ message: CodexJSON) {

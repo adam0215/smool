@@ -92,6 +92,10 @@ final class CodexService {
     private(set) var attentionByThread: [String: CodexAttention] = [:]
     private(set) var isVisible = false
     private(set) var monitorsStatus = false
+    private(set) var sessionRequests: [String: [CodexSessionRequest]] = [:]
+    private(set) var localThreadIDs: Set<String> = []
+    @ObservationIgnored private var localSessions: [String: CodexSession] = [:]
+    @ObservationIgnored private var localPublicationTask: Task<Void, Never>?
 
     @ObservationIgnored private var unavailableActivityIDs: Set<String> = []
     @ObservationIgnored private var statusStreams: [String: CodexActivityStream] = [:]
@@ -105,6 +109,7 @@ final class CodexService {
     @ObservationIgnored private var retryDelay: Duration = .seconds(1)
     @ObservationIgnored private let projectActivity: @Sendable (CodexActivityStream) -> CodexActivityPresentation
     @ObservationIgnored private let historyRequest: (@MainActor (String, CodexJSON) async throws -> CodexJSON)?
+    @ObservationIgnored private let makeSessionClient: @MainActor () -> CodexClient
     @ObservationIgnored private var historyTask: Task<Void, Never>?
     @ObservationIgnored private var historyToken = UUID()
     @ObservationIgnored private var historyLoadingID: String?
@@ -119,16 +124,21 @@ final class CodexService {
     @ObservationIgnored private var refreshing = false
 
     init(historyRequest: (@MainActor (String, CodexJSON) async throws -> CodexJSON)? = nil,
+         makeSessionClient: @escaping @MainActor () -> CodexClient = { CodexClient(desktop: false) },
          projectActivity: @escaping @Sendable (CodexActivityStream) -> CodexActivityPresentation = { $0.presentation }) {
         self.projectActivity = projectActivity
         self.historyRequest = historyRequest
+        self.makeSessionClient = makeSessionClient
         desktop.onMessage = { [weak self] in self?.receive($0) }
         desktop.onDisconnect = { [weak self] in self?.lostLiveConnection() }
     }
 
     func setVisible(_ visible: Bool) {
         isVisible = visible
-        if visible { schedulePublication(after: .zero) }
+        if visible {
+            schedulePublication(after: .zero)
+            publishLocalActivities()
+        }
         else {
             cancelHistoryPreview()
             publicationTask?.cancel()
@@ -187,7 +197,9 @@ final class CodexService {
         markRead(id)
         streamAccess.removeAll { $0 == id }
         streamAccess.append(id)
-        if streams[id] == nil || unavailableActivityIDs.remove(id) != nil {
+        if let local = localSessions[id] {
+            activities[id] = local.presentation
+        } else if streams[id] == nil || unavailableActivityIDs.remove(id) != nil {
             streams[id] = CodexActivityStream()
             resubscribe(id)
         }
@@ -221,7 +233,10 @@ final class CodexService {
         followed.removeAll()
         owners.removeAll()
         var disconnected = threads
-        for index in disconnected.indices { disconnected[index].isConnected = false; disconnected[index].status = nil }
+        for index in disconnected.indices where !localThreadIDs.contains(disconnected[index].id) {
+            disconnected[index].isConnected = false
+            disconnected[index].status = nil
+        }
         if disconnected != threads { threads = disconnected }
     }
 
@@ -419,6 +434,7 @@ final class CodexService {
     /// Opening a thread lets the desktop keep ownership, settings and approval handling.
     /// This explicit action only connects; sending always remains a separate user action.
     func ensureConnected(to thread: CodexThread) async -> Bool {
+        if let local = localSessions[thread.id] { return local.client.isConnected }
         if desktop.isConnected, owners[thread.id] != nil,
            threads.contains(where: { $0.id == thread.id && $0.isConnected }) {
             error = nil
@@ -498,6 +514,16 @@ final class CodexService {
         var submitted = false
         defer { isSending = false }
         do {
+            if let local = localSessions[thread.id] {
+                guard !local.hasStarted || local.isRunning else {
+                    error = "The first turn has finished. Open the thread in Codex to continue."
+                    return false
+                }
+                submitted = true
+                try await local.send(text)
+                error = nil
+                return true
+            }
             try await desktop.connect()
             let owner = try await owner(of: thread.id)
             // Never resume independently: the existing owner retains settings, tools and approvals.
@@ -519,26 +545,40 @@ final class CodexService {
         }
     }
 
-    /// Create without starting a competing turn. The desktop takes ownership before sending.
+    /// Keep the creator alive: Codex materializes a new thread only after its first input.
     func createThread(in project: CodexProject) async throws -> CodexThread {
         let params = try CodexNewThreadDraft.startParameters(project: project)
-        let client = CodexClient(desktop: false)
-        defer { client.disconnect() }
-        try await client.connect()
+        let client = makeSessionClient()
+        do { try await client.connect() }
+        catch { client.disconnect(); throw error }
 
         let result: CodexJSON
         do {
             result = try await client.request("thread/start", params: params)
         } catch {
+            client.disconnect()
             throw CodexNewThreadError(message: "Thread creation could not be confirmed. Check Codex before retrying. Your draft is saved.", needsReview: true)
         }
         guard var thread = CodexThread(json: result["thread"]), UUID(uuidString: thread.id) != nil else {
+            client.disconnect()
             throw CodexNewThreadError(message: "Codex returned an unrecognized thread. Check Codex before retrying. Your draft is saved.", needsReview: true)
         }
         thread.project = project
+        thread.isConnected = true
+        thread.status = "idle"
+        let local = CodexSession(threadID: thread.id, client: client)
+        local.onChange = { [weak self, weak local] in
+            guard let self, let local else { return }
+            self.updateLocalSession(local)
+        }
+        local.onFinish = { [weak self, weak local] in
+            guard let self, let local else { return }
+            Task { await self.releaseLocalSession(local) }
+        }
+        localSessions[thread.id] = local
+        localThreadIDs.insert(thread.id)
         threads.insert(thread, at: 0)
-        // Closing this client also unsubscribes if the explicit request fails.
-        _ = try? await client.request("thread/unsubscribe", params: .object(["threadId": .string(thread.id)]))
+        cachedThreads = nil
         return thread
     }
 
@@ -554,6 +594,75 @@ final class CodexService {
         }
     }
 
+    func isLocallyOwned(_ threadID: String) -> Bool { localThreadIDs.contains(threadID) }
+
+    func localRequests(for threadID: String) -> [CodexSessionRequest] { sessionRequests[threadID] ?? [] }
+
+    func respond(to request: CodexSessionRequest, decision: CodexSessionDecision) {
+        guard let local = localSessions[request.threadID] else { return }
+        if case .cancel = decision {
+            Task { await cancelLocalTurn(request.threadID) }
+            return
+        }
+        do { try local.respond(to: request, decision: decision) }
+        catch { self.error = error.localizedDescription }
+    }
+
+    func cancelLocalTurn(_ threadID: String) async {
+        guard let local = localSessions[threadID] else { return }
+        do { try await local.cancel() }
+        catch { self.error = error.localizedDescription }
+    }
+
+    private func updateLocalSession(_ local: CodexSession) {
+        let id = local.threadID
+        if sessionRequests[id]?.map(\.id) != local.requests.map(\.id) { sessionRequests[id] = local.requests }
+        let attention = CodexAttention.from(state: local.state)
+        if attentionByThread[id] != attention { attentionByThread[id] = attention }
+        if (!isVisible || selectedThreadID != id), !unreadThreadIDs.contains(id) { unreadThreadIDs.insert(id) }
+        let status = local.isRunning ? "active" : "idle"
+        if let index = threads.firstIndex(where: { $0.id == id }),
+           threads[index].isConnected != local.client.isConnected || threads[index].status != status {
+            threads[index].isConnected = local.client.isConnected
+            threads[index].status = status
+            threads[index].updatedAt = .now
+        }
+        if cachedThreads != nil { cachedThreads = nil }
+        // Remove completed work immediately, while text updates remain coalesced.
+        if isVisible, var activity = activities[id] {
+            activity.reconcileActivity(state: local.state)
+            activities[id] = activity
+        }
+        guard isVisible, localPublicationTask == nil else { return }
+        localPublicationTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard let self else { return }
+            self.localPublicationTask = nil
+            if self.isVisible { self.publishLocalActivities() }
+        }
+    }
+
+    private func publishLocalActivities() {
+        guard let id = selectedThreadID, let local = localSessions[id] else { return }
+        activities[id] = local.presentation
+    }
+
+    private func releaseLocalSession(_ local: CodexSession) async {
+        let id = local.threadID
+        guard localSessions[id] === local, !local.isRunning else { return }
+        // Preserve the final public result before releasing the only running owner.
+        if selectedThreadID == id || activities[id] != nil { activities[id] = local.presentation }
+        if local.client.isConnected {
+            _ = try? await local.client.request("thread/unsubscribe", params: .object(["threadId": .string(id)]))
+        }
+        local.client.disconnect()
+        localSessions[id] = nil
+        localThreadIDs.remove(id)
+        sessionRequests[id] = nil
+        if let index = threads.firstIndex(where: { $0.id == id }) { threads[index].isConnected = false }
+        if isVisible || monitorsStatus { follow(id) }
+    }
+
     private func updateProjects() {
         var available = projectCatalog.projects
         if threads.contains(where: { $0.project == nil }) { available.append(.unassigned) }
@@ -561,7 +670,7 @@ final class CodexService {
     }
 
     private func follow(_ id: String) {
-        guard !followed.contains(id), followed.count < 512 || id == selectedThreadID,
+        guard !localThreadIDs.contains(id), !followed.contains(id), followed.count < 512 || id == selectedThreadID,
               desktop.follow(id) else { return }
         followed.insert(id)
     }
@@ -580,6 +689,7 @@ final class CodexService {
             return
         }
         guard params["hostId"].string == "local", let id = params["conversationId"].string else { return }
+        guard !localThreadIDs.contains(id) else { return }
         if method == "thread-stream-following-changed" { follow(id); return }
         if method == "thread-stream-following-status-requested" {
             if followed.contains(id) { desktop.follow(id) }
@@ -761,13 +871,15 @@ final class CodexNewThreadDraft {
     private(set) var error: String?
 
     static func startParameters(project: CodexProject) throws -> CodexJSON {
-        guard !project.id.isEmpty, let root = project.roots.first, root.hasPrefix("/") else {
+        guard !project.id.isEmpty, let root = project.roots.first,
+              project.roots.allSatisfy({ $0.hasPrefix("/") }) else {
             throw CodexNewThreadError(message: "Choose a local project in Codex first.")
         }
         // Verified against Codex CLI 0.160.0's generated thread/start schema. Omitted model,
         // permissions and instructions inherit Codex configuration for this directory.
         return .object([
             "cwd": .string(root), "threadSource": .string("user"),
+            "projectId": .string(project.id), "runtimeWorkspaceRoots": .array(project.roots.map(CodexJSON.string)),
             "ephemeral": .bool(false)
         ])
     }

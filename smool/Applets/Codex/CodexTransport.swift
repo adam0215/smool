@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// Owns only a reader connection or a read-only app-server process, never the desktop server.
+/// Owns a reader connection or a smool app-server process, never the desktop server.
 /// All file descriptors, framing and process work stay on this serial queue.
 final class CodexTransport: @unchecked Sendable {
     enum Endpoint: Sendable { case desktop(String), appServer(String) }

@@ -320,7 +320,9 @@ struct CodexActivityPresentation: Equatable, Sendable {
         for hook in current.value["hookRuns"].array where hook["run"]["status"].string == "running" {
             activeItemIDs.insert("\(prefix)hook:\(hook["id"].string ?? hook["run"]["id"].string ?? "unknown")")
         }
-        isThinking = attention == .working && (lastWorkIndex.map { entries[$0]["type"].string == "reasoning" } ?? false)
+        isThinking = attention == .working && (lastWorkIndex.map {
+            entries[$0]["type"].string == "reasoning" && Self.isRunning(entries[$0], in: current.value, isLastWork: true)
+        } ?? false)
     }
 
     private static func lastWorkIndex(in entries: [CodexJSON]) -> Int? {
