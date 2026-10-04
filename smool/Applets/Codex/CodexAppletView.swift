@@ -41,7 +41,7 @@ struct CodexAppletView: View {
     }
 
     private func activityIssue(for id: String) -> String? {
-        service.activityErrors[id]
+        service.sessionErrors[id] ?? service.activityErrors[id]
             ?? (service.threads.first { $0.id == id }?.isConnected != true
                 ? service.liveError ?? "Live activity is unavailable." : nil)
     }
@@ -274,10 +274,11 @@ struct CodexAppletView: View {
                             .foregroundStyle(isWorking ? .secondary : .primary)
                             .lineLimit(1)
                         let issue = activityIssue(for: thread.id)
-                        if let presentation = service.activities[thread.id], presentation.latestMessage != nil || issue == nil {
+                        if let presentation = service.activities[thread.id],
+                           presentation.latestMessage != nil || issue == nil || service.isLocallyOwned(thread.id) {
                             CodexActivityView(
                                 presentation: presentation,
-                                isLive: currentThread?.isConnected == true && issue == nil
+                                isLive: currentThread?.isConnected == true && (issue == nil || service.isLocallyOwned(thread.id))
                                     && (service.attentionByThread[thread.id] == .working || service.isLocallyOwned(thread.id)),
                                 unavailableReason: issue
                             )
@@ -615,7 +616,7 @@ struct CodexAppletView: View {
         return CodexSessionRequestView(
             request: request,
             answers: Binding(get: { state.requestAnswers[key] ?? [:] }, set: { state.requestAnswers[key] = $0 }),
-            error: service.error,
+            error: service.sessionErrors[request.threadID],
             respond: { decision in
                 service.respond(to: request, decision: decision)
                 if !service.localRequests(for: request.threadID).contains(where: { $0.id == request.id }) {

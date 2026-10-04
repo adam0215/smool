@@ -5,6 +5,7 @@ import sys
 thread_id = "10000000-0000-0000-0000-000000000001"
 turn_id = "fixture-turn"
 started = False
+interrupt_attempts = 0
 
 
 def send(value):
@@ -29,10 +30,19 @@ for line in sys.stdin:
     elif method == "turn/start":
         assert not started, "The first input must only start once"
         started = True
-        assert params["input"][0]["text"] == "Fixture prompt"
+        prompt = params["input"][0]["text"]
+        assert prompt in ["Fixture prompt", "Cancel fixture", "Fast fixture"]
         turn = {"id": turn_id, "status": "inProgress", "items": []}
         notify("turn/started", turn=turn)
+        if prompt == "Fast fixture":
+            notify("item/completed", turnId=turn_id, item={"id": "answer", "type": "agentMessage", "text": "Fast completion"})
+            notify("turn/completed", turn={"id": turn_id, "status": "completed", "items": []})
+            send({"id": request_id, "result": {"turn": turn}})
+            continue
         send({"id": request_id, "result": {"turn": turn}})
+        if prompt == "Cancel fixture":
+            send({"id": 202, "method": "fixture/unsupportedRequest", "params": {"threadId": thread_id}})
+            continue
         notify("item/started", turnId=turn_id, item={"id": "command", "type": "commandExecution", "command": "fixture command", "status": "inProgress"})
         send({"id": 101, "method": "item/commandExecution/requestApproval", "params": {"threadId": thread_id, "turnId": turn_id, "itemId": "command", "command": "fixture command", "reason": "Fixture permission", "availableDecisions": ["accept", "decline", "cancel"]}})
     elif request_id == 101:
@@ -45,6 +55,18 @@ for line in sys.stdin:
         notify("item/agentMessage/delta", turnId=turn_id, itemId="answer", delta="Fixture completed")
         notify("item/completed", turnId=turn_id, item={"id": "answer", "type": "agentMessage", "text": "Fixture completed"})
         notify("turn/completed", turn={"id": turn_id, "status": "completed", "items": []})
+    elif method == "turn/steer":
+        assert started and params["expectedTurnId"] == turn_id
+        assert params["input"][0]["text"] == "Follow-up fixture"
+        send({"id": request_id, "result": {"turnId": turn_id}})
+    elif method == "turn/interrupt":
+        assert started and params["turnId"] == turn_id
+        interrupt_attempts += 1
+        if interrupt_attempts == 1:
+            send({"id": request_id, "error": {"code": -32000, "message": "Fixture interruption failed"}})
+            continue
+        send({"id": request_id, "result": {}})
+        notify("turn/completed", turn={"id": turn_id, "status": "interrupted", "items": []})
     elif method == "thread/unsubscribe":
         assert started, "An empty thread must never be handed off"
         send({"id": request_id, "result": {"status": "unsubscribed"}})

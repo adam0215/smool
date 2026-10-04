@@ -55,6 +55,10 @@ done < <(find smool -name '*.swift' ! -name 'SmoolApp.swift' | sort)
 "${swiftc[@]}" smool/Shared/Actions/SavedAction.swift smool/Shared/Actions/ActionLauncher.swift smool/Applets/QuickActions/QuickActionStore.swift smool/Applets/Workspaces/WorkspaceStore.swift Tests/SavedActionsChecks.swift -o "$checks/saved-actions"
 "$checks/saved-actions"
 bash Tests/run-codex-activity-checks.sh
+bash Tests/run-codex-new-thread-checks.sh
+bash Tests/run-codex-session-checks.sh
+bash Tests/run-codex-composer-checks.sh
+bash Tests/run-notch-file-drop-checks.sh
 bash Tests/run-timer-checks.sh
 
 for name in HostSettings HostRendering NotesApplet AudioAppletRendering ActionApplets Integration Termination; do

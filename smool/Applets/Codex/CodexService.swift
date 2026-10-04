@@ -93,6 +93,7 @@ final class CodexService {
     private(set) var isVisible = false
     private(set) var monitorsStatus = false
     private(set) var sessionRequests: [String: [CodexSessionRequest]] = [:]
+    private(set) var sessionErrors: [String: String] = [:]
     private(set) var localThreadIDs: Set<String> = []
     @ObservationIgnored private var localSessions: [String: CodexSession] = [:]
     @ObservationIgnored private var localPublicationTask: Task<Void, Never>?
@@ -600,18 +601,20 @@ final class CodexService {
 
     func respond(to request: CodexSessionRequest, decision: CodexSessionDecision) {
         guard let local = localSessions[request.threadID] else { return }
+        sessionErrors[request.threadID] = nil
         if case .cancel = decision {
             Task { await cancelLocalTurn(request.threadID) }
             return
         }
         do { try local.respond(to: request, decision: decision) }
-        catch { self.error = error.localizedDescription }
+        catch { sessionErrors[request.threadID] = error.localizedDescription }
     }
 
     func cancelLocalTurn(_ threadID: String) async {
         guard let local = localSessions[threadID] else { return }
+        sessionErrors[threadID] = nil
         do { try await local.cancel() }
-        catch { self.error = error.localizedDescription }
+        catch { sessionErrors[threadID] = error.localizedDescription }
     }
 
     private func updateLocalSession(_ local: CodexSession) {
@@ -659,6 +662,7 @@ final class CodexService {
         localSessions[id] = nil
         localThreadIDs.remove(id)
         sessionRequests[id] = nil
+        sessionErrors[id] = nil
         if let index = threads.firstIndex(where: { $0.id == id }) { threads[index].isConnected = false }
         if isVisible || monitorsStatus { follow(id) }
     }

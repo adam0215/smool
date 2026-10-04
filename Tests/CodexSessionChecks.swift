@@ -18,6 +18,8 @@ struct CodexSessionChecks {
         service.stop()
         precondition(service.isLocallyOwned(thread.id) && service.threads.first?.isConnected == true,
                      "Closing the notch must not kill its first-turn owner or pending approval")
+        let steered = await service.send("Follow-up fixture", to: thread)
+        precondition(steered, "Follow-ups must stay with the same app-server owner")
         let request = service.localRequests(for: thread.id)[0]
         precondition(request.message.contains("fixture command"))
         service.respond(to: request, decision: .allowOnce)
@@ -26,7 +28,29 @@ struct CodexSessionChecks {
         precondition(service.activities[thread.id]?.runningTools.isEmpty == true)
         precondition(service.localRequests(for: thread.id).isEmpty)
         precondition(service.attentionByThread[thread.id] == .idle)
-        print("Passed: persistent first-turn ownership, inherited configuration, approval routing, hidden-notch lifetime, activity and terminal release.")
+        for prompt in ["Cancel fixture", "Fast fixture"] {
+            let service = CodexService(makeSessionClient: { CodexClient(desktop: false, endpoint: .appServer(fixture.path)) })
+            let thread = try await service.createThread(in: project)
+            service.selectThread(thread.id)
+            try await service.sendInitialMessage(prompt, to: thread)
+            if prompt == "Cancel fixture" {
+                try await wait { !service.localRequests(for: thread.id).isEmpty }
+                precondition(service.localRequests(for: thread.id)[0].kind == .unsupported)
+                await service.cancelLocalTurn(thread.id)
+                precondition(service.sessionErrors[thread.id] == "Fixture interruption failed")
+                precondition(service.error == nil && service.isLocallyOwned(thread.id),
+                             "An interruption error belongs only to its thread and must leave it retryable")
+                await service.cancelLocalTurn(thread.id)
+            }
+            try await wait { !service.isLocallyOwned(thread.id) }
+            precondition(service.localRequests(for: thread.id).isEmpty)
+            precondition(service.sessionErrors[thread.id] == nil)
+            if prompt == "Fast fixture" {
+                precondition(service.activities[thread.id]?.latestMessage?.text == "Fast completion",
+                             "Completion before the send response must not disconnect the pending submission")
+            }
+        }
+        print("Passed: persistent first-turn ownership, inherited configuration, approval/steer routing, hidden-notch lifetime, cancellation, activity and terminal-response races.")
     }
 
     @MainActor private static func wait(_ condition: () -> Bool) async throws {

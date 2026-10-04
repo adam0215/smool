@@ -5,7 +5,7 @@ struct CodexProject: Identifiable, Equatable, Sendable {
     let name: String
     let roots: [String]
 
-    static let unassigned = CodexProject(id: "", name: "Utan projekt", roots: [])
+    static let unassigned = CodexProject(id: "", name: "No project", roots: [])
 }
 
 /// The desktop stores sidebar names, order and explicit memberships separately from a thread's cwd.
