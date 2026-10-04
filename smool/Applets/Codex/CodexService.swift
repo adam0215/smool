@@ -519,6 +519,41 @@ final class CodexService {
         }
     }
 
+    /// Create without starting a competing turn. The desktop takes ownership before sending.
+    func createThread(in project: CodexProject) async throws -> CodexThread {
+        let params = try CodexNewThreadDraft.startParameters(project: project)
+        let client = CodexClient(desktop: false)
+        defer { client.disconnect() }
+        try await client.connect()
+
+        let result: CodexJSON
+        do {
+            result = try await client.request("thread/start", params: params)
+        } catch {
+            throw CodexNewThreadError(message: "Thread creation could not be confirmed. Check Codex before retrying. Your draft is saved.", needsReview: true)
+        }
+        guard var thread = CodexThread(json: result["thread"]), UUID(uuidString: thread.id) != nil else {
+            throw CodexNewThreadError(message: "Codex returned an unrecognized thread. Check Codex before retrying. Your draft is saved.", needsReview: true)
+        }
+        thread.project = project
+        threads.insert(thread, at: 0)
+        // Closing this client also unsubscribes if the explicit request fails.
+        _ = try? await client.request("thread/unsubscribe", params: .object(["threadId": .string(thread.id)]))
+        return thread
+    }
+
+    func sendInitialMessage(_ text: String, to thread: CodexThread) async throws {
+        defer {
+            if !isVisible && !monitorsStatus { desktop.disconnect() }
+        }
+        guard await ensureConnected(to: thread) else {
+            throw CodexNewThreadError(message: error ?? "Could not connect the new thread. Your draft is saved; try again.")
+        }
+        guard await send(text, to: thread) else {
+            throw CodexNewThreadError(message: error ?? "Delivery could not be confirmed. Check Codex before retrying. Your draft is saved.", needsReview: true)
+        }
+    }
+
     private func updateProjects() {
         var available = projectCatalog.projects
         if threads.contains(where: { $0.project == nil }) { available.append(.unassigned) }
@@ -706,5 +741,73 @@ final class CodexService {
         for index in disconnected.indices { disconnected[index].isConnected = false; disconnected[index].status = nil }
         if disconnected != threads { threads = disconnected }
         liveError = "Disconnected from Codex. Reconnecting…"
+    }
+}
+
+struct CodexNewThreadError: LocalizedError {
+    let message: String
+    var needsReview = false
+    var errorDescription: String? { message }
+}
+
+/// Retain the created thread on failure so retry cannot accidentally create a second one.
+@MainActor @Observable
+final class CodexNewThreadDraft {
+    var text = ""
+    var projectID: String?
+    private(set) var thread: CodexThread?
+    private(set) var isSubmitting = false
+    private(set) var needsReview = false
+    private(set) var error: String?
+
+    static func startParameters(project: CodexProject) throws -> CodexJSON {
+        guard !project.id.isEmpty, let root = project.roots.first, root.hasPrefix("/") else {
+            throw CodexNewThreadError(message: "Choose a local project in Codex first.")
+        }
+        // Verified against Codex CLI 0.160.0's generated thread/start schema. Omitted model,
+        // permissions and instructions inherit Codex configuration for this directory.
+        return .object([
+            "cwd": .string(root), "threadSource": .string("user"),
+            "ephemeral": .bool(false)
+        ])
+    }
+
+    func submit(
+        project: CodexProject?,
+        create: (CodexProject) async throws -> CodexThread,
+        send: (String, CodexThread) async throws -> Void
+    ) async -> CodexThread? {
+        guard !isSubmitting, !needsReview else { return nil }
+        let submittedText = text
+        guard !submittedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        guard submittedText.utf8.count <= 65_536 else {
+            error = "This message is too long. Keep it under 64 KB."
+            return nil
+        }
+        guard let project = thread?.project ?? project else {
+            error = "Choose a project first."
+            return nil
+        }
+        isSubmitting = true
+        error = nil
+        defer { isSubmitting = false }
+        do {
+            if thread == nil { thread = try await create(project) }
+            guard let thread else { return nil }
+            try await send(submittedText, thread)
+            if text == submittedText { text = "" }
+            self.thread = nil
+            return thread
+        } catch {
+            self.error = error.localizedDescription
+            needsReview = (error as? CodexNewThreadError)?.needsReview == true
+            return nil
+        }
+    }
+
+    func allowRetryAfterReview() {
+        guard !isSubmitting else { return }
+        needsReview = false
+        error = nil
     }
 }

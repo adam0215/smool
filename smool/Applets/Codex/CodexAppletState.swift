@@ -3,11 +3,12 @@ import SwiftUI
 enum CodexPage: String, CaseIterable {
     case active = "Active threads"
     case history = "Previous threads"
+    case newThread = "New thread"
     case usage = "Usage"
 }
 
 enum CodexScope: Equatable {
-    case deck, search
+    case deck, search, newThread
     case composer(CodexThread)
 }
 
@@ -16,6 +17,7 @@ final class CodexAppletState {
     var groupsByProject = UserDefaults.standard.bool(forKey: "codex.groupsByProject") {
         didSet { UserDefaults.standard.set(groupsByProject, forKey: "codex.groupsByProject") }
     }
+    let newThread = CodexNewThreadDraft()
     var projectID: String?
     var showsProjects = false
     var showsRecipientPicker = false {
@@ -23,6 +25,7 @@ final class CodexAppletState {
     }
     var choosesPendingRecipient = false
     var pendingText: String?
+    var sendErrors: [String: String] = [:]
     var retainedActiveThreadIDs: Set<String> = []
     var page = CodexPage.active
     var scope = CodexScope.deck
@@ -30,6 +33,9 @@ final class CodexAppletState {
     var searches: [CodexPage: String] = [:]
 
     func threadSelection(in threads: [CodexThread], projects: [CodexProject]) -> CodexThreadSelection {
+        guard page == .active || page == .history else {
+            return CodexThreadSelection(threads: [], selectedIndex: nil, project: nil)
+        }
         let project = page == .history && groupsByProject ? selectedProject(in: projects) : nil
         let query = (searches[page] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let visible = threads.filter { thread in
@@ -42,10 +48,17 @@ final class CodexAppletState {
     }
 
     func selectedProject(in projects: [CodexProject]) -> CodexProject? {
-        projects.first { $0.id == projectID } ?? projects.first
+        let id = page == .newThread ? newThread.projectID : projectID
+        let available = page == .newThread ? projects.filter { !$0.roots.isEmpty } : projects
+        return available.first { $0.id == id } ?? available.first
     }
 
     func selectProject(_ project: CodexProject) {
+        if page == .newThread {
+            guard newThread.thread == nil, !newThread.isSubmitting else { return }
+            newThread.projectID = project.id
+            return
+        }
         projectID = project.id
         groupsByProject = true
         page = .history
@@ -59,9 +72,12 @@ final class CodexAppletState {
     }
 
     func openProjects() {
-        page = .history
+        if page == .newThread, newThread.isSubmitting || newThread.thread != nil { return }
+        if page != .newThread {
+            page = .history
+            groupsByProject = true
+        }
         scope = .deck
-        groupsByProject = true
         showsProjects = true
     }
 }

@@ -41,8 +41,8 @@ struct CodexAppletView: View {
 
     private var editingHint: String {
         switch state.scope {
-        case .composer: "⌘↵ Send   ·   esc Back"
-        case .search: "Search titles or content   ·   ↓ Threads   ·   esc Back"
+        case .composer, .newThread: "⇧↵ New line"
+        case .search: "Search titles or content"
         case .deck: ""
         }
     }
@@ -60,10 +60,12 @@ struct CodexAppletView: View {
                     title: { $0.rawValue },
                     isNavigating: state.scope == .deck && !state.showsProjects && !state.showsRecipientPicker,
                     editingHint: editingHint,
-                    navigationHint: state.page == .usage ? "↑↓ Change page · ⌘K Actions" : "↑↓ Change page · ←→ Select thread · ↵ Open in Codex\n⌘N Write · ⌘F Search · ⌘P Choose project\n⌘K Actions"
+                    navigationHint: state.page == .usage ? "⌘K Actions" : "⌘N Write · ⌘F Search · ⌘P Choose project"
                 ) { page in
                     if page == .usage {
                         CodexUsageView(service: service)
+                    } else if page == .newThread {
+                        newThreadPage
                     } else {
                         threadList
                     }
@@ -74,13 +76,15 @@ struct CodexAppletView: View {
                 .onAppletFocusRestore {
                     guard !state.showsProjects, !state.showsRecipientPicker else { return }
                     if case .composer = state.scope { return }
+                    if state.scope == .newThread { return }
                     focus = .deck
                 }
                 .overlay(alignment: .bottom) {
                     if case .composer(let thread) = state.scope {
                         composer(thread)
                             .id(thread.id)
-                            .padding(NotchLayout.contentInset)
+                            .padding(.horizontal, 40)
+                            .padding(.bottom, 40)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
@@ -101,7 +105,7 @@ struct CodexAppletView: View {
             }
         }
         .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { key in
-            guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker, state.page != .usage, unmodified(key) else { return .ignored }
+            guard state.scope == .deck, !state.showsProjects, !state.showsRecipientPicker, (state.page == .active || state.page == .history), unmodified(key) else { return .ignored }
             moveThread(key.key == .leftArrow ? -1 : 1)
             return .handled
         }
@@ -114,6 +118,10 @@ struct CodexAppletView: View {
         }
         .onKeyPress(.return, phases: .down) { key in
             guard state.page != .usage, !state.showsProjects, !state.showsRecipientPicker, unmodified(key) else { return .ignored }
+            if state.page == .newThread, state.scope == .deck {
+                state.scope = .newThread
+                return .handled
+            }
             if state.scope == .search, focus == .deck {
                 focus = .search
                 return .handled
@@ -127,7 +135,7 @@ struct CodexAppletView: View {
         .onKeyPress(.escape) {
             switch state.scope {
             case .deck: return .ignored
-            case .composer: returnToDeck()
+            case .composer, .newThread: returnToDeck()
             case .search: returnToDeck()
             }
             return .handled
@@ -149,10 +157,11 @@ struct CodexAppletView: View {
                 Task { await service.setIncludesArchived(!service.includesArchived) }
             }.keyboardShortcut("a", modifiers: [.command, .shift]).hidden()
             Button("Write to thread") {
-                if let thread = threadSelection.selectedThread { compose(thread) }
+                if state.page == .newThread { state.scope = .newThread }
+                else if let thread = threadSelection.selectedThread { compose(thread) }
             }
             .keyboardShortcut("n", modifiers: .command)
-            .disabled(state.page == .usage || threadSelection.selectedThread == nil || state.showsProjects || state.showsRecipientPicker)
+            .disabled(state.page == .usage || (state.page != .newThread && threadSelection.selectedThread == nil) || state.showsProjects || state.showsRecipientPicker)
             .hidden()
             Button("Next thread") { moveThread(1) }.keyboardShortcut("]", modifiers: .command).hidden()
             Button("Previous thread") { moveThread(-1) }.keyboardShortcut("[", modifiers: .command).hidden()
@@ -271,12 +280,12 @@ struct CodexAppletView: View {
                         }
                     }
 
-                    Text(state.scope == .search
-                         ? (focus == .search ? "↓ Threads · esc Navigate" : "↵ Edit search · esc Threads")
-                         : "←→ Threads · ↵ Open in Codex · ⌘N Write")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
+                    if state.scope == .deck {
+                        Text("⌘N Write")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 4)
+                    }
                 }
             } else {
                 emptyState
@@ -312,11 +321,11 @@ struct CodexAppletView: View {
         let connected = service.threads.contains { $0.id == thread.id && $0.isConnected }
         let connecting = service.isConnectingThreadID == thread.id
         return VStack(alignment: .leading, spacing: 10) {
-            if let error = service.error {
+            if let error = state.sendErrors[thread.id] {
                 Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(3)
                     .padding(.horizontal, 24)
             } else if !connected {
-                ShimmeringText(connecting ? "Connecting thread… Your draft is saved." : "⌘R Connect this thread in Codex. Your draft is saved.", isActive: connecting)
+                ShimmeringText(connecting ? "Connecting thread… Your draft is saved." : "⌘R Connect thread", isActive: connecting)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 24)
@@ -328,16 +337,17 @@ struct CodexAppletView: View {
                 placeholder: "Write to Codex…",
                 isSending: service.isSending,
                 canSend: connected,
-                onChooseRecipient: {
-                    state.choosesPendingRecipient = false
-                    state.showsRecipientPicker = true
-                },
                 onSend: {
                     let text = draft.wrappedValue
                     Task {
-                        if await service.send(text, to: thread), draft.wrappedValue == text {
-                            draft.wrappedValue = ""
-                            if case .composer(let recipient) = state.scope, recipient.id == thread.id { returnToDeck() }
+                        state.sendErrors[thread.id] = nil
+                        if await service.send(text, to: thread) {
+                            if draft.wrappedValue == text {
+                                draft.wrappedValue = ""
+                                if case .composer(let recipient) = state.scope, recipient.id == thread.id { returnToDeck() }
+                            }
+                        } else {
+                            state.sendErrors[thread.id] = service.error
                         }
                     }
                 },
@@ -346,13 +356,78 @@ struct CodexAppletView: View {
         }
     }
 
+    private var pickerProjects: [CodexProject] {
+        state.page == .newThread ? service.projects.filter { !$0.roots.isEmpty } : service.projects
+    }
+
+    private var newThreadPage: some View {
+        @Bindable var draft = state.newThread
+        let project = draft.thread?.project ?? state.selectedProject(in: service.projects)
+        return VStack(alignment: .leading, spacing: 12) {
+            Button { state.openProjects() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                    Text(project?.name ?? "Choose project").lineLimit(1)
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+                }
+                .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .disabled(draft.isSubmitting || draft.thread != nil)
+            .help("Choose project · ⌘P")
+
+            Spacer(minLength: 0)
+
+            if let error = draft.error {
+                Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(3).help(error)
+                if draft.needsReview {
+                    Button("I checked Codex · Allow retry") { draft.allowRetryAfterReview() }
+                        .font(.system(size: 11)).buttonStyle(.plain)
+                }
+            } else if draft.isSubmitting {
+                ShimmeringText("Starting thread…")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            } else if project == nil {
+                Text(service.projectError ?? "Add a local project in Codex to start a thread here.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+
+            FloatingComposer(
+                text: $draft.text,
+                recipient: "Codex",
+                placeholder: "Start a new thread…",
+                isEditable: !draft.isSubmitting,
+                isSending: draft.isSubmitting,
+                canSend: project != nil && !draft.needsReview,
+                isEditing: state.scope == .newThread,
+                onBeginEditing: { state.scope = .newThread },
+                onSend: {
+                    Task {
+                        let thread = await draft.submit(project: project, create: service.createThread, send: service.sendInitialMessage)
+                        guard let thread else { return }
+                        service.drafts[thread.id] = draft.text
+                        if isVisible, state.page == .newThread {
+                            state.page = .active
+                            state.selection[.active] = thread.id
+                            state.retainedActiveThreadIDs = [thread.id]
+                            returnToDeck()
+                        }
+                    }
+                },
+                onClose: returnToDeck
+            )
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 16)
+    }
+
     private var projectPicker: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Choose project").font(.system(size: 13, weight: .semibold))
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(service.projects) { project in
+                        ForEach(pickerProjects) { project in
                             Button {
                                 state.selectProject(project)
                                 state.showsProjects = false
@@ -374,12 +449,10 @@ struct CodexAppletView: View {
                         }
                     }
                 }
-                .onChange(of: state.projectID) { _, id in
+                .onChange(of: state.selectedProject(in: pickerProjects)?.id) { _, id in
                     if let id { proxy.scrollTo(id) }
                 }
             }
-            Text("↑↓ Choose · ↵ Open · esc Back")
-                .font(.system(size: 10)).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 32)
         .padding(.top, 16)
@@ -392,7 +465,7 @@ struct CodexAppletView: View {
         .task { await Task.yield(); focus = .recipientList }
         .onKeyPress(keys: [.upArrow, .downArrow]) { key in
             guard unmodified(key) else { return .ignored }
-            state.moveProject(key.key == .upArrow ? -1 : 1, in: service.projects)
+            state.moveProject(key.key == .upArrow ? -1 : 1, in: pickerProjects)
             return .handled
         }
         .onKeyPress(.return) { state.showsProjects = false; returnToDeck(); return .handled }
@@ -432,7 +505,7 @@ struct CodexAppletView: View {
                 .onChange(of: recipientIndex) { _, index in proxy.scrollTo(index) }
             }
             .frame(maxHeight: .infinity)
-            Text("↑↓ Choose · ↵ Write · ⌘F Search · esc Back")
+            Text("⌘F Search")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
             if recipientThreads.isEmpty {
                 Text(service.displayedThreads.isEmpty ? "Open a thread in Codex to choose a recipient." : "No matching threads")
@@ -499,12 +572,13 @@ struct CodexAppletView: View {
 
     private func beginSearch() {
         connectionTask?.cancel()
-        if state.page == .usage { state.page = .history }
+        if state.page == .usage || state.page == .newThread { state.page = .history }
         state.scope = .search
         Task { await Task.yield(); focus = .search }
     }
 
     private func returnToDeck() {
+        guard state.scope != .deck else { return }
         connectionTask?.cancel()
         state.scope = .deck
         if let thread = threadSelection.selectedThread { state.selection[state.page] = thread.id }
@@ -530,10 +604,11 @@ struct CodexAppletView: View {
         if case .composer(let thread) = state.scope {
             guard service.isConnectingThreadID == nil else { return }
             connectionTask = Task {
+                state.sendErrors[thread.id] = nil
                 let connected = await service.ensureConnected(to: thread)
+                if !connected { state.sendErrors[thread.id] = service.error }
                 guard connected, !Task.isCancelled, isVisible,
                       case .composer(let recipient) = state.scope, recipient.id == thread.id else { return }
-                restoreFocus()
                 focus = .composer
             }
         } else {
@@ -548,7 +623,7 @@ struct CodexAppletView: View {
         switch state.scope {
         case .deck: break
         case .search: focus = .search
-        case .composer: focus = .composer
+        case .composer, .newThread: focus = .composer
         }
     }
 

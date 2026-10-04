@@ -57,7 +57,7 @@ struct AppletChecks {
         precondition(spotify.state.selectedControl == 1)
 
         presentation.select(codex.id)
-        codex.pages[2].select()
+        codex.pages.first { $0.id == CodexPage.usage.rawValue }!.select()
         precondition(presentation.contentHeight == 176 && codex.state.page == .usage)
         codex.state.scope = .search
         precondition(!codex.handleArrow(.down, command: false), "Search retains native arrow keys")
@@ -77,6 +77,21 @@ struct AppletChecks {
         codex.pages[0].select()
         precondition(codex.state.scope == .deck)
         precondition(codex.handleArrow(.up, command: false) && codex.state.page == .usage)
+
+        codex.pages.first { $0.id == CodexPage.newThread.rawValue }!.select()
+        precondition(presentation.contentHeight == 200)
+        codex.state.scope = .newThread
+        codex.state.newThread.text = "Keep the initial prompt"
+        precondition(codex.hasPresentedOverlay && !codex.handleArrow(.down, command: false))
+        codex.dismissOverlay()
+        precondition(codex.state.scope == .deck && codex.state.newThread.text == "Keep the initial prompt")
+        codex.state.openProjects()
+        let project = CodexProject(id: "new-project", name: "Project", roots: ["/tmp/project"])
+        codex.state.selectProject(project)
+        precondition(codex.state.page == .newThread && codex.state.newThread.projectID == project.id)
+        precondition(codex.state.threadSelection(in: [thread], projects: [project]).selectedThread == nil)
+        codex.deactivate()
+        precondition(!codex.hasPresentedOverlay && codex.state.newThread.text == "Keep the initial prompt")
 
         presentation.select(sample.id)
         precondition(presentation.contentHeight == 150)

@@ -12,6 +12,7 @@ final class CodexApplet: Applet {
 
     var contentHeight: CGFloat {
         if state.page == .usage { return 176 }
+        if state.page == .newThread { return state.newThread.error == nil ? 200 : 256 }
         return 256
     }
 
@@ -117,7 +118,7 @@ final class CodexApplet: Applet {
         let service = service
         var actions = [
             AppletAction(id: "Search threads", symbol: "magnifyingglass", shortcut: "⌘F") {
-                if state.page == .usage { state.page = .history }
+                if state.page == .usage || state.page == .newThread { state.page = .history }
                 state.scope = .search
             },
             AppletAction(id: "Show archived", symbol: "archivebox", shortcut: "⇧⌘A", selected: service.includesArchived) {
@@ -133,6 +134,7 @@ final class CodexApplet: Applet {
             },
             AppletAction(id: "Active threads", symbol: "waveform", selected: state.page == .active) { state.scope = .deck; state.page = .active },
             AppletAction(id: "Previous threads", symbol: "clock", selected: state.page == .history) { state.scope = .deck; state.page = .history },
+            AppletAction(id: "New thread", symbol: "plus", selected: state.page == .newThread) { state.page = .newThread; state.scope = .newThread },
             AppletAction(id: "Usage", symbol: "chart.pie", selected: state.page == .usage) { state.scope = .deck; state.page = .usage }
         ]
         if let thread = state.threadSelection(in: service.displayedThreads, projects: service.projects).selectedThread,
