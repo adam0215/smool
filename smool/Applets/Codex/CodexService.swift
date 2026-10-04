@@ -535,6 +535,11 @@ final class CodexService {
         guard message["type"].string == "broadcast" else { return }
         let params = message["params"]
         let method = message["method"].string
+        if method == "ipc-connection-reset" {
+            desktop.disconnect()
+            lostLiveConnection()
+            return
+        }
         if method == "client-status-changed", params["status"].string == "disconnected", let client = params["clientId"].string {
             for id in owners.keys.filter({ owners[$0] == client }) { invalidate(id) }
             return
@@ -579,6 +584,10 @@ final class CodexService {
             switch streams[id]!.apply(change, owner: source) {
             case .applied:
                 if activityErrors[id] != nil { activityErrors[id] = nil }
+                if isVisible || projectionTask != nil, var presentation = activities[id], let state = streams[id]?.state {
+                    presentation.reconcileActivity(state: state)
+                    if activities[id] != presentation { activities[id] = presentation }
+                }
                 dirtyStreams.insert(id)
                 schedulePublication()
             case .ignored: break
@@ -657,13 +666,14 @@ final class CodexService {
             dirtyStreams.formUnion(snapshots.keys.filter { streams[$0]?.state != nil })
             return
         }
-        for (id, presentation) in presentations {
+        for (id, var presentation) in presentations {
             guard let current = streams[id], current.state != nil else { continue }
             guard streamTokens[id] == tokens[id], current.owner == snapshots[id]?.owner else {
                 // Disconnect invalidates the worker, not the last received transcript.
                 dirtyStreams.insert(id)
                 continue
             }
+            if let state = current.state { presentation.reconcileActivity(state: state) }
             if activities[id] != presentation { activities[id] = presentation }
         }
     }

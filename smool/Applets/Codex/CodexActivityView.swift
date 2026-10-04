@@ -28,6 +28,24 @@ struct CodexActivityView: View {
                         .textSelection(.enabled)
                 }
 
+                if isLive, let note = presentation.currentNote {
+                    Text(activityMarkdown(note.text.isEmpty ? note.title : note.text))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .textSelection(.enabled)
+                }
+
+                if isLive, presentation.isThinking {
+                    ShimmeringText("Thinking…")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                } else if isLive, presentation.attention == .working, runningTools.isEmpty {
+                    ShimmeringText("Working…")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+
                 ForEach(runningTools) { tool in
                     VStack(alignment: .leading, spacing: 3) {
                         ShimmeringText(tool.title)
@@ -39,6 +57,12 @@ struct CodexActivityView: View {
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                        }
+                        if tool.title == "Terminal", !tool.details.isEmpty {
+                            Text(tool.details.split(separator: "\n").suffix(2).joined(separator: "\n"))
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(2)
                         }
                     }
                     .accessibilityElement(children: .combine)

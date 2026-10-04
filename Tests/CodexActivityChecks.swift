@@ -137,7 +137,97 @@ struct CodexActivityChecks {
         checkProjectionBudget()
         checkLinkBounds()
         checkCurrentActivity()
+        checkInstalledProtocolActivity()
         print("Codex activity checks passed")
+    }
+
+    static func checkInstalledProtocolActivity() {
+        // Verified against ChatGPT.app on 2026-10-04:
+        // app-shared-b72e16382796.js K6t, A1, POn and the bundled codex CLI's
+        // app-server generate-json-schema. Payload values are harmless fixtures.
+        // In v11 webSearch/reasoning/imageView/sleep have NO status. MCP progress
+        // notifications are discarded by K6t before the desktop stream is emitted.
+        let state = json(#"""
+        {"id":"tools","threadRuntimeStatus":{"type":"active"},"turns":[{
+          "turnId":"live","status":"inProgress","interruptedCommandExecutionItemIds":["interrupted"],
+          "hookRuns":[{"id":"hook-1","run":{"id":"hook-1","eventName":"preToolUse","status":"running","statusMessage":"Checking command","entries":[{"kind":"stdout","text":"Rule matched"}]}}],
+          "items":[
+            {"id":"terminal","type":"commandExecution","command":"swift test","commandActions":[],"status":"inProgress","aggregatedOutput":"Testing 1/3"},
+            {"id":"interrupted","type":"commandExecution","command":"sleep 10","commandActions":[],"status":"inProgress"},
+            {"id":"mcp","type":"mcpToolCall","server":"figma","tool":"use_figma","arguments":{"title":"Inspect components"},"status":"inProgress","result":{"content":[{"type":"text","text":"Found 12 components"}]},"error":null},
+            {"id":"custom","type":"dynamicToolCall","namespace":"functions","tool":"exec","arguments":{"title":"Run verification"},"status":"inProgress","contentItems":null,"success":null},
+            {"id":"agent","type":"collabAgentToolCall","tool":"wait","status":"inProgress","receiverThreadIds":["child"],"agentsStates":{"child":{"status":"running"}}},
+            {"id":"patch","type":"fileChange","status":"inProgress","changes":[{"path":"/tmp/fixture.swift","diff":"+ let value = 1"}]},
+            {"id":"image","type":"imageGeneration","status":"in_progress","result":"","src":null,"revisedPrompt":"A blue circle"},
+            {"id":"compact","type":"contextCompaction","completed":false},
+            {"id":"approval","type":"automaticApprovalReview","status":"inProgress","rationale":"Checking requested access"},
+            {"id":"search","type":"webSearch","query":"","action":{"type":"search","queries":["Swift actor isolation","Swift concurrency"]}},
+            {"id":"steering","type":"steeringUserMessage","input":[{"type":"text","text":"Keep going"}]}
+          ]
+        }]}
+        """#)
+        func snapshot(_ state: CodexJSON, revision: Int) -> CodexJSON {
+            .object(["type": .string("snapshot"), "revision": .number(Double(revision)), "conversationState": state])
+        }
+        var stream = CodexActivityStream()
+        precondition(stream.apply(snapshot(state, revision: 1), owner: "desktop") == .applied)
+        let live = stream.presentation
+        let expected: Set<String> = ["terminal", "mcp", "custom", "agent", "patch", "image", "compact", "approval", "search", "hook:hook-1"]
+        precondition(Set(live.runningTools.map { String($0.id.split(separator: "/").last!) }) == expected)
+        precondition(live.runningTools.first { $0.id.hasSuffix("/custom") }?.text == "Run verification")
+        precondition(live.runningTools.first { $0.id.hasSuffix("/mcp") }?.text == "Found 12 components")
+        precondition(live.runningTools.first { $0.id.hasSuffix("/search") }?.text == "Swift actor isolation, Swift concurrency")
+        precondition(!live.isThinking)
+
+        let changes = json(#"""
+        {"type":"patches","baseRevision":1,"revision":2,"patches":[
+          {"op":"replace","path":["turns",0,"items",0,"status"],"value":"completed"},
+          {"op":"replace","path":["turns",0,"items",2,"status"],"value":"failed"},
+          {"op":"replace","path":["turns",0,"items",3,"status"],"value":"completed"},
+          {"op":"replace","path":["turns",0,"items",4,"status"],"value":"interrupted"},
+          {"op":"replace","path":["turns",0,"items",5,"status"],"value":"declined"},
+          {"op":"replace","path":["turns",0,"items",6,"status"],"value":"failed"},
+          {"op":"replace","path":["turns",0,"items",7,"completed"],"value":true},
+          {"op":"replace","path":["turns",0,"items",8,"status"],"value":"aborted"},
+          {"op":"replace","path":["turns",0,"hookRuns",0,"run","status"],"value":"stopped"},
+          {"op":"add","path":["turns",0,"items",11],"value":{"id":"thinking","type":"reasoning","summary":[],"content":["PRIVATE REASONING MUST NOT BE DISPLAYED"]}}
+        ]}
+        """#)
+        precondition(stream.apply(changes, owner: "desktop") == .applied)
+        precondition(stream.presentation.runningTools.isEmpty && stream.presentation.isThinking)
+        precondition(stream.presentation.workingSummary == nil, "Thinking needs no invented summary")
+        var stale = live
+        stale.reconcileActivity(state: stream.state!)
+        precondition(stale.runningTools.isEmpty, "An old projection cannot restore finished tools")
+
+        let summaryDelta = json(#"""
+        {"type":"patches","baseRevision":2,"revision":3,"patches":[
+          {"op":"add","path":["turns",0,"items",11,"summary",0],"value":"Verifying tool completion."}
+        ]}
+        """#)
+        precondition(stream.apply(summaryDelta, owner: "desktop") == .applied)
+        precondition(stream.presentation.workingSummary?.text == "Verifying tool completion.")
+        precondition(!stream.presentation.items.contains { ($0.text + $0.details).contains("PRIVATE") })
+        var restored = CodexActivityStream()
+        precondition(restored.apply(snapshot(stream.state!, revision: 3), owner: "desktop") == .applied)
+        precondition(restored.presentation == stream.presentation, "Snapshot and patched state must present identically")
+        restored.disconnect()
+        expectResync(restored.apply(summaryDelta, owner: "desktop"))
+        precondition(restored.apply(snapshot(stream.state!, revision: 1), owner: "new-desktop") == .applied)
+        precondition(restored.presentation.isThinking)
+
+        for type in ["imageView", "sleep", "webSearch"] {
+            let item: CodexJSON = .object(["id": .string("statusless"), "type": .string(type), "path": .string("/tmp/image.png"), "durationMs": .number(1000)])
+            let turn: CodexJSON = .object(["turnId": .string("statusless"), "status": .string("inProgress"), "items": .array([item])])
+            let presentation = CodexActivityPresentation(state: .object(["turns": .array([turn])]), revision: 1)
+            precondition(presentation.runningTools.count == 1)
+            var ended = turn.object
+            for status in ["completed", "interrupted", "failed", "cancelled"] {
+                ended["status"] = .string(status)
+                let result = CodexActivityPresentation(state: .object(["turns": .array([.object(ended)])]), revision: 2)
+                precondition(result.runningTools.isEmpty && !result.isThinking && result.workingSummary == nil)
+            }
+        }
     }
 
     static func checkCurrentActivity() {

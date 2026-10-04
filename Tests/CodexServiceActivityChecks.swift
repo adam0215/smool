@@ -126,9 +126,64 @@ struct CodexServiceActivityChecks {
         precondition(service.activities["fifth"]?.items.last?.text == "Sista uppdateringen")
 
         await checkProjectionIsolation()
+        await checkImmediateToolCompletion()
         await checkHistoryPreviews()
         checkCancelledHandoff()
         print("Codex service activity checks passed")
+    }
+
+    @MainActor private static func checkImmediateToolCompletion() async {
+        let started = AsyncStream<Void>.makeStream()
+        var starts = started.stream.makeAsyncIterator()
+        let release = DispatchSemaphore(value: 0)
+        let service = CodexService(projectActivity: { stream in
+            started.continuation.yield(())
+            release.wait()
+            return stream.presentation
+        })
+        func toolSnapshot(_ revision: Int, status: String) -> CodexJSON {
+            var change = snapshot("tools", revision: revision).object
+            var state = change["conversationState"]!.object
+            var turn = state["turns"]!.array[0].object
+            turn["items"] = .array([.object([
+                "id": .string("mcp"), "type": .string("mcpToolCall"), "server": .string("fixture"),
+                "tool": .string("read"), "status": .string(status)
+            ])])
+            state["turns"] = .array([.object(turn)])
+            change["conversationState"] = .object(state)
+            return .object(change)
+        }
+        service.selectThread("tools")
+        service.receive(event("tools", toolSnapshot(1, status: "inProgress")))
+        release.signal()
+        await service.publishActivities()
+        await starts.next()
+        precondition(service.activities["tools"]?.runningTools.count == 1)
+
+        service.receive(event("tools", toolSnapshot(2, status: "inProgress")))
+        let oldProjection = Task { await service.publishActivities() }
+        await starts.next()
+        service.receive(event("tools", toolSnapshot(3, status: "failed")))
+        precondition(service.activities["tools"]?.runningTools.isEmpty == true,
+                     "Completion hides tools synchronously, before the throttled projection")
+        release.signal()
+        await oldProjection.value
+        precondition(service.activities["tools"]?.runningTools.isEmpty == true,
+                     "An in-flight projection cannot resurrect the failed tool")
+        release.signal()
+        await service.publishActivities()
+        await starts.next()
+        precondition(service.activities["tools"]?.revision == 3)
+        service.receive(.object(["type": .string("broadcast"), "method": .string("ipc-connection-reset")]))
+        precondition(service.threads.first { $0.id == "tools" }?.isConnected == false)
+        service.receive(event("tools", patches(base: 3, revision: 4, [])))
+        precondition(service.threads.first { $0.id == "tools" }?.isConnected == false,
+                     "An IPC reset requires a new snapshot before deltas reconnect")
+        service.receive(event("tools", toolSnapshot(1, status: "completed"), owner: "replacement"))
+        release.signal()
+        await service.publishActivities()
+        precondition(service.activities["tools"]?.runningTools.isEmpty == true)
+        started.continuation.finish()
     }
 
     @MainActor private static func checkHistoryPreviews() async {

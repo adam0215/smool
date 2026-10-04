@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-checks=".build/Checks"
+checks="${CODEX_CHECKS_DIR:-.build/Checks}"
 mkdir -p "$checks/ModuleCache"
 swiftc=(xcrun swiftc -swift-version 6 -module-cache-path "$checks/ModuleCache" -parse-as-library)
 model=(smool/Applets/Codex/CodexProtocol.swift smool/Applets/Codex/CodexActivity.swift)
@@ -10,7 +10,7 @@ service=(smool/Applets/Codex/CodexTransport.swift smool/Applets/Codex/CodexClien
 "$checks/codex-activity"
 ui=(smool/ScreenNotch.swift smool/NotchLayout.swift smool/HomeApp.swift smool/Applets/Applet.swift smool/Shared/Media/MediaTrack.swift smool/Shared/Media/AlbumArtwork.swift smool/Shared/FloatingComposer.swift)
 "${swiftc[@]}" "${model[@]}" "${ui[@]}" smool/Applets/Codex/CodexActivityView.swift Tests/CodexActivityViewChecks.swift -o "$checks/codex-activity-view"
-"$checks/codex-activity-view"
+"$checks/codex-activity-view" "$checks/renders"
 "${swiftc[@]}" "${model[@]}" "${service[@]}" smool/PageNavigation.swift smool/Applets/Codex/CodexAppletState.swift Tests/CodexServiceActivityChecks.swift -o "$checks/codex-service-activity"
 "$checks/codex-service-activity"
 "${swiftc[@]}" "${model[@]}" "${service[@]}" smool/PageNavigation.swift smool/Applets/Codex/CodexAppletState.swift Tests/CodexNavigationChecks.swift -o "$checks/codex-navigation"

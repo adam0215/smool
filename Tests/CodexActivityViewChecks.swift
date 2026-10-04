@@ -21,6 +21,22 @@ struct CodexActivityViewChecks {
         precondition(disconnected.runningTools.isEmpty && disconnected.workingSummary == nil)
         precondition(awaitingFinal.runningTools.isEmpty && awaitingFinal.workingSummary == nil)
 
+        let thinking = CodexActivityPresentation(state: .object([
+            "turns": .array([.object(["turnId": .string("thinking"), "status": .string("inProgress"), "items": .array([
+                .object(["id": .string("reasoning"), "type": .string("reasoning"), "summary": .array([]), "content": .array([.string("PRIVATE_CONTENT")])])
+            ])])])
+        ]), revision: 1)
+        precondition(thinking.isThinking && thinking.workingSummary == nil)
+        let mixed = CodexActivityPresentation(state: .object([
+            "turns": .array([.object(["turnId": .string("mixed"), "status": .string("inProgress"), "items": .array([
+                .object(["id": .string("update"), "type": .string("agentMessage"), "text": .string("Checking the design and the latest documentation.")]),
+                .object(["id": .string("custom"), "type": .string("dynamicToolCall"), "namespace": .string("figma"), "tool": .string("use_figma"),
+                         "arguments": .object(["title": .string("Inspect notch components")]), "status": .string("inProgress")]),
+                .object(["id": .string("search"), "type": .string("webSearch"), "query": .string("SwiftUI keyboard focus")])
+            ])])])
+        ]), revision: 1)
+        precondition(mixed.runningTools.map(\.title) == ["figma.use_figma", "Search"])
+
         let directory = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? ".build/Checks/renders", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for (name, activity) in [("active-running", running), ("active-tools-completed", toolsCompleted), ("active-completed", completed)] {
@@ -29,6 +45,8 @@ struct CodexActivityViewChecks {
                 CodexActivityView(presentation: activity, isLive: activity.attention == .working)
             }, name: name, in: directory)
         }
+        try render(CodexActivityView(presentation: thinking, isLive: true), name: "thinking", in: directory)
+        try render(CodexActivityView(presentation: mixed, isLive: true), name: "mixed-tools", in: directory)
         try render(disconnected, name: "active-disconnected", in: directory)
         try render(awaitingFinal, name: "active-awaiting-final", in: directory)
         try render(CodexHistoryPreviewView(title: "Polish keyboard navigation", message: completed.latestMessage), name: "history-latest", in: directory)
