@@ -12,6 +12,7 @@ final class NotchPanelController: NSObject {
     private var transition = 0
     private var resizeTransition = 0
     private var isStopped = false
+    private let fileDrop = NotchFileDropController()
     private var captureTask: Task<Void, Never>?
 
     init(presentation: NotchPresentation = NotchPresentation()) {
@@ -26,6 +27,11 @@ final class NotchPanelController: NSObject {
             self.selectApplet(id)
             self.open()
         }
+        fileDrop.isEnabled = { [weak self] in
+            self?.presentation.registry.applet(for: AppletID(rawValue: "files")) != nil
+        }
+        fileDrop.acceptFiles = { [weak self] urls in self?.acceptDroppedFiles(urls) ?? false }
+        fileDrop.start(demoNotch: demoNotchEnabled)
         presentation.updateBackgroundServices()
         observeStatus()
     }
@@ -64,6 +70,7 @@ final class NotchPanelController: NSObject {
         if demo != demoNotchEnabled {
             demoNotchEnabled = demo
             if isOpen, let screen = panel?.screen ?? targetScreen {
+                fileDrop.start(demoNotch: demo)
                 presentation.layout = NotchLayout(screen: screen, demoNotch: demo)
                 resizeContent()
             } else {
@@ -137,6 +144,7 @@ final class NotchPanelController: NSObject {
 
     func stop() {
         isStopped = true
+        fileDrop.stop()
         captureTask?.cancel()
         isOpen = false
         presentation.isExpanded = false
@@ -186,16 +194,20 @@ final class NotchPanelController: NSObject {
                 self.open()
             },
             acceptFiles: { [weak self] urls in
-                guard let self, !urls.isEmpty, let id = self.presentation.addFiles(urls) else { return false }
-                self.selectApplet(id)
-                self.open()
-                return true
+                self?.acceptDroppedFiles(urls) ?? false
             },
             open: { [weak self] in self?.open() }
         ))
         content.safeAreaRegions = []
         panel.contentView = content
         return panel
+    }
+
+    func acceptDroppedFiles(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty, let id = presentation.addFiles(urls) else { return false }
+        // Preserve an open editor and its first responder. A closed notch stays closed.
+        if !isOpen { presentation.select(id) }
+        return true
     }
 
     func selectApplet(_ id: AppletID) {
@@ -379,10 +391,16 @@ final class NotchPanelController: NSObject {
     }
 
     @objc private func screenConfigurationChanged() {
-        resetPresentation()
+        guard !isStopped else { return }
+        guard isOpen else { resetPresentation(); return }
+        fileDrop.start(demoNotch: demoNotchEnabled)
+        guard let screen = panel?.screen ?? targetScreen else { return }
+        presentation.layout = NotchLayout(screen: screen, demoNotch: demoNotchEnabled)
+        resizeContent()
     }
 
     private func resetPresentation() {
+        if !isStopped { fileDrop.start(demoNotch: demoNotchEnabled) }
         isOpen = false
         isClosing = false
         transition += 1

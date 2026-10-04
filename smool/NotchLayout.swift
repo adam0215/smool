@@ -35,6 +35,19 @@ struct NotchLayout {
                       y: screenFrame.maxY - size.height, width: size.width, height: size.height)
     }
 
+    var fileDropSize: CGSize {
+        CGSize(width: min(max(headerSize.width + 96, 320), screenFrame.width - 40),
+               height: headerSize.height + 64)
+    }
+
+    var fileDropFrame: CGRect {
+        let size = fileDropSize
+        let width = min(size.width + 48, screenFrame.width)
+        return CGRect(x: screenFrame.midX - width / 2,
+                      y: screenFrame.maxY - size.height - 20,
+                      width: width, height: size.height + 20)
+    }
+
     var expandedSize: CGSize {
         CGSize(
             width: min(max(600, headerSize.width + 408), screenFrame.width - 40),
